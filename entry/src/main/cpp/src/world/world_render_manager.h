@@ -1,17 +1,16 @@
-/**
- * Copyright 2022. Huawei Technologies Co., Ltd. All rights reserved.
+/*
+ * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #ifndef C_ARENGINE_WORLD_AR_RENDER_MANAGER_H
@@ -25,10 +24,10 @@
 #include "world_background_renderer.h"
 #include "world_object_renderer.h"
 #include "world_plane_renderer.h"
-#include "world_point_cloud_renderer.h"
 
 #include "graphic/RenderContext.h"
 #include "graphic/RenderSurface.h"
+
 
 namespace ArWorld {
     struct ColoredAnchor {
@@ -48,7 +47,7 @@ namespace ArWorld {
          *
          * @param assetManager Wrapper of the bottom native implementation.
          */
-        void Initialize(void* window);
+        void Initialize(void* window, AREngine_ARSession *arSession);
         void Release();
 
         /**
@@ -65,12 +64,11 @@ namespace ArWorld {
          * Implement the Draw function of the virtual object module in the rendering manager.
          *
          * @param arSession Implement the session function.
-         * @param arFrame Information about each frame during drawing.
          * @param viewMat Draw the matrix of the virtual object view.
          * @param projectionMat Draw the matrix of the virtual object projection.
          * @param mColoredAnchors Color parameters required for drawing virtual objects.
          */
-        void RenderObject(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, const glm::mat4 &viewMat,
+        void RenderObject(AREngine_ARSession *arSession, const glm::mat4 &viewMat,
                           const glm::mat4 &projectionMat, const std::vector<ColoredAnchor> &mColoredAnchors);
 
         /**
@@ -84,17 +82,7 @@ namespace ArWorld {
          */
         bool InitializeDraw(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame,
                             glm::mat4 *viewMat, glm::mat4 *projectionMat);
-
-        /**
-         * Implement the Draw function of the point cloud module in the rendering manager.
-         *
-         * @param arSession Implement the session function.
-         * @param arFrame Information about each frame during point cloud drawing.
-         * @param viewMat Draw the matrix of the point cloud view.
-         * @param projectionMat Draw the point cloud view matrix.
-         */
-        void RenderPointCloud(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame,
-                              const glm::mat4 &viewMat, const glm::mat4 &projectionMat);
+    
 
         /**
          * Implement the Draw function of the plane module in the rendering manager.
@@ -104,11 +92,9 @@ namespace ArWorld {
          * @param projectionMat Draw the plane projection matrix.
          */
         void RenderPlanes(AREngine_ARSession *arSession, const glm::mat4 &viewMat, const glm::mat4 &projectionMat);
-
-        bool HasDetectedPlanes();
-
+    
+        static int32_t mPlaneCount;
     private:
-        int32_t mPlaneCount = 0;
 
         // Store the randomly selected colors used by each plane.
         std::unordered_map<AREngine_ARPlane *, glm::vec3> mPlaneColorMap = {};
@@ -117,8 +103,7 @@ namespace ArWorld {
         bool firstPlaneHasBeenFound = false;
 
         WorldBackgroundRenderer mBackgroundRenderer = ArWorld::WorldBackgroundRenderer();
-
-        WorldPointCloudRenderer mPointCloudRenderer = ArWorld::WorldPointCloudRenderer();
+    
 
         WorldPlaneRenderer mPlaneRenderer = ArWorld::WorldPlaneRenderer();
 

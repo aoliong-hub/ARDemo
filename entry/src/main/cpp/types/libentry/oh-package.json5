@@ -1,6 +1,6 @@
 {
   "name": "libentry.so",
-  "version": "",
+  "version": "1.0.0",
   "types": "./index.d.ts",
   "description": "Please describe the basic information."
 }

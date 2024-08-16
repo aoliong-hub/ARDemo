@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Huawei Device Co., Ltd.
+ * Copyright (c) 2024 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -158,15 +158,6 @@ void NapiManager::SetNativeXComponent(std::string& id, OH_NativeXComponent* nati
     }
 }
 
-OH_NativeXComponent* NapiManager::GetNativeXComponent(std::string& id)
-{
-    if (nativeXComponentMap_.find(id) == nativeXComponentMap_.end()) {
-        return nullptr;
-    } else {
-        return nativeXComponentMap_[id];
-    }
-}
-
 AppNapi* NapiManager::GetApp(std::string& id)
 {
     if (appNapiMap_.find(id) == appNapiMap_.end()) {
@@ -250,6 +241,11 @@ napi_value NapiManager::NapiOnPageUpdate(napi_env env, napi_callback_info info)
     std::string id(idStr);
     AppNapi *app = NapiManager::GetInstance()->GetApp(id);
     app->OnUpdate();
+    if (id == std::string("ArWorld")) {
+        napi_value res;
+        napi_create_int32(env, ArWorld::WorldRenderManager::mPlaneCount, &res);
+        return res;
+    }
 
     return nullptr;
 }
@@ -276,6 +272,5 @@ AppNapi *NapiManager::CreateApp(std::string &id) {
     if (id == std::string("ArWorld")) {
         return new ArWorld::ArWorldApp(id);
     }
-    abort();
     return nullptr;
 }

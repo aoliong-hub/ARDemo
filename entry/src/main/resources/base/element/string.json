@@ -11,6 +11,18 @@
     {
       "name": "EntryAbility_label",
       "value": "ArSample"
+    },
+    {
+      "name": "tips",
+      "value": "tips"
+    },
+    {
+      "name": "permission_desc",
+      "value": "Camera permission required. Please enable it under Settings > Apps & services."
+    },
+    {
+      "name": "back",
+      "value": "back"
     }
   ]
 }

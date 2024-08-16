@@ -1,17 +1,16 @@
-/**
- * Copyright 2022. Huawei Technologies Co., Ltd. All rights reserved.
+/*
+ * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #ifndef C_ARENGINE_WORLD_AR_PLANE_RENDERER_H
@@ -41,6 +40,8 @@ namespace ArWorld {
          */
         void InitializePlaneGlContent();
 
+        void Release();
+
         /**
          * Draw the provided plane.
          *
@@ -60,6 +61,7 @@ namespace ArWorld {
 
         std::vector<glm::vec3> vertices;
         std::vector<GLushort> triangles;
+        std::vector<GLushort> lines;
         glm::mat4 modelMat = glm::mat4(1.0f);
         glm::vec3 normalVec = glm::vec3(0.0f);
         GLuint textureId;
@@ -71,6 +73,10 @@ namespace ArWorld {
         GLint mUniformModelMat;
         GLint mUniformNormalVec;
         GLint mUniformColor;
+    
+        GLuint mWireFrameShaderProgram;
+        GLint mWireFrameUniformMvpMat;
+        GLint mWireFrameAttriVertices;
     };
 }
 #endif

@@ -1,5 +1,5 @@
 /**
- * Copyright 2022. Huawei Technologies Co., Ltd. All rights reserved.
+ * Copyright 2024. Huawei Technologies Co., Ltd. All rights reserved.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 
 #include "world_object_renderer.h"
+#include "gtc/type_ptr.hpp"
 
 namespace ArWorld {
     namespace {
@@ -107,7 +108,7 @@ namespace ArWorld {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        if (!LoadPngFromAssetManager(GL_TEXTURE_2D, pngFileName)) {
+        if (!LoadPngFromAssetManager(pngFileName)) {
             LOGE("Could not load png texture for planes.");
         }
         glGenerateMipmap(GL_TEXTURE_2D);
@@ -115,7 +116,6 @@ namespace ArWorld {
         glBindTexture(GL_TEXTURE_2D, 0);
         FileInfor fileInformation;
         fileInformation.fileName = objFileName;
-//         fileInformation.mgr = assetManager;
         LoadObjFile(fileInformation, vertices, normals, uvs, indices);
 
         GLUtils::CheckError(__FILE_NAME__, __LINE__);

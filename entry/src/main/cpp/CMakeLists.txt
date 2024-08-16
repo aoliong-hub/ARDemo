@@ -1,5 +1,5 @@
 #
-#  Copyright (c) 2023 Huawei Device Co., Ltd.
+#  Copyright (c) 2024 Huawei Device Co., Ltd.
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at
@@ -49,7 +49,6 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/world/world_background_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/world/world_object_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/world/world_plane_renderer.cpp
-    ${NATIVE_ROOT_PATH}/src/world/world_point_cloud_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/world/world_render_manager.cpp
 
 )

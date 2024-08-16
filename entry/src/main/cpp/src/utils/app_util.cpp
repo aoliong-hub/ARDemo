@@ -1,17 +1,16 @@
-/**
- * Copyright 2022. Huawei Technologies Co., Ltd. All rights reserved.
+/*
+ * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include "app_util.h"
@@ -21,8 +20,6 @@
 #include <sstream>
 #include <string>
 
-#include <unistd.h>
-
 #include "global.h"
 #include "utils/log.h"
 
@@ -31,7 +28,7 @@
 
 namespace ArWorld {
 
-bool LoadPngFromAssetManager(int target, const std::string &path)
+bool LoadPngFromAssetManager(const std::string &path)
 {
     auto resMgr = Global::mNativeResMgr;
     auto file = OH_ResourceManager_OpenRawFile(resMgr, path.c_str());
@@ -387,39 +384,6 @@ bool LoadObjFile(FileInfor fileInfor,
         return false;
     }
     return true;
-}
-
-glm::vec3 GetPlaneNormal(const AREngine_ARSession* arSession,
-                         const AREngine_ARPose* planePose)
-{
-    // Rotation and translation parameters of four elements extracted from the pose object,
-    // size of 8.
-    float planePoseRaw[7] = {0.0f};
-    CHECK(HMS_AREngine_ARPose_GetPoseRaw(arSession, planePose, planePoseRaw, 7));
-    // The four elements of posture.
-    glm::quat plane_quaternion(planePoseRaw[3], planePoseRaw[0], planePoseRaw[1], planePoseRaw[2]);
-
-    // Obtains the normal vector, which is defined as the positive Y position in the local frame.
-    return glm::rotate(plane_quaternion, glm::vec3(0.0f, 1.0f, 0.0f));
-}
-
-float CalculateDistanceToPlane(const AREngine_ARSession* arSession,
-                               const AREngine_ARPose* planePose,
-                               const AREngine_ARPose* cameraPose)
-{
-    // Rotation and translation parameters of the four elements extracted from the pose object.
-    float planePoseRaw[7] = { 0.0f };
-    CHECK(HMS_AREngine_ARPose_GetPoseRaw(arSession, planePose, planePoseRaw, 7));
-    glm::vec3 planePosition(planePoseRaw[4], planePoseRaw[5], planePoseRaw[6]);
-    glm::vec3 normal = GetPlaneNormal(arSession, planePose);
-
-    // The last three elements are the conversion values.
-    float cameraPoseRaw[7] = { 0.0f };
-    CHECK(HMS_AREngine_ARPose_GetPoseRaw(arSession, cameraPose, cameraPoseRaw, 7));
-    glm::vec3 camera_P_plane(cameraPoseRaw[4] - planePosition.x,
-                             cameraPoseRaw[5] - planePosition.y,
-                             cameraPoseRaw[6] - planePosition.z);
-    return glm::dot(normal, camera_P_plane);
 }
 
 }

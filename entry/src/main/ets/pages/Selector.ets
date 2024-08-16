@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Huawei Device Co., Ltd.
+ * Copyright (c) 2024 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,15 +14,44 @@
  */
 
 import { Logger } from '../utils/Logger';
-import resourceManager from '@ohos.resourceManager';
 import { router } from '@kit.ArkUI';
 import abilityAccessCtrl, { PermissionRequestResult } from '@ohos.abilityAccessCtrl';
 import { BusinessError } from '@ohos.base';
+import promptAction from '@ohos.promptAction';
 
+function showDialog(context: Context)
+{
+  try {
+    promptAction.showDialog({
+      isModal: true,
+      title: $r('app.string.tips'),
+      message: $r('app.string.permission_desc'),
+      buttons: [
+        {
+          text: $r('app.string.back'),
+          color: '#000000'
+        }
+      ],
+    }).then(data => {
+        if (data.index === 0) {
+          let applicationContext = context.getApplicationContext();
+          applicationContext.killAllProcesses();
+        }
+        console.info('showDialog success, click button: ' + data.index);
+      })
+      .catch((err:Error) => {
+        console.info('showDialog error: ' + err);
+      })
+  } catch (error) {
+    let message = (error as BusinessError).message;
+    let code = (error as BusinessError).code;
+    console.error(`showDialog args error code is ${code}, message is ${message}`);
+  };
+}
 @Entry
 @Component
 struct Selector {
-  private resMgr: resourceManager.ResourceManager = getContext(this).resourceManager;
+  private hasPermission: boolean = false;
 
   aboutToAppear() {
     Logger.debug('aboutToAppear');
@@ -33,17 +62,19 @@ struct Selector {
       let length: number = grantStatus.length;
       for (let i = 0; i < length; i++) {
         if (grantStatus[i] === 0) {
+          this.hasPermission = true;
           Logger.info('requestPermission success');
         } else {
           // 用户拒绝授权，提示用户必须授权才能访问当前页面的功能，并引导用户到系统设置中打开相应的权限
+          this.hasPermission = false;
+          showDialog(getContext(this));
           Logger.error('requestPermission user rejected')
-          router.back();
           return;
         }
       }
       Logger.info('requestPermission success');
     }).catch((err: BusinessError) => {
-      Logger.error("Failed to request permissions from user. Code is ${err.code}, message is ${err.message}")
+      Logger.error(`Failed to request permissions from user. Code is ${err.code}, message is ${err.message}`)
     })
   }
 
@@ -54,6 +85,10 @@ struct Selector {
         .width('50%')
         .height('5%')
         .onClick(()=>{
+          if (!this.hasPermission) {
+            showDialog(getContext(this))
+            return
+          }
           router.pushUrl({'url':'pages/ArWorld'})
         })
     }
