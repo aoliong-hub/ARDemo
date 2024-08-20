@@ -108,7 +108,7 @@ struct ArWorld {
   build() {
     if (this.showPage) {
       Column() {
-        XComponent({ id: this.xcomponentId, type: 'XComponentType.SURFACE', libraryname: 'entry' })
+        XComponent({ id: this.xcomponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
           .onLoad(() => {
             Logger.debug('XComponent onLoad ' + this.xcomponentId);
             this.interval = setInterval(() => {
