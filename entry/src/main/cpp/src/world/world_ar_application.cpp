@@ -40,20 +40,20 @@ namespace ArWorld {
     void ArWorldApp::OnStart() {
         mTaskQueue.Start();
         mTaskQueue.Push([this] {
-            // 创建一个新的AREngine_ARSession会话。
+            // Create an AREngine_ARSession session.
             CHECK(HMS_AREngine_ARSession_Create(nullptr, nullptr, &mArSession));
-            // 配置AREngine_ARSession。
+            // Configure AREngine_ARSession.
             AREngine_ARConfig *arConfig = nullptr;
             CHECK(HMS_AREngine_ARConfig_Create(mArSession, &arConfig));
-            // 设置预览画面尺寸。
+            // Set the preview image size.
             CHECK(HMS_AREngine_ARConfig_SetPreviewSize(mArSession, arConfig, 1440, 1080));
-            // 设置画面更新模式。
+            // Set the image update mode.
             CHECK(HMS_AREngine_ARConfig_SetUpdateMode(mArSession, arConfig, ARENGINE_UPDATE_MODE_LATEST));
             CHECK(HMS_AREngine_ARSession_Configure(mArSession, arConfig));
             HMS_AREngine_ARConfig_Destroy(arConfig);
-            // 创建一个新的AREngine_ARFrame对象
+            // Create an AREngine_ARFrame object.
             CHECK(HMS_AREngine_ARFrame_Create(mArSession, &mArFrame));
-            // 设置显示的高和宽（以像素为单位）。该高和宽是显示view的高和宽。
+            // Set the display height and width (in pixels). Make sure that the height and width you set here are consistent with those of the display view.
             CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
         });
     }
@@ -175,7 +175,7 @@ namespace ArWorld {
         if (arHitResult) {
             // Note that the app should release the anchor pointer after using it.
             // Call ArAnchor_release(anchor) to release the anchor.
-            // 在碰撞命中位置创建一个新的锚点。
+            // Create an anchor at the hit point.
             AREngine_ARAnchor *anchor = nullptr;
             CHECK(HMS_AREngine_ARHitResult_AcquireNewAnchor(mArSession, arHitResult, &anchor));
         
@@ -262,7 +262,7 @@ namespace ArWorld {
                 CHECK(HMS_AREngine_ARHitResult_GetHitPose(mArSession, arHit, arPose));
                 int32_t inPolygon = 0;
                 AREngine_ARPlane *arPlane = reinterpret_cast<AREngine_ARPlane *>(arTrackable);
-                // 判断位姿是否位于平面的多边形范围内。0表示不在范围内，非0表示在范围内。
+                // Check whether the pose is within the plane's bounding polygon. Value 0 indicates that it is out of the range, and other values indicate that it is within the range.
                 CHECK(HMS_AREngine_ARPlane_IsPoseInPolygon(mArSession, arPlane, arPose, &inPolygon));
                 HMS_AREngine_ARPose_Destroy(arPose);
                 if (!inPolygon) {

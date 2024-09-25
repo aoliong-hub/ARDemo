@@ -44,9 +44,7 @@ static napi_value Init(napi_env env, napi_value exports)
 }
 EXTERN_C_END
 
-/*
- * Napi Module define
- */
+// Napi Module define
 static napi_module appNapiModule = {
     .nm_version = 1,
     .nm_flags = 0,
@@ -57,9 +55,8 @@ static napi_module appNapiModule = {
     .reserved = { 0 },
 };
 
-/*
- * Module register function
- */
+
+// Module register function
 extern "C" __attribute__((constructor)) void RegisterModule(void)
 {
     napi_module_register(&appNapiModule);

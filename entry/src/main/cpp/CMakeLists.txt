@@ -53,7 +53,7 @@ add_library(entry SHARED
 
 )
 
-# link OpenHarmony native library （Use OpenGL）
+# Link the OpenHarmony native library (using OpenGL)
 target_link_libraries(entry PUBLIC
     EGL
     GLESv3

@@ -65,7 +65,7 @@ struct Selector {
           this.hasPermission = true;
           Logger.info('requestPermission success');
         } else {
-          // 用户拒绝授权，提示用户必须授权才能访问当前页面的功能，并引导用户到系统设置中打开相应的权限
+          // If the user refuses to grant the authorization, display a message indicating that user authorization is required, and direct the user to set the permission in system Settings.
           this.hasPermission = false;
           showDialog(getContext(this));
           Logger.error('requestPermission user rejected')

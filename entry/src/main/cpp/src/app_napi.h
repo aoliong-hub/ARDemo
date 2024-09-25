@@ -31,7 +31,7 @@ public:
     virtual void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {};
     virtual void DispatchMouseEvent(OH_NativeXComponent *component, void *window) {};
     
-    // Lifecycle
+    // Lifecycle method on the service side.
     virtual void OnStart() {};
     virtual void OnPause() {};
     virtual void OnResume() {};

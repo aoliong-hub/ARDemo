@@ -1,25 +1,24 @@
 # AREngine
 
-## 介绍
+## Introduction
 
-本示例展示了AREngine提供的平面检测，运动跟踪，环境跟踪和命中检测能力。
+This example demonstrates the plane detection, motion tracking, environment tracking, and hit detection capabilities provided by AREngine.
 
-## 效果预览
+## Effect Preview
 
-|    **应用首页**                         |                 **识别平面**                 |         **通过命中检测显示模型**            |
-|:-----------------------------------:|:----------------------------------------:|:---------------------------------------:|
+|                **App home page**                 |                  **Identify plane**                  |         **Display model through hit detection**            |
+|:-----------------------------------:|:--------------------------------------:|:---------------------------------------:|
 | ![](entry/screenshots/homePage.jpg) | ![](entry/screenshots/detectPlane.jpg) | ![](entry/screenshots/showModel.jpg) |
 
 
-1. 在手机的主屏幕，点击“ArSample”，启动应用，在主界面可见“ArWorld”按钮。
-2. 点击“ArWorld”按钮，拉起ArEngine平面识别界面，对准地面，桌面，墙面等平面缓慢移动扫描，即可识别到平面并绘制到屏幕上。
-3. 识别出平面后，点击平面上某个点，通过AREngine提供的命中检测的能力，会在屏幕被点击位置放置一个3d模型。
+1. On the home screen of your phone, touch ArSample to launch the app. The ArWorld button is displayed on the home screen.
+2. Click ArWorld to open the ArEngine plane identification interface. Move slowly to the ground, desktop, and wall to identify the plane and draw it on the screen.
+3. After a plane is identified, click a point on the plane. Through the hit detection capability provided by AREngine, a 3D model is placed at the clicked position on the screen.
 
 
-## 具体实现
-### 集成服务
-使用AREngine服务接口需要在CMakeLists中引入依赖：
-```cpp
+## Implementation
+### Integration Service
+To use the AREngine service interface, you need to introduce dependencies in CMakeLists.
 find_library(
 arengine-lib
 libarengine_ndk.z.so
@@ -27,65 +26,65 @@ libarengine_ndk.z.so
 target_link_libraries(entry PUBLIC
 ${arengine-lib}
 )
-```
 
-使用时引入头文件
+Header files are introduced during use.
 #include "ar/ar_engine_core.h"
 
-### 代码结构解析
+
+
+### Code Structure
 ```cpp
 ├─entry/src/main
-│  module.json5                                            // 模块的配置文件。              
+│  module.json5                                            // Module configuration file             
 │ 
-├─cpp                                                      // C++代码区。
-│  │  CMakeLists.txt                                       // CMake配置文件。
+├─cpp                                                      // C++ code area
+│  │  CMakeLists.txt                                       // CMake configuration file
 │  │
 │  ├─src
-│  │  │  app_napi.h                                        // 业务侧虚基类。
-│  │  │  global.cpp                                        // napi初始化。
-│  │  │  global.h                                          // C++和ets接口映射配置。
-│  │  │  module.cpp                                        // C++接口注册。
-│  │  │  napi_manager.cpp                                  // C++接口实现。
+│  │  │  app_napi.h                                        // Virtual base class on the service side.
+│  │  │  global.cpp                                        // NAPI initialization.
+│  │  │  global.h                                          // Mapping configuration between C++ and ETS APIs
+│  │  │  module.cpp                                        // C++ API registration
+│  │  │  napi_manager.cpp                                  // C++ API implementation
 │  │  │  napi_manager.h
 │  │  │
-│  │  ├─graphic                                            // 渲染相关工具类
+│  │  ├─graphic                                            // Rendering-related utility class
 │  │  │
-│  │  ├─utils                                              // util工具类。                                                               
+│  │  ├─utils                                              // Utility class                                                              
 │  │  │
-│  │  └─world                                              // ArWorld模块。
-│  │          world_ar_application.cpp                     // ArWorld模块接口实现。
+│  │  └─world                                              // ArWorld module
+│  │          world_ar_application.cpp                     // ArWorld module API implementation
 │  │          world_ar_application.h
-│  │          world_background_renderer.cpp                // 背景渲染。
+│  │          world_background_renderer.cpp                // Background rendering
 │  │          world_background_renderer.h
-│  │          world_object_renderer.cpp                    // 3D物体渲染。
+│  │          world_object_renderer.cpp                    // 3D object rendering
 │  │          world_object_renderer.h
-│  │          world_plane_renderer.cpp                     // 平面渲染。
+│  │          world_plane_renderer.cpp                     // Plane rendering
 │  │          world_plane_renderer.h
-│  │          world_render_manager.cpp                     // 每一帧渲染。
+│  │          world_render_manager.cpp                     // Rendering of each frame
 │  │          world_render_manager.h
 │  │
-│  ├─thirdparty                                            // 渲染相关三方库
-│  └─types                                                 // 接口存放文件夹。
+│  ├─thirdparty                                            // Rendering-related third-party libraries
+│  └─types                                                 // Folder for storing APIs
 │      └─libentry
-│              index.d.ts                                  // 接口文件。
-│              oh-package.json5                            // 接口注册配置文件。
+│              index.d.ts                                  // API file
+│              oh-package.json5                            // API registration configuration file
 │
-├─ets                                                      // ets代码区。
+├─ets                                                      // ETS code area
 │  ├─entryability
-│  │      EntryAbility.ets                                 // 程序入口类。
+│  │      EntryAbility.ets                                 // Entry point class
 │  │
 │  ├─pages
-│  │      ArWorld.ets                                      // ArWorld界面。
-│  │      Selector.ets                                     // 主界面。
+│  │      ArWorld.ets                                      // ArWorld screen
+│  │      Selector.ets                                     // Home screen
 │  │
 │  └─utils
-│          Logger.ets                                      // ets日志打印。
+│          Logger.ets                                      // ETS log printing
 │
-└─resources                                                // 资源文件目录。
+└─resources                                                // Directory for storing resource files
 ```
 
-### 创建会话和帧数据相关接口
-```c
+### Create interfaces related to sessions and frame data.
 AREngine_ARStatus HMS_AREngine_ARConfig_Create(const AREngine_ARSession *session, AREngine_ARConfig **outConfig);
 void HMS_AREngine_ARConfig_Destroy(AREngine_ARConfig *config);
 
@@ -95,10 +94,9 @@ void HMS_AREngine_ARSession_Destroy(AREngine_ARSession *session);
 
 AREngine_ARStatus HMS_AREngine_ARFrame_Create(const AREngine_ARSession *session, AREngine_ARFrame **outFrame);
 void HMS_AREngine_ARFrame_Destroy(AREngine_ARFrame *frame);
-```
 
-### 平面识别相关接口：
-```c
+
+### Interfaces related to plane identification:
 AREngine_ARStatus HMS_AREngine_ARTrackableList_Create(const AREngine_ARSession *session, AREngine_ARTrackableList **outTrackableList);
 AREngine_ARStatus HMS_AREngine_ARSession_GetAllTrackables(const AREngine_ARSession *session, AREngine_ARTrackableType filterType, AREngine_ARTrackableList *outTrackableList);
 AREngine_ARStatus HMS_AREngine_ARTrackableList_GetSize(const AREngine_ARSession *session, const AREngine_ARTrackableList *trackableList, int32_t *outSize);
@@ -114,9 +112,8 @@ AREngine_ARStatus HMS_AREngine_ARPlane_GetCenterPose(const AREngine_ARSession *s
 AREngine_ARStatus HMS_AREngine_ARPlane_GetPolygonSize(const AREngine_ARSession *session, const AREngine_ARPlane *plane, int32_t *outPolygonSize);
 AREngine_ARStatus HMS_AREngine_ARPlane_GetPolygon(const AREngine_ARSession *session, const AREngine_ARPlane *plane, float *outPolygonXz, int32_t polygonSize);
 AREngine_ARStatus HMS_AREngine_ARPlane_IsPoseInPolygon(const AREngine_ARSession *session, const AREngine_ARPlane *plane, const AREngine_ARPose *pose, int32_t *outPoseInPolygon);
-```
-### 命中检测相关接口：
-```c
+
+### Interfaces related to hit detection:
 AREngine_ARStatus HMS_AREngine_ARHitResultList_Create(const AREngine_ARSession *session, AREngine_ARHitResultList **outHitResultList);
 AREngine_ARStatus HMS_AREngine_ARHitResultList_GetSize(const AREngine_ARSession *session, const AREngine_ARHitResultList *hitResultList, int32_t *outSize);
 AREngine_ARStatus HMS_AREngine_ARHitResultList_GetItem(const AREngine_ARSession *session, const AREngine_ARHitResultList *hitResultList, int32_t index, AREngine_ARHitResult *outHitResult);
@@ -126,24 +123,17 @@ AREngine_ARStatus HMS_AREngine_ARHitResult_AcquireNewAnchor(AREngine_ARSession *
 AREngine_ARStatus HMS_AREngine_ARHitResult_GetHitPose(const AREngine_ARSession *session, const AREngine_ARHitResult *hitResult, AREngine_ARPose *outPose);
 AREngine_ARStatus HMS_AREngine_ARHitResult_AcquireTrackable(const AREngine_ARSession *session, const AREngine_ARHitResult *hitResult, AREngine_ARTrackable **outTrackable);
 void HMS_AREngine_ARHitResult_Destroy(AREngine_ARHitResult *hitResult);
-```
-### 运动跟踪能力图文介绍：
-AR Engine通过获取终端设备摄像头数据，结合图像特征和惯性传感器（IMU），计算设备位置（沿x、y、z轴方向位移）和姿态（绕x、y、z轴旋转），实现6自由度（6DoF）运动跟踪能力。
 
-6DoF运动跟踪能力示意图（红色线代表设备运动方向）
-![](entry/screenshots/6DoFPose.jpg)
+## Related Permissions
 
+Use the camera, accelerometer, and gyroscope sensor permissions. The camera permission is requested by the app.
 
-## 相关权限
+## Dependency
 
-使用相机，加速度传感器和陀螺仪传感器权限，相机权限由应用申请。
+Depends on the device's camera, acceleration sensor, and gyroscope sensor capabilities.
 
-## 依赖
+## Constraints
 
-依赖设备具备相机，加速度传感器和陀螺仪传感器能力。
-
-## 约束与限制
-
-1. 本实例仅支持标准系统上运行，支持设备：华为手机（mate 60, mate 60pro, mate x5）。
-2. DevEco Studio版本：DevEco Studio NEXT Developer Beta2及以上。
-3. HarmonyOS SDK版本：HarmonyOS NEXT Developer Beta2及以上。
+1. This instance can run only on the standard system and supports Huawei mobile phones (Mate 60, Mate 60 Pro, and Mate X5).
+2. DevEco Studio version: DevEco Studio NEXT Developer Beta2 or later.
+3. HarmonyOS SDK version: HarmonyOS NEXT Developer Beta2 and above.

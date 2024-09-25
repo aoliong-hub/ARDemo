@@ -23,6 +23,10 @@
     {
       "name": "back",
       "value": "退出"
+    },
+    {
+      "name": "alert_desc",
+      "value": "当前特征点较少，无法识别平面，请移动相机"
     }
   ]
 }

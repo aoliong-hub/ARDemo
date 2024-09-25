@@ -164,7 +164,7 @@ namespace ArWorld {
         lines.clear();
     
         int32_t polygonLength = 0;
-        // 获取检测到平面的二维顶点数组大小。
+        // Obtain the size of the 2D vertex array of the detected plane.
         CHECK(HMS_AREngine_ARPlane_GetPolygonSize(session, plane, &polygonLength));
         if (polygonLength == 0) {
             LOGE("WorldPlaneRenderer::UpdateForPlane, no valid plane polygon is found");
@@ -173,30 +173,30 @@ namespace ArWorld {
     
         const int32_t verticesSize = polygonLength / 2;
         std::vector<glm::vec2> raw_vertices(verticesSize);
-        // 获取检测到平面的二维顶点数组，格式为[x1，z1，x2，z2，...]。
+        // Obtain the 2D vertex array of the detected plane, in the format of [x1, z1, x2, z2, ...].
         CHECK(HMS_AREngine_ARPlane_GetPolygon(session, plane, glm::value_ptr(raw_vertices.front()), polygonLength));
     
-        // 局部坐标系顶点坐标
+        // Plane vertex coordinates in the local coordinate system.
         for (int32_t i = 0; i < verticesSize; ++i) {
         vertices.emplace_back(raw_vertices[i].x, raw_vertices[i].y, 0.75f);
         }
     
         AREngine_ARPose *scopedArPose = nullptr;
-        // 获取从平面的局部坐标系到世界坐标系转换的位姿信息。
+        // Obtain the pose information for the conversion from the local coordinate system of a plane to the world coordinate system.
         CHECK(HMS_AREngine_ARPose_Create(session, nullptr, 0, &scopedArPose));
         CHECK(HMS_AREngine_ARPlane_GetCenterPose(session, plane, scopedArPose));
-        // 将位姿数据转换成4X4的矩阵，outMatrixColMajor4x4为存放数组，其中的数据按照列优先存储。
-        // 该矩阵与局部坐标系的坐标点做乘法，可以得到局部坐标系到世界坐标系的转换。
+        // Convert the pose data into a 4 x 4 matrix. outMatrixColMajor4x4 is the array for storing the matrix, where data is stored in column-major order.
+        // Coordinates in the local coordinate system can be converted into ones in the world coordinate system by multiplying this matrix with the coordinates in the local coordinate system.
         CHECK(HMS_AREngine_ARPose_GetMatrix(session, scopedArPose, glm::value_ptr(modelMat), 16));
         HMS_AREngine_ARPose_Destroy(scopedArPose);
     
-        // 生成三角形。
+        // Generate a triangle.
         for (int i = 1; i < verticesSize - 1; ++i) {
         triangles.push_back(0);
             triangles.push_back(i);
             triangles.push_back(i + 1);
         }
-        // 生成平面包围线。
+        // Generate the plane boundary.
         for (int i = 0; i < verticesSize; ++i) {
             lines.push_back(i);
     

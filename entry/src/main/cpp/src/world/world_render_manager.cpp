@@ -36,7 +36,7 @@ namespace ArWorld {
             mBackgroundRenderer.InitializeBackGroundGlContent();
             mObjectRenderer.InitializeObjectGlContent("AR_logo_obj.obj", "AR_logo.png");
             mPlaneRenderer.InitializePlaneGlContent();
-            // 设置可用于存储相机预览流数据的openGL纹理。应用调用HMS_AREngine_ARSession_Update后，AREngine会更新相机预览到纹理中。
+            // Set the OpenGL texture for storing the camera preview stream data. After your app calls HMS_AREngine_ARSession_Update, AR Engine will update the camera preview to the texture.
             CHECK(HMS_AREngine_ARSession_SetCameraGLTexture(arSession, mBackgroundRenderer.GetTextureId()));
             isInited = true;
         }
@@ -94,20 +94,20 @@ namespace ArWorld {
         if (arSession == nullptr) {
             return false;
         }
-        // 更新AREngine的计算结果。
+        // Update the computation result of AR Engine.
         CHECK(HMS_AREngine_ARSession_Update(arSession, arFrame));
-        // 获取当前帧的相机参数。
+        // Obtain the camera parameters of the current frame.
         AREngine_ARCamera *arCamera = nullptr;
         CHECK(HMS_AREngine_ARFrame_AcquireCamera(arSession, arFrame, &arCamera));
-        // 获取最新帧中相机的视图矩阵。
+        // Obtain the view matrix of the camera in the latest frame.
         CHECK(HMS_AREngine_ARCamera_GetViewMatrix(arSession, arCamera, glm::value_ptr(*viewMat), 16));
-        // 获取用于在相机图像上层渲染虚拟内容的投影矩阵，可用于相机坐标系到裁剪坐标系转换。Near (0.1) Far (100)。
+        // Obtain the projection matrix used for rendering virtual content on top of the camera image. This matrix can be used for converting from the camera coordinate system to the clip coordinate system. Near (0.1) Far (100).
         CHECK(HMS_AREngine_ARCamera_GetProjectionMatrix(arSession, arCamera, {0.1f, 100.f},
                                                         glm::value_ptr(*projectionMat), 16));
-        // 获取相机的当前追踪状态。
+        // Obtain the current tracking status of the camera.
         AREngine_ARTrackingState cameraTrackingState = ARENGINE_TRACKING_STATE_STOPPED;
         CHECK(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState));
-
+        
         HMS_AREngine_ARCamera_Release(arCamera);
         mBackgroundRenderer.Draw(arSession, arFrame);
         // If the camera is not in tracking state, the current frame is not drawn.
@@ -150,28 +150,28 @@ namespace ArWorld {
     {
         // Update and render the plane.
         AREngine_ARTrackableList *planeList = nullptr;
-        // 创建一个可跟踪对象列表。
+        // Create a list of trackable objects.
         CHECK(HMS_AREngine_ARTrackableList_Create(arSession, &planeList));
-        // 获取所有指定类型的可跟踪对像集合。
+        // Obtain the list of all trackable objects of the specified type.
         AREngine_ARTrackableType planeTrackedType = ARENGINE_TRACKABLE_PLANE;
         CHECK(HMS_AREngine_ARSession_GetAllTrackables(arSession, planeTrackedType, planeList));
 
         int32_t planeListSize = 0;
-        // 获取此列表中的可跟踪对象的数量。
+        // Obtain the number of trackable objects in the list.
         CHECK(HMS_AREngine_ARTrackableList_GetSize(arSession, planeList, &planeListSize));
         mPlaneCount = planeListSize;
 
         for (int i = 0; i < planeListSize; ++i) {
             AREngine_ARTrackable *arTrackable = nullptr;
-            // 从可跟踪列表中获取指定index的对象。
+            // Obtain the object at a specified index from the trackable object list.
             CHECK(HMS_AREngine_ARTrackableList_AcquireItem(arSession, planeList, i, &arTrackable));
             AREngine_ARPlane *arPlane = reinterpret_cast<AREngine_ARPlane *>(arTrackable);
 
-            // 获取当前可跟踪对象的跟踪状态。如果状态为：ARENGINE_TRACKING_STATE_TRACKING（可跟踪状态）才进行绘制。
+            // Obtain the tracking status of the current trackable object. Plane drawing is performed only when the tracking status is ARENGINE_TRACKING_STATE_TRACKING (trackable).
             AREngine_ARTrackingState outTrackingState;
             CHECK(HMS_AREngine_ARTrackable_GetTrackingState(arSession, arTrackable, &outTrackingState));
             AREngine_ARPlane *subsumePlane = nullptr;
-            // 获取平面的父平面（一个平面被另一个平面合并时，会产生父平面），如果无父平面返回为NULL。
+            // Obtain a plane's parent plane (generated when the plane is merged with another one). If there is no parent plane, NULL is returned.
             CHECK(HMS_AREngine_ARPlane_AcquireSubsumedBy(arSession, arPlane, &subsumePlane));
             if (subsumePlane != nullptr) {
                 HMS_AREngine_ARTrackable_Release(reinterpret_cast<AREngine_ARTrackable *>(subsumePlane));

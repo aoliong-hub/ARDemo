@@ -23,6 +23,10 @@
     {
       "name": "back",
       "value": "back"
+    },
+    {
+      "name": "alert_desc",
+      "value": "Unable to identify the plane due to limited number of feature points. Please move the camera."
     }
   ]
 }

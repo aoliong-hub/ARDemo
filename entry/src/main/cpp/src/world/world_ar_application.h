@@ -62,7 +62,7 @@ namespace ArWorld {
         OH_NativeXComponent_TouchEvent mTouchEvent;
 
         WorldRenderManager mWorldRenderManager;
-        TaskQueue mTaskQueue; // update 更新线程
+        TaskQueue mTaskQueue; 
 
         std::atomic<bool> isPaused = false;
     };

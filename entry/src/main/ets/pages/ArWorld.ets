@@ -34,7 +34,7 @@ struct ArWorld {
     Logger.debug('aboutToAppear ' + this.xcomponentId);
     arEngineDemo.init(this.resMgr);
     arEngineDemo.start(this.xcomponentId);
-    //适配折叠屏
+    // Applicable to foldable screens.
     display.on("foldStatusChange", (foldStatus: display.FoldStatus) => {
       Logger.info('foldStatusChange display on ' + foldStatus);
       if (foldStatus === display.FoldStatus.FOLD_STATUS_HALF_FOLDED) {
@@ -70,13 +70,13 @@ struct ArWorld {
 
   messageNotification() {
     promptAction.showToast({
-      message: '当前特征点较少，无法识别平面',
+      message: $r('app.string.alert_desc'),
       bottom: 300
     })
     try {
       vibrator.startVibration({
         type: 'time',
-        duration: 1000,
+        duration: 2000,
       }, {
         id: 0,
         usage: 'alarm'
@@ -88,14 +88,14 @@ struct ArWorld {
 
   planeNum() {
     if (this.numberOfPlans < 1) {
-      //平面数小于1
+      // The number of planes is less than 1.
       let tempMillisecond: number = new Date().getTime();
-      //首次进入 时间赋值
+      // Assign a value to the time when the feature is started for the first time.
       if (this.currentMillisecond == 0) {
         this.currentMillisecond = tempMillisecond;
         return;
       }
-      //超过10s 给用户弹窗
+      // Display a pop-up window if the plane fails to be recognized within 10 seconds.
       if (tempMillisecond - this.currentMillisecond > 10000) {
         this.messageNotification();
         this.currentMillisecond = 0;
@@ -113,11 +113,11 @@ struct ArWorld {
             Logger.debug('XComponent onLoad ' + this.xcomponentId);
             this.interval = setInterval(() => {
               if (this.isUpdate) {
-                // 调用Native的update，更新AR Engine每一帧的计算结果
+                // Call the update Native API to update the calculation result of each frame by AR Engine.
                 this.numberOfPlans = arEngineDemo.update(this.xcomponentId);
                 this.planeNum()
               }
-            }, 33); // 控制帧率为30fps（每33毫秒刷新一帧）。
+            }, 33); // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
           })
           .width('100%')
           .height('100%')

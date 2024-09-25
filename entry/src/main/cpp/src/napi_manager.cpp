@@ -268,6 +268,7 @@ napi_value NapiManager::NapiOnPageDisappear(napi_env env, napi_callback_info inf
     return nullptr;
 }
 
+// Create a service implementation class based on the service ID.
 AppNapi *NapiManager::CreateApp(std::string &id) {
     if (id == std::string("ArWorld")) {
         return new ArWorld::ArWorldApp(id);
