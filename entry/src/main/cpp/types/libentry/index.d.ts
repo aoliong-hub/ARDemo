@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-import resourceManager from '@ohos.resourceManager';
+import { resourceManager } from '@kit.LocalizationKit';
 
 export const start:(id:string)=>void;
 export const show:(id:string)=>void;

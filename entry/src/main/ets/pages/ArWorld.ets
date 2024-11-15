@@ -17,7 +17,6 @@ import { Logger } from '../utils/Logger';
 import arEngineDemo from 'libentry.so'
 import { resourceManager } from '@kit.LocalizationKit';
 import { display, promptAction } from '@kit.ArkUI';
-import { vibrator } from '@kit.SensorServiceKit';
 
 @Entry
 @Component
@@ -73,17 +72,6 @@ struct ArWorld {
       message: $r('app.string.alert_desc'),
       bottom: 300
     })
-    try {
-      vibrator.startVibration({
-        type: 'time',
-        duration: 2000,
-      }, {
-        id: 0,
-        usage: 'alarm'
-      })
-    } catch (err) {
-      Logger.debug('errCode: ' + err.code + ' ,msg: ' + err.message);
-    }
   }
 
   planeNum() {

@@ -15,9 +15,9 @@
 
 import { Logger } from '../utils/Logger';
 import { router } from '@kit.ArkUI';
-import abilityAccessCtrl, { PermissionRequestResult } from '@ohos.abilityAccessCtrl';
-import { BusinessError } from '@ohos.base';
-import promptAction from '@ohos.promptAction';
+import { abilityAccessCtrl, PermissionRequestResult } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { promptAction } from '@kit.ArkUI';
 
 function showDialog(context: Context)
 {
