@@ -30,7 +30,6 @@
             char sentence[] = #condition;                                                                              \
             LOGE("*** CHECK FAILED at %{public}s:%{public}d: %{public}s ret: %{public}d",                              \
                  __FILE__, __LINE__, SPLIT_FUNC(sentence), ret);                                                       \
-            abort();                                                                                                   \
         }                                                                                                              \
     } while (false);
 #endif
