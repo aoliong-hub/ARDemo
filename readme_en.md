@@ -143,6 +143,14 @@ Depends on the device's camera, acceleration sensor, and gyroscope sensor capabi
 
 ## Constraints
 
-1. This instance can run only on the standard system and supports Huawei mobile phones (Mate 60,Mate 60 Pro,and Mate X5).
+1. The sample is supported only on the devices with standard systems as shown in the following table.
+
+| Device type | Product series | Product model                                                                                                                                                      |
+|----------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Phone    | Mate series    | Mate 60, Mate 60 RS ULTIMATE DESIGN, Mate 60 Pro, Mate 60 Pro+, <br>Mate 70, Mate 70 RS ULTIMATE DESIGN, Mate 70 Pro, Mate 70 Pro+,<br> Mate X5, Mate X6, Mate XT ULTIMATE DESIGN |
+|          | Pura series    | Pura 70, Pura 70 Pro, Pura 70 Pro+, Pura 70 Ultra                                                                                                                  |
+|          | Nova series    | Nova 12 Pro                                                                                                                                                        |
+|          | Pocket series  | Pocket 2                                                                                                                                                           |
+| Tablet   | MatePad series | MatePad Pro 13.2                                                                                                                                                   |
 2. DevEco Studio version: DevEco Studio NEXT Developer Beta2 or later.
 3. HarmonyOS SDK version: HarmonyOS NEXT Developer Beta2 and above.

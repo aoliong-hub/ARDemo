@@ -93,6 +93,10 @@ namespace ArWorld {
          */
         void RenderPlanes(AREngine_ARSession *arSession, const glm::mat4 &viewMat, const glm::mat4 &projectionMat);
     
+        GLuint GetPreviewTextureId() { return mBackgroundRenderer.GetTextureId(); }
+       
+        void DrawBlack();
+    
         static int32_t mPlaneCount;
     private:
 

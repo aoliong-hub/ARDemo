@@ -21,22 +21,28 @@
 
 class AppNapi {
 public:
-    explicit AppNapi(std::string& id) : id_(id) {};
+    using ParamType = enum { ROTATION };
+    using ConfigParams = struct {
+        int32_t rotation;
+    };
+
+public:
+    explicit AppNapi(std::string &id) : id_(id){};
     virtual ~AppNapi() = default;
-    
+
     // XComponent Callback
-    virtual void OnSurfaceCreated(OH_NativeXComponent* component, void* window) {};
-    virtual void OnSurfaceChanged(OH_NativeXComponent *component, void *window) {};
-    virtual void OnSurfaceDestroyed(OH_NativeXComponent *component, void *window) {};
-    virtual void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {};
-    virtual void DispatchMouseEvent(OH_NativeXComponent *component, void *window) {};
-    
+    virtual void OnSurfaceCreated(OH_NativeXComponent *component, void *window){};
+    virtual void OnSurfaceChanged(OH_NativeXComponent *component, void *window){};
+    virtual void OnSurfaceDestroyed(OH_NativeXComponent *component, void *window){};
+    virtual void DispatchTouchEvent(OH_NativeXComponent *component, void *window){};
+    virtual void DispatchMouseEvent(OH_NativeXComponent *component, void *window){};
+
     // Lifecycle method on the service side.
-    virtual void OnStart() {};
-    virtual void OnPause() {};
-    virtual void OnResume() {};
-    virtual void OnUpdate() {};
-    virtual void OnStop() {};
+    virtual void OnStart(const ConfigParams &params){};
+    virtual void OnPause(){};
+    virtual void OnResume(){};
+    virtual void OnUpdate(){};
+    virtual void OnStop(){};
 
 public:
     std::string id_;

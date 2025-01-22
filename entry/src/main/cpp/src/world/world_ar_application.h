@@ -30,7 +30,7 @@ namespace ArWorld {
         ~ArWorldApp() override;
 
         // Lifecycle
-        void OnStart() override;
+        void OnStart(const ConfigParams &params) override;
         void OnUpdate() override;
         void OnPause() override;
         void OnResume(/*JNIEnv *env, jobject context*/) override;
@@ -44,7 +44,7 @@ namespace ArWorld {
     
     private:
         void DispatchTouchEvent(float pixeLX, float pixeLY);
-
+        void ReCreateSession();
         static void SetColor(float colorR, float colorG, float colorB, float colorA, ColoredAnchor &coloredAnchor);
         bool GetHitResult(AREngine_ARHitResult *&arHitResult, bool &hasHitFlag, int32_t hitResultListSize,
                           AREngine_ARTrackableType &trackableType, AREngine_ARHitResultList *hitResultList) const;
@@ -60,11 +60,11 @@ namespace ArWorld {
         double mX = 0.0;
         double mY = 0.0;
         OH_NativeXComponent_TouchEvent mTouchEvent;
-
         WorldRenderManager mWorldRenderManager;
         TaskQueue mTaskQueue; 
-
+        bool mIsSurfaceChange = false;
         std::atomic<bool> isPaused = false;
+        ConfigParams mConfigParam{};
     };
 }
 #endif

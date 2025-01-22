@@ -15,7 +15,7 @@
 
 import { resourceManager } from '@kit.LocalizationKit';
 
-export const start:(id:string)=>void;
+export const start:(id:string, params: Int32Array)=>void;
 export const show:(id:string)=>void;
 export const hide:(id:string)=>void;
 export const update:(id:string)=>number;

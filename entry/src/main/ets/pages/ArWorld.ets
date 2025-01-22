@@ -17,6 +17,7 @@ import { Logger } from '../utils/Logger';
 import arEngineDemo from 'libentry.so'
 import { resourceManager } from '@kit.LocalizationKit';
 import { display, promptAction } from '@kit.ArkUI';
+import { deviceInfo } from '@kit.BasicServicesKit';
 
 @Entry
 @Component
@@ -28,24 +29,21 @@ struct ArWorld {
   @State numberOfPlans: number = 0;
   private currentMillisecond = 0;
   @State showPage: boolean = true;
+  @State rotation: number = deviceInfo.deviceType == "tablet"?3:0;
 
   aboutToAppear() {
     Logger.debug('aboutToAppear ' + this.xcomponentId);
     arEngineDemo.init(this.resMgr);
-    arEngineDemo.start(this.xcomponentId);
+    let config = new Int32Array([0,this.rotation]);
+    arEngineDemo.start(this.xcomponentId,config);
     // Applicable to foldable screens.
     display.on("foldStatusChange", (foldStatus: display.FoldStatus) => {
-      Logger.info('foldStatusChange display on ' + foldStatus);
       if (foldStatus === display.FoldStatus.FOLD_STATUS_HALF_FOLDED) {
         this.showPage = false;
-        arEngineDemo.stop(this.xcomponentId);
-      }
-      if (foldStatus === display.FoldStatus.FOLD_STATUS_EXPANDED
-        || foldStatus === display.FoldStatus.FOLD_STATUS_FOLDED) {
-        this.showPage = true;
-        arEngineDemo.init(this.resMgr);
-        arEngineDemo.start(this.xcomponentId);
-        arEngineDemo.show(this.xcomponentId);
+        // Delay display by two frames after folding.
+        setTimeout(()=>{
+          this.showPage = true;
+        },66)
       }
     })
   }

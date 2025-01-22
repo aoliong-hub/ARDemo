@@ -20,6 +20,7 @@
 #include <vector>
 #include <GLES2/gl2.h>
 #include "GLUtils.h"
+#include "ar/ar_engine_core.h"
 
 #ifndef CHECK
 #define SPLIT_FUNC(str) strtok((str), "(")
@@ -28,8 +29,8 @@
         auto ret = (condition);                                                                                        \
         if (ret) {                                                                                                     \
             char sentence[] = #condition;                                                                              \
-            LOGE("*** CHECK FAILED at %{public}s:%{public}d: %{public}s ret: %{public}d",                              \
-                 __FILE__, __LINE__, SPLIT_FUNC(sentence), ret);                                                       \
+            LOGE("*** CHECK FAILED at %{public}s:%{public}d: %{public}s ret: %{public}d", __FILE__, __LINE__,          \
+                 SPLIT_FUNC(sentence), ret);                                                                           \
         }                                                                                                              \
     } while (false);
 #endif
@@ -66,12 +67,24 @@ bool LoadPngFromAssetManager(const std::string &path);
  * @param outIndices Output triangular exponent.
  * @return True if obj is loaded correctly, false otherwise.
  */
-bool LoadObjFile(FileInfor fileInformation,
-                 std::vector<GLfloat> &outVertices,
-                 std::vector<GLfloat> &outNormals,
-                 std::vector<GLfloat> &outUv,
-                 std::vector<GLushort> &outIndices);
+bool LoadObjFile(FileInfor fileInformation, std::vector<GLfloat> &outVertices, std::vector<GLfloat> &outNormals,
+                 std::vector<GLfloat> &outUv, std::vector<GLushort> &outIndices);
 
+
+
+static inline AREngine_ARPoseType ArEngineRotateType(int32_t rotation) {
+    switch (rotation) {
+    case 0:
+        return ARENGINE_POSE_TYPE_IDENTITY;
+    case 1:
+        return ARENGINE_POSE_TYPE_ROTATE_270;
+    case 2:
+        return ARENGINE_POSE_TYPE_ROTATE_180;
+    case 3:
+        return ARENGINE_POSE_TYPE_ROTATE_90;
+    }
+    return ARENGINE_POSE_TYPE_IDENTITY;
 }
 
+} // namespace ArWorld
 #endif

@@ -37,9 +37,10 @@ namespace ArWorld {
         mTaskQueue.Stop();
     }
     
-    void ArWorldApp::OnStart() {
+    void ArWorldApp::OnStart(const ConfigParams &params) {
         mTaskQueue.Start();
-        mTaskQueue.Push([this] {
+        mTaskQueue.Push([this, params] {
+            mConfigParam = params;
             // Create an AREngine_ARSession session.
             CHECK(HMS_AREngine_ARSession_Create(nullptr, nullptr, &mArSession));
             // Configure AREngine_ARSession.
@@ -53,6 +54,7 @@ namespace ArWorld {
             HMS_AREngine_ARConfig_Destroy(arConfig);
             // Create an AREngine_ARFrame object.
             CHECK(HMS_AREngine_ARFrame_Create(mArSession, &mArFrame));
+            mDisplayRotation = ArEngineRotateType(params.rotation);
             // Set the display height and width (in pixels). Make sure that the height and width you set here are consistent with those of the display view.
             CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
         });
@@ -93,22 +95,26 @@ namespace ArWorld {
             HMS_AREngine_ARSession_Resume(mArSession);
         });
     }
-    
-    void ArWorldApp::OnUpdate()
-    {
-        if (isPaused) {
-            LOGD("ArWorldApp::OnUpdate is paused");
+
+void ArWorldApp::OnUpdate() {
+    if (isPaused) {
+        LOGD("ArWorldApp::OnUpdate is paused");
+        return;
+    }
+    mTaskQueue.Push([this] {
+        HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mWorldRenderManager.GetPreviewTextureId());
+        HMS_AREngine_ARSession_Update(mArSession, mArFrame);
+        if (mIsSurfaceChange) {
+            glViewport(0, 0, mWidth, mHeight);
+            ReCreateSession();
+            mWorldRenderManager.DrawBlack();
+            mIsSurfaceChange = false;
             return;
         }
-        mTaskQueue.Push([this] {
-            if (isPaused) {
-                LOGI("ArWorldApp OnDrawFrame isPaused!");
-                return;
-            }
-            LOGD("ArWorldApp::OnDrawFrame()");
-            mWorldRenderManager.OnDrawFrame(mArSession, mArFrame, mColoredAnchors);
-        });
-    }
+        LOGD("ArWorldApp::OnDrawFrame()");
+        mWorldRenderManager.OnDrawFrame(mArSession, mArFrame, mColoredAnchors);
+    });
+}
     
     void ArWorldApp::OnSurfaceCreated(OH_NativeXComponent *component, void *window) {
         LOGD("ArWorldApp::OnSurfaceCreated()");
@@ -129,10 +135,12 @@ namespace ArWorld {
     }
     
     void ArWorldApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window) {
+        uint64_t width = 1080;
+        uint64_t height = 1920;
         int32_t ret = OH_NativeXComponent_GetXComponentSize(component, window, &mWidth, &mHeight);
-        LOGD("ArWorldApp::OnSurfaceChanged(%{public}lu, %{public}lu)", mWidth, mHeight);
+        LOGD("ArWorldApp::OnSurfaceChanged(%{public}lu, %{public}lu)", width, height);
         if (ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
-            LOGD("after width = %lu, height = %lu", mWidth, mHeight);
+            LOGD("after width = %lu, height = %lu", width, height);
             ret = OH_NativeXComponent_GetXComponentOffset(component, window, &mX, &mY);
             if (ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
                 LOGD("Offset : x = %{public}lf, y = %{public}lf ", mX, mY);
@@ -140,14 +148,10 @@ namespace ArWorld {
                 LOGE("Offset get failed");
             }
         }
-    
-        mTaskQueue.Push([this] {
-            if (isPaused) {
-                LOGI("ArWorldApp OnSurfaceChanged isPaused!");
-                return;
-            }
-            glViewport(0, 0, mWidth, mHeight);
-            CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
+        mTaskQueue.Push([this, width, height] {
+            mHeight = height;
+            mWidth = width;
+            mIsSurfaceChange = true;
         });
     }
     
@@ -301,5 +305,12 @@ namespace ArWorld {
         *(coloredAnchor.color + 1) = colorG;
         *(coloredAnchor.color + 2) = colorB;
         *(coloredAnchor.color + 3) = colorA;
+    }
+    void ArWorldApp::ReCreateSession() 
+    {
+        OnPause();
+        OnStop();
+        OnStart(mConfigParam);
+        OnResume();
     }
 }

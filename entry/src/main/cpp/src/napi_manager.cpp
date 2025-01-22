@@ -173,8 +173,8 @@ napi_value NapiManager::NapiOnPageAppear(napi_env env, napi_callback_info info)
 {
     LOGD("NapiManager::NapiOnPageAppear");
 
-    size_t argc = 1;
-    napi_value args[1] = {nullptr};
+    size_t argc = 2;
+    napi_value args[2] = {nullptr};
 
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
@@ -182,8 +182,31 @@ napi_value NapiManager::NapiOnPageAppear(napi_env env, napi_callback_info info)
     size_t resultSize = 0;
     napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
     std::string id(idStr);
+    // Get the incoming array typedarray to generate input_buffer.
+    napi_typedarray_type type; // 数据类型
+    napi_value input_buffer;
+    size_t byte_offset; // 数据偏移
+    size_t i, length;   // 数据字节大小
+    napi_get_typedarray_info(env, args[1], &type, &length, NULL, &input_buffer, &byte_offset);
+
+    AppNapi::ConfigParams params{};
+    if (type == napi_int32_array) {
+        // 获取数组数据
+        void *data;
+        size_t byte_length;
+        napi_get_arraybuffer_info(env, input_buffer, &data, &byte_length);
+        int32_t *data_bytes = (int32_t *)(data);
+        int32_t num = length / sizeof(int32_t);
+        for (int32_t i = 0; i + 1 < num; i += 2) {
+            int32_t key = *(data_bytes + i);
+            int32_t value = *(data_bytes + i + 1);
+            if (key == AppNapi::ROTATION) {
+                params.rotation = value;
+            }
+        }
+    }
     AppNapi *app = NapiManager::GetInstance()->GetApp(id);
-    app->OnStart();
+    app->OnStart(params);
 
     return nullptr;
 }

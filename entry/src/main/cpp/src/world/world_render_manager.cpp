@@ -206,4 +206,11 @@ namespace ArWorld {
             mPlaneColorMap.insert(std::pair<AREngine_ARPlane *, glm::vec3>(arPlane, color));
         }
     }
+    void WorldRenderManager::DrawBlack() 
+    {
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        mRenderContext.SwapBuffers(&mRenderSurface);
+    }
 }
