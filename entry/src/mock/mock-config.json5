@@ -1,5 +1,0 @@
-{
-  "libentry.so": {
-    "source": "src/mock/libentry.mock.ets"
-  }
-}

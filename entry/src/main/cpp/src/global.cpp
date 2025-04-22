@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,14 +14,14 @@
  */
 
 #include "global.h"
-#include "utils/native_common.h"
 #include "utils/log.h"
+#include "utils/native_common.h"
 
-NativeResourceManager* Global::mNativeResMgr = nullptr;
+NativeResourceManager *Global::mNativeResMgr = nullptr;
 
-napi_value Global::Init(napi_env env, napi_callback_info info) 
+napi_value Global::Init(napi_env env, napi_callback_info info)
 {
-    LOGE("Global::Init");
+    LOGI("Global::Init");
     size_t argc = 1;
     napi_value args[1];
     NAPI_CALL(env, napi_get_cb_info(env, info, &argc, args, nullptr, nullptr));

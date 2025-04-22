@@ -1,5 +1,5 @@
 #
-#  Copyright (c) 2024 Huawei Device Co., Ltd.
+#  Copyright (c) 2024-2025 Huawei Device Co., Ltd.
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at
@@ -14,10 +14,10 @@
 #
 
 # the minimum version of CMake.
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.5.0)
 
 # project
-project(ArSample)
+project(ARSample)
 
 set(CMAKE_CXX_STANDARD 17)
 set(NATIVE_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
@@ -33,8 +33,9 @@ include_directories(
     ${NATIVE_ROOT_PATH}/thirdparty/stb
 )
 
-# build shared library
+# Build shared library.
 add_library(entry SHARED
+    # common
     ${NATIVE_ROOT_PATH}/src/module.cpp
     ${NATIVE_ROOT_PATH}/src/napi_manager.cpp
     ${NATIVE_ROOT_PATH}/src/global.cpp
@@ -51,9 +52,14 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/world/world_plane_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/world/world_render_manager.cpp
 
+    # depth
+    ${NATIVE_ROOT_PATH}/src/depth/depth_ar_application.cpp
+    ${NATIVE_ROOT_PATH}/src/depth/depth_background_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/depth/depth_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/depth/depth_background_no_renderer.cpp
 )
 
-# Link the OpenHarmony native library (using OpenGL)
+# Link the OpenHarmony native library (using OpenGL).
 target_link_libraries(entry PUBLIC
     EGL
     GLESv3
@@ -64,5 +70,7 @@ target_link_libraries(entry PUBLIC
     uv
     ace_napi.z
     rawfile.z
+    pixelmap
+    pixelmap_ndk.z
     ${arengine-lib}
 )

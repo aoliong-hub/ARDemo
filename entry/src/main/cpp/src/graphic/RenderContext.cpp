@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -15,16 +15,9 @@
 
 #include "RenderContext.h"
 
-RenderContext::RenderContext()
-    : m_display(EGL_NO_DISPLAY),
-    m_context(EGL_NO_CONTEXT),
-    m_config(EGL_NO_CONFIG_KHR)
-{
-}
+RenderContext::RenderContext() : m_display(EGL_NO_DISPLAY), m_context(EGL_NO_CONTEXT), m_config(EGL_NO_CONFIG_KHR) {}
 
-RenderContext::~RenderContext()
-{
-}
+RenderContext::~RenderContext() {}
 
 bool RenderContext::Create(RenderContext *sharedContext)
 {
@@ -39,10 +32,10 @@ bool RenderContext::Create(RenderContext *sharedContext)
         LOGE("RenderContext: eglInitialize fail.");
     }
 
-    int attribList[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+    int attribList[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
     m_context = eglCreateContext(m_display, EGL_NO_CONFIG_KHR, sharedContext, attribList);
     if (m_context == nullptr) {
-        LOGE("RenderContext: unable to create egl context");
+        LOGE("RenderContext: unable to create egl context.");
         return false;
     }
 
@@ -52,19 +45,15 @@ bool RenderContext::Create(RenderContext *sharedContext)
     return true;
 }
 
-bool RenderContext::Init()
-{
-    return Create(nullptr);
-}
+bool RenderContext::Init() { return Create(nullptr); }
 
 bool RenderContext::Release()
 {
     if (IsReady()) {
         EGLBoolean ret = eglDestroyContext(m_display, m_context);
-
         if (ret != EGL_TRUE) {
             EGLint error = eglGetError();
-            LOGE("[Render] RenderContext Release Fail 0! Code: %d", error);
+            LOGE("[Render] RenderContext Release Fail 0! Code: %d.", error);
             return false;
         }
 
@@ -74,7 +63,7 @@ bool RenderContext::Release()
     return true;
 }
 
-bool RenderContext::MakeCurrent(const RenderSurface* surface)
+bool RenderContext::MakeCurrent(const RenderSurface *surface)
 {
     if (!IsReady()) {
         LOGE("[Render] MakeCurrent Fail 0!");
@@ -89,7 +78,7 @@ bool RenderContext::MakeCurrent(const RenderSurface* surface)
     EGLBoolean ret = eglMakeCurrent(m_display, rawSurface, rawSurface, m_context);
     if (ret != EGL_TRUE) {
         EGLint error = eglGetError();
-        LOGE("[Render] MakeCurrent Fail 1! Code: %d", error);
+        LOGE("[Render] MakeCurrent Fail 1! Code: %d.", error);
         return false;
     }
 
@@ -106,14 +95,14 @@ bool RenderContext::ReleaseCurrent()
     EGLBoolean ret = eglMakeCurrent(m_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (ret != EGL_TRUE) {
         EGLint error = eglGetError();
-        LOGE("[Render] ReleaseCurrent Fail 1! Code: %d", error);
+        LOGE("[Render] ReleaseCurrent Fail 1! Code: %d.", error);
         return false;
     }
 
     return true;
 }
 
-bool RenderContext::SwapBuffers(const RenderSurface* surface)
+bool RenderContext::SwapBuffers(const RenderSurface *surface)
 {
     if (!IsReady()) {
         LOGE("[Render] SwapBuffer Fail 0!");
@@ -127,9 +116,8 @@ bool RenderContext::SwapBuffers(const RenderSurface* surface)
     EGLBoolean ret = eglSwapBuffers(m_display, rawSurface);
     if (ret != EGL_TRUE) {
         EGLint error = eglGetError();
-        LOGE("[Render] SwapBuffer Fail 1! Code: %d", error);
+        LOGE("[Render] SwapBuffer Fail 1! Code: %d.", error);
         return false;
     }
     return true;
 }
-

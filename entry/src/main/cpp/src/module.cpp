@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -13,9 +13,10 @@
  * limitations under the License.
  */
 
-#include "utils/log.h"
-#include "napi_manager.h"
 #include "global.h"
+#include "napi_manager.h"
+#include "native_common.h"
+#include "utils/log.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,17 +29,18 @@ EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor desc[] = {
-    { "init", nullptr,Global::Init, nullptr, nullptr, nullptr, napi_default, nullptr },
-    { "start", nullptr,NapiManager::NapiOnPageAppear, nullptr, nullptr, nullptr, napi_default, nullptr },
-    { "show", nullptr,NapiManager::NapiOnPageShow, nullptr, nullptr, nullptr, napi_default, nullptr },
-    { "hide", nullptr,NapiManager::NapiOnPageHide, nullptr, nullptr, nullptr, napi_default, nullptr },
-    { "update", nullptr,NapiManager::NapiOnPageUpdate, nullptr, nullptr, nullptr, napi_default, nullptr },
-    { "stop", nullptr,NapiManager::NapiOnPageDisappear, nullptr, nullptr, nullptr, napi_default, nullptr }
+        {"init", nullptr, Global::Init, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"start", nullptr, NapiManager::NapiOnPageAppear, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"show", nullptr, NapiManager::NapiOnPageShow, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"hide", nullptr, NapiManager::NapiOnPageHide, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"update", nullptr, NapiManager::NapiOnPageUpdate, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"stop", nullptr, NapiManager::NapiOnPageDisappear, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getDistance", nullptr, NapiManager::NapiGetDistance, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     NAPI_CALL(env, napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc));
     bool ret = NapiManager::GetInstance()->Export(env, exports);
     if (!ret) {
-        LOGE("modele Init failed");
+        LOGE("Failed to init module.");
     }
     return exports;
 }
@@ -51,16 +53,12 @@ static napi_module appNapiModule = {
     .nm_filename = nullptr,
     .nm_register_func = Init,
     .nm_modname = "entry",
-    .nm_priv = ((void*)0),
-    .reserved = { 0 },
+    .nm_priv = ((void *)0),
+    .reserved = {0},
 };
 
-
 // Module register function
-extern "C" __attribute__((constructor)) void RegisterModule(void)
-{
-    napi_module_register(&appNapiModule);
-}
+extern "C" __attribute__((constructor)) void RegisterEntryModule(void) { napi_module_register(&appNapiModule); }
 
 #ifdef __cplusplus
 }

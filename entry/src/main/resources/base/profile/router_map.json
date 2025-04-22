@@ -1,0 +1,28 @@
+{
+  "routerMap": [
+    {
+      "name": "ARDepth",
+      "pageSourceFile": "src/main/ets/pages/ARDepth.ets",
+      "buildFunction": "ARDepthBuilder",
+      "data": {
+        "description": "This is ARDepth."
+      }
+    },
+    {
+      "name": "ARDepthRender",
+      "pageSourceFile": "src/main/ets/pages/ARDepthRender.ets",
+      "buildFunction": "ARDepthRenderBuilder",
+      "data": {
+        "description": "This is ARDepthRender."
+      }
+    },
+    {
+      "name": "ARWorld",
+      "pageSourceFile": "src/main/ets/pages/ARWorld.ets",
+      "buildFunction": "ARWorldBuilder",
+      "data": {
+        "description": "This is ARWorld."
+      }
+    }
+  ]
+}

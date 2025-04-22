@@ -2,31 +2,31 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "module description"
+      "value": "Module description"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "ArSample"
+      "value": "ARSample"
     },
     {
       "name": "EntryAbility_label",
-      "value": "ArSample"
-    },
-    {
-      "name": "tips",
-      "value": "tips"
+      "value": "ARSample"
     },
     {
       "name": "permission_desc",
       "value": "Camera permission required. Please enable it under Settings > Apps & services."
     },
     {
-      "name": "back",
-      "value": "back"
-    },
-    {
       "name": "alert_desc",
       "value": "Unable to identify the plane due to limited number of feature points. Please move the camera."
+    },
+    {
+      "name": "open_depth_render",
+      "value": "Enable depth rendering"
+    },
+    {
+      "name": "close_depth_render",
+      "value": "Disable depth rendering"
     }
   ]
 }

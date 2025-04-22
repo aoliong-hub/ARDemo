@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -13,49 +13,45 @@
  * limitations under the License.
  */
 
-import UIAbility from '@ohos.app.ability.UIAbility';
+import { window } from '@kit.ArkUI';
+import { ConfigurationConstant, UIAbility } from '@kit.AbilityKit';
 import { Logger } from '../utils/Logger';
-import window from '@ohos.window';
 
 export default class EntryAbility extends UIAbility {
-  onCreate() {
-    Logger.info('Ability onCreate');
+  onCreate(): void {
+    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+    Logger.info('Ability onCreate.');
   }
 
-  onDestroy() {
-    Logger.info('Ability onDestroy');
+  onDestroy(): void {
+    Logger.info('Ability onDestroy.');
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage) {
-    Logger.info(`request Permissions success!`)
-    windowStage.loadContent('pages/Selector', (err, data) => {
+  onWindowStageCreate(windowStage: window.WindowStage): void {
+    // Main window is created, set main page for this ability
+    Logger.info('Ability onWindowStageCreate.');
+
+    windowStage.loadContent('pages/Selector', (err) => {
       if (err.code) {
-        Logger.error('Failed to load the content. Cause: ' + JSON.stringify(err));
+        Logger.error(`Failed to load the content. Code: ${err.code}, message: ${err.message}.`);
         return;
       }
-      Logger.info('Succeeded in loading the content. Data: ' + JSON.stringify(data));
-    });
-    windowStage.getMainWindowSync().setWindowKeepScreenOn(true, (err) => {
-      if (err.code) {
-        Logger.info(`setWindowKeepScreenOn fail, erro:` + JSON.stringify(err));
-        return;
-      }
-      Logger.info(`setWindowKeepScreenOn success!`);
-    });
+      Logger.info('Succeeded in loading the content.');
+    })
   }
 
-  onWindowStageDestroy() {
+  onWindowStageDestroy(): void {
     // Main window is destroyed, release UI related resources
-    Logger.info('Ability onWindowStageDestroy');
+    Logger.info('Ability onWindowStageDestroy.');
   }
 
-  onForeground() {
+  onForeground(): void {
     // Ability has brought to foreground
-    Logger.info('Ability onForeground');
+    Logger.info('Ability onForeground.');
   }
 
-  onBackground() {
+  onBackground(): void {
     // Ability has back to background
-    Logger.info('Ability onBackground');
+    Logger.info('Ability onBackground.');
   }
-};
+}

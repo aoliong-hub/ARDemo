@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -15,9 +15,10 @@
 
 import { resourceManager } from '@kit.LocalizationKit';
 
-export const start:(id:string, params: Int32Array)=>void;
-export const show:(id:string)=>void;
-export const hide:(id:string)=>void;
-export const update:(id:string)=>number;
-export const stop:(id:string)=>void;
-export const init:(resmgr : resourceManager.ResourceManager)=>void;
+export const start: (id: string, params: Int32Array) => void;
+export const show: (id: string) => void;
+export const hide: (id: string) => void;
+export const update: (id: string) => number;
+export const stop: (id: string) => void;
+export const init: (resmgr: resourceManager.ResourceManager) => void;
+export const getDistance: (id: string) => string;

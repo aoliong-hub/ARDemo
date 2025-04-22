@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -17,8 +17,8 @@
 
 GLuint GLUtils::CreateProgram(std::string vert, std::string frag)
 {
-    const char* vertShader = vert.c_str();
-    const char* fragShader = frag.c_str();
+    const char *vertShader = vert.c_str();
+    const char *fragShader = frag.c_str();
     GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertex, 1, &vertShader, NULL);
     glCompileShader(vertex);
@@ -27,7 +27,7 @@ GLuint GLUtils::CreateProgram(std::string vert, std::string frag)
     if (status == GL_FALSE) {
         GLchar message[512];
         glGetShaderInfoLog(vertex, sizeof(message), 0, &message[0]);
-        LOGE("GLUtils: CompileShader: %{public}s", &message[0]);
+        LOGE("GLUtils: CompileShader: %{public}s.", &message[0]);
     }
     GLuint fragment = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragment, 1, &fragShader, NULL);
@@ -36,7 +36,7 @@ GLuint GLUtils::CreateProgram(std::string vert, std::string frag)
     if (status == GL_FALSE) {
         GLchar message[512];
         glGetShaderInfoLog(fragment, sizeof(message), 0, &message[0]);
-        LOGE("GLUtils: CompileShader: %{public}s", &message[0]);
+        LOGE("GLUtils: CompileShader: %{public}s.", &message[0]);
     }
     GLuint program = glCreateProgram();
     glAttachShader(program, vertex);
@@ -46,7 +46,7 @@ GLuint GLUtils::CreateProgram(std::string vert, std::string frag)
     if (!status) {
         GLchar message[512];
         glGetProgramInfoLog(program, 512, NULL, message);
-        LOGE("GLUtils: LinkProgram: %{public}s", &message[0]);
+        LOGE("GLUtils: LinkProgram: %{public}s.", &message[0]);
     }
     glDeleteShader(vertex);
     glDeleteShader(fragment);
@@ -54,15 +54,12 @@ GLuint GLUtils::CreateProgram(std::string vert, std::string frag)
     return program;
 }
 
-void GLUtils::ReleaseProgram(GLuint program)
-{
-    glDeleteProgram(program);
-}
+void GLUtils::ReleaseProgram(GLuint program) { glDeleteProgram(program); }
 
-void GLUtils::CheckError(const std::string& file, int lineNum)
+void GLUtils::CheckError(const std::string &file, int lineNum)
 {
     GLenum error = glGetError();
     if (error != GL_NO_ERROR) {
-        LOGE("GLUtils: [%{public}s:%{public}d] GL Error: %{public}d", file.c_str(), lineNum, error);
+        LOGE("GLUtils: [%{public}s:%{public}d] GL Error: %{public}d.", file.c_str(), lineNum, error);
     }
 }

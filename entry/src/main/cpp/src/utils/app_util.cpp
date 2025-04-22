@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,26 +14,22 @@
  */
 
 #include "app_util.h"
-
+#include "global.h"
+#include "utils/log.h"
 #include <GLES3/gl3.h>
 #include <fstream>
 #include <sstream>
 #include <string>
 
-#include "global.h"
-#include "utils/log.h"
-
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-
-namespace ArWorld {
 
 bool LoadPngFromAssetManager(const std::string &path)
 {
     auto resMgr = Global::mNativeResMgr;
     auto file = OH_ResourceManager_OpenRawFile(resMgr, path.c_str());
     if (file == nullptr) {
-        LOGE("OH_ResourceManager_OpenRawFile(%{public}s) failed", path.c_str());
+        LOGE("Failed to run OH_ResourceManager_OpenRawFile(%{public}s).", path.c_str());
         return false;
     }
     int fileSize = OH_ResourceManager_GetRawFileSize(file);
@@ -43,26 +39,28 @@ bool LoadPngFromAssetManager(const std::string &path)
     do {
         buffer = new (std::nothrow) unsigned char[fileSize];
         if (buffer == nullptr) {
-            LOGE("alloc mem for read rawfile(%{public}s) failed, file size: %d", path.c_str(), fileSize);
+            LOGE("Failed to alloc mem for read rawfile(%{public}s), file size: %d.", path.c_str(), fileSize);
             break;
         }
 
         realReadBytes = OH_ResourceManager_ReadRawFile(file, buffer, fileSize);
-
         if (fileSize != realReadBytes) {
-            LOGE("OH_ResourceManager_ReadRawFile(%{public}s) failed, file size: %{public}d, real read: %{public}d", 
-                    path.c_str(), fileSize, realReadBytes);
+            LOGE("Failed to run OH_ResourceManager_ReadRawFile(%{public}s), file size: %{public}d, "
+                 "real read: %{public}d.", path.c_str(), fileSize, realReadBytes);
             break;
         }
-        
-        int w, h, channels, align;
-        unsigned char* img = stbi_load_from_memory(buffer, fileSize, &w, &h, &channels, 4);
-        LOGE("LoadPngFromAssetManager wh = %{public}d %{public}d", w, h);
+
+        int w;
+        int h;
+        int channels;
+        int align;
+        unsigned char *img = stbi_load_from_memory(buffer, fileSize, &w, &h, &channels, 4);
+        LOGE("LoadPngFromAssetManager wh = %{public}d %{public}d.", w, h);
         glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
         if (img) {
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, (const void*)img);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, (const void *)img);
         }
         glPixelStorei(GL_UNPACK_ALIGNMENT, align);
         stbi_image_free(img);
@@ -155,11 +153,8 @@ static bool ParseVertex(char lineHeader[], std::vector<GLfloat> &tempPositions)
     return true;
 }
 
-static bool WriteOneNormalAndVertValues(FileData fileData,
-                                        unsigned int vertexIndex[],
-                                        unsigned int normalIndex[],
-                                        unsigned int textureIndex[],
-                                        bool isNormalAndUvAvailable[])
+static bool WriteOneNormalAndVertValues(FileData fileData, unsigned int vertexIndex[], unsigned int normalIndex[],
+                                        unsigned int textureIndex[], bool isNormalAndUvAvailable[])
 {
     // Char* for call system API.
     char *perVertInfo;
@@ -172,38 +167,38 @@ static bool WriteOneNormalAndVertValues(FileData fileData,
     while (flag) {
         // Write only normal and vertical values.
         switch (perVertInforCount) {
-            case 0: // The vertex index is the first write in turn.
-                // Write the vertex index.
-                vertexIndex[fileData.i] = atoi(perVertInfo);  // NOLINT
+        case 0: // The vertex index is the first write in turn.
+            // Write the vertex index.
+            vertexIndex[fileData.i] = atoi(perVertInfo); // NOLINT
+            break;
+        case 1: // Write sequentially, the texture index will be written the second time.
+            // Write the texture index.
+            if (isVertexNormalOnlyFace) {
+                normalIndex[fileData.i] = atoi(perVertInfo); // NOLINT
+                isNormalAndUvAvailable[0] = true;
+            } else {
+                textureIndex[fileData.i] = atoi(perVertInfo); // NOLINT
+                isNormalAndUvAvailable[1] = true;
+            }
+            break;
+            // Whether to write a normal index.
+        case 2: // Cyclic write: normal index write for the third time.
+            // Write a common index.
+            if (!isVertexNormalOnlyFace) {
+                normalIndex[fileData.i] = atoi(perVertInfo); // NOLINT
+                isNormalAndUvAvailable[0] = true;
                 break;
-            case 1: // Write sequentially, the texture index will be written the second time.
-                // Write the texture index.
-                if (isVertexNormalOnlyFace) {
-                    normalIndex[fileData.i] = atoi(perVertInfo);  // NOLINT
-                    isNormalAndUvAvailable[0] = true;
-                } else {
-                    textureIndex[fileData.i] = atoi(perVertInfo);  // NOLINT
-                    isNormalAndUvAvailable[1] = true;
-                }
-                break;
-                // Whether to write a normal index.
-            case 2: // Cyclic write: normal index write for the third time.
-                // Write a common index.
-                if (!isVertexNormalOnlyFace) {
-                    normalIndex[fileData.i] = atoi(perVertInfo);  // NOLINT
-                    isNormalAndUvAvailable[0] = true;
-                    break;
-                }
+            }
 
-                // Deliberately falling into the default error condition due to the vertices,
-                // the normal plane has only two values.
-            default:
-                // The format is incorrect.
-                LOGE("Format of 'f int/int/int int/int/int int/int/int "
-                     "(int/int/int)' "
-                     "or 'f int//int int//int int//int (int//int)' required for "
-                     "each face");
-                return false;
+            // Deliberately falling into the default error condition due to the vertices,
+            // the normal plane has only two values.
+        default:
+            // The format is incorrect.
+            LOGE("Format of 'f int/int/int int/int/int int/int/int "
+                 "(int/int/int)' "
+                 "or 'f int//int int//int int//int (int//int)' required for "
+                 "each face.");
+            return false;
         }
         perVertInforCount++;
         flag = perVertInfo = strtok_r(perVertInfoIter, "/", &perVertInfoIter);
@@ -211,32 +206,27 @@ static bool WriteOneNormalAndVertValues(FileData fileData,
     return true;
 }
 
-static bool WriteNormalAndVertexValues(std::vector<char *> perVertexInfoList,
-                                       unsigned int vertexIndex[],
-                                       unsigned int normalIndex[],
-                                       unsigned int textureIndex[],
+static bool WriteNormalAndVertexValues(std::vector<char *> perVertexInfoList, unsigned int vertexIndex[],
+                                       unsigned int normalIndex[], unsigned int textureIndex[],
                                        bool isNormalAndUvAvailable[])
 {
     for (int i = 0; i < perVertexInfoList.size(); ++i) {
         FileData fileData;
         fileData.perVertInfoList = perVertexInfoList;
         fileData.i = i;
-        if (!WriteOneNormalAndVertValues(
-            fileData, vertexIndex, normalIndex, textureIndex, isNormalAndUvAvailable)) {
+        if (!WriteOneNormalAndVertValues(fileData, vertexIndex, normalIndex, textureIndex, isNormalAndUvAvailable)) {
             return false;
         }
     }
     return true;
 }
 
-static bool WriteIndex(char &input,
-                       std::vector<GLushort> &vertexIndices,
-                       std::vector<GLushort> &normalIndices,
+static bool WriteIndex(char &input, std::vector<GLushort> &vertexIndices, std::vector<GLushort> &normalIndices,
                        std::vector<GLushort> &uvIndices)
 {
     // The actual face information starts from the second digit.
-    unsigned int vertexIndex[4] = {}; // The dimension of the coordinate is 4(xyzw).
-    unsigned int normalIndex[4] = {}; // The dimension of normal vector is 4.
+    unsigned int vertexIndex[4] = {};  // The dimension of the coordinate is 4(xyzw).
+    unsigned int normalIndex[4] = {};  // The dimension of normal vector is 4.
     unsigned int textureIndex[4] = {}; // The dimension of texture is 4.
 
     std::vector<char *> perVertInfoList;
@@ -253,8 +243,7 @@ static bool WriteIndex(char &input,
     // Input variable of the WriteNormalAndVertValues method.
     bool isNormalAndUvAvailable[2] = {isNormalAvailable, isUvAvailable};
 
-    if (!WriteNormalAndVertexValues(
-        perVertInfoList, vertexIndex, normalIndex, textureIndex, isNormalAndUvAvailable)) {
+    if (!WriteNormalAndVertexValues(perVertInfoList, vertexIndex, normalIndex, textureIndex, isNormalAndUvAvailable)) {
         return false;
     }
     int verticesCount = perVertInfoList.size();
@@ -276,10 +265,8 @@ static bool WriteIndex(char &input,
     return true;
 }
 
-static bool WriteDrawOutData(DrawTempData drawTempData,
-                             std::vector<GLfloat> &outVertices,
-                             std::vector<GLfloat> &outNormals,
-                             std::vector<GLfloat> &outUv,
+static bool WriteDrawOutData(DrawTempData drawTempData, std::vector<GLfloat> &outVertices,
+                             std::vector<GLfloat> &outNormals, std::vector<GLfloat> &outUv,
                              std::vector<GLushort> &outIndices)
 {
     bool isNormalAvailable = (!drawTempData.normalIndices.empty());
@@ -317,18 +304,15 @@ static bool WriteDrawOutData(DrawTempData drawTempData,
     return true;
 }
 
-bool LoadObjFile(FileInfor fileInfor,
-                 std::vector<GLfloat> &outVertices,
-                 std::vector<GLfloat> &outNormals,
-                 std::vector<GLfloat> &outUv,
-                 std::vector<GLushort> &outIndices)
+bool LoadObjFile(FileInfor fileInfor, std::vector<GLfloat> &outVertices, std::vector<GLfloat> &outNormals,
+                 std::vector<GLfloat> &outUv, std::vector<GLushort> &outIndices)
 {
     std::string file_buffer;
     std::string path = fileInfor.fileName;
     auto resMgr = Global::mNativeResMgr;
     auto file = OH_ResourceManager_OpenRawFile(resMgr, path.c_str());
     if (file == nullptr) {
-        LOGE("OH_ResourceManager_OpenRawFile(%{public}s) failed", path.c_str());
+        LOGE("Failed to run OH_ResourceManager_OpenRawFile(%{public}s).", path.c_str());
         return false;
     }
     int fileSize = OH_ResourceManager_GetRawFileSize(file);
@@ -337,22 +321,23 @@ bool LoadObjFile(FileInfor fileInfor,
     do {
         buffer = new (std::nothrow) unsigned char[fileSize + 1];
         if (buffer == nullptr) {
-            LOGE("alloc mem for read rawfile(%{public}s) failed, file size: %{public}d", path.c_str(), fileSize);
+            LOGE("Failed to alloc mem for read rawfile(%{public}s), file size: %{public}d.", path.c_str(), fileSize);
             break;
         }
         realReadBytes = OH_ResourceManager_ReadRawFile(file, buffer, fileSize);
         if (fileSize != realReadBytes) {
-            LOGE("OH_ResourceManager_ReadRawFile(%{public}s) failed, file size: %{public}d, real read: %{public}d",
-                 path.c_str(), fileSize, realReadBytes);
+            LOGE("Failed to run OH_ResourceManager_ReadRawFile(%{public}s), file size: %{public}d, "
+                 "real read: %{public}d.", path.c_str(), fileSize, realReadBytes);
             break;
         }
         buffer[fileSize] = 0;
-        file_buffer = std::string(reinterpret_cast<char*>(buffer));
+        file_buffer = std::string(reinterpret_cast<char *>(buffer));
     } while (false);
     delete[] buffer;
     OH_ResourceManager_CloseRawFile(file);
 
-    LOGE("LoadObjFile str = %{public}d %{public}lu %{public}s", fileSize, file_buffer.length(), file_buffer.substr(0, 20).c_str());
+    LOGE("LoadObjFile str = %{public}d %{public}lu %{public}s.", fileSize, file_buffer.length(),
+         file_buffer.substr(0, 20).c_str());
 
     std::stringstream fileStringStream(file_buffer);
     DrawTempData drawTempData;
@@ -373,17 +358,29 @@ bool LoadObjFile(FileInfor fileInfor,
                 return false;
             }
         } else if (line_header[0] == 'f') {
-            if (!WriteIndex(
-                line_header[1], drawTempData.vertexIndices,
-                drawTempData.normalIndices, drawTempData.uvIndices)) {
+            if (!WriteIndex(line_header[1], drawTempData.vertexIndices, 
+                            drawTempData.normalIndices, drawTempData.uvIndices)) {
                 return false;
             }
         }
     }
-    if (!WriteDrawOutData(drawTempData, outVertices, outNormals, outUv, outIndices)) {
+
+    if (!WriteDrawOutData(drawTempData, outVertices, outNormals, outUv, 
+                          outIndices)) {
         return false;
     }
+
     return true;
 }
 
+void WriteBin(const char *path, uint8_t *data, int32_t size)
+{
+    std::ofstream ofs;
+    ofs.open(path, std::ifstream::binary | std::ofstream::trunc);
+    if (!ofs.is_open()) {
+        LOGE("Failed to open in WriteBin.");
+        return;
+    }
+    ofs.write(reinterpret_cast<const char *>(data), size);
+    ofs.close();
 }

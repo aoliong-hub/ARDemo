@@ -1,7 +1,5 @@
 {
   "src": [
-    "pages/Selector",
-    "pages/ArWorld"
-
+    "pages/Selector"
   ]
 }

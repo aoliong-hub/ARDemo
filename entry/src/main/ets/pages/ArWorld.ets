@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -13,71 +13,90 @@
  * limitations under the License.
  */
 
-import { Logger } from '../utils/Logger';
-import arEngineDemo from 'libentry.so'
-import { resourceManager } from '@kit.LocalizationKit';
-import { display, promptAction } from '@kit.ArkUI';
+import { PromptAction } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
+import { resourceManager } from '@kit.LocalizationKit';
+import arEngineDemo from 'libentry.so';
 
-@Entry
+@Builder
+export function ARWorldBuilder() {
+  ARWorld();
+}
+
 @Component
-struct ArWorld {
-  private xcomponentId = 'ArWorld';
-  private resMgr: resourceManager.ResourceManager = getContext(this).resourceManager;
+struct ARWorld {
+  pageInfos: NavPathStack = new NavPathStack();
+  private currentMillisecond: number = 0;
   private interval: number = -1;
   private isUpdate: boolean = true;
+  private xComponentId = 'ARWorld';
+  @State context: Context = this.getUIContext().getHostContext() as Context;
+  private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State numberOfPlans: number = 0;
-  private currentMillisecond = 0;
-  @State showPage: boolean = true;
-  @State rotation: number = deviceInfo.deviceType == "tablet"?3:0;
+  @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
 
-  aboutToAppear() {
-    Logger.debug('aboutToAppear ' + this.xcomponentId);
-    arEngineDemo.init(this.resMgr);
-    let config = new Int32Array([0,this.rotation]);
-    arEngineDemo.start(this.xcomponentId,config);
-    // Applicable to foldable screens.
-    display.on("foldStatusChange", (foldStatus: display.FoldStatus) => {
-      if (foldStatus === display.FoldStatus.FOLD_STATUS_HALF_FOLDED) {
-        this.showPage = false;
-        // Delay display by two frames after folding.
-        setTimeout(()=>{
-          this.showPage = true;
-        },66)
+  build(): void {
+    NavDestination() {
+      RelativeContainer() {
+        XComponent({ id: this.xComponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
+          .width('100%')
+          .height('100%')
+          .alignRules({
+            center: { anchor: '__container__', align: VerticalAlign.Center },
+            middle: { anchor: '__container__', align: HorizontalAlign.Center }
+          })
+          .onLoad(() => {
+            this.interval = setInterval(() => {
+              if (this.isUpdate) {
+                // Call the update Native API to update the calculation result of each frame by AR Engine.
+                this.numberOfPlans = arEngineDemo.update(this.xComponentId);
+                this.planeNum();
+              }
+            }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
+          })
+          .onDestroy(() => {
+            clearInterval(this.interval);
+          })
       }
+    }
+    .onAppear(() => {
+      arEngineDemo.init(this.resMgr);
+      let config: Int32Array = new Int32Array([1, this.rotation]);
+      arEngineDemo.start(this.xComponentId, config);
     })
+    .onWillDisappear(() => {
+      arEngineDemo.stop(this.xComponentId);
+    })
+    .onShown(() => {
+      this.isUpdate = true;
+      arEngineDemo.show(this.xComponentId);
+    })
+    .onHidden(() => {
+      this.isUpdate = false;
+      arEngineDemo.hide(this.xComponentId);
+    })
+    .onReady((context: NavDestinationContext) => {
+      this.pageInfos = context.pathStack;
+    })
+    .hideTitleBar(true)
+    .hideBackButton(true)
+    .hideToolBar(true)
   }
 
-  aboutToDisappear() {
-    Logger.debug('aboutToDisappear ' + this.xcomponentId);
-    arEngineDemo.stop(this.xcomponentId);
-  }
-
-  onPageShow() {
-    this.isUpdate = true;
-    Logger.debug('onPageShow ' + this.xcomponentId);
-    arEngineDemo.show(this.xcomponentId);
-  }
-
-  onPageHide() {
-    Logger.debug('onPageHide ' + this.xcomponentId);
-    this.isUpdate = false;
-    arEngineDemo.hide(this.xcomponentId);
-  }
-
-  messageNotification() {
+  private messageNotification(): void {
+    let promptAction: PromptAction = this.getUIContext().getPromptAction();
     promptAction.showToast({
       message: $r('app.string.alert_desc'),
       bottom: 300
     })
   }
 
-  planeNum() {
+  private planeNum(): void {
     if (this.numberOfPlans < 1) {
       // The number of planes is less than 1.
       let tempMillisecond: number = new Date().getTime();
       // Assign a value to the time when the feature is started for the first time.
-      if (this.currentMillisecond == 0) {
+      if (this.currentMillisecond === 0) {
         this.currentMillisecond = tempMillisecond;
         return;
       }
@@ -90,39 +109,4 @@ struct ArWorld {
       this.currentMillisecond = 0;
     }
   }
-
-  build() {
-    if (this.showPage) {
-      Column() {
-        XComponent({ id: this.xcomponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
-          .onLoad(() => {
-            Logger.debug('XComponent onLoad ' + this.xcomponentId);
-            this.interval = setInterval(() => {
-              if (this.isUpdate) {
-                // Call the update Native API to update the calculation result of each frame by AR Engine.
-                this.numberOfPlans = arEngineDemo.update(this.xcomponentId);
-                this.planeNum()
-              }
-            }, 33); // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
-          })
-          .width('100%')
-          .height('100%')
-          .onDestroy(() => {
-            Logger.debug('XComponent onDestroy ' + this.xcomponentId);
-            clearInterval(this.interval);
-          })
-          .backgroundColor(Color.White)
-      }
-      .justifyContent(FlexAlign.SpaceAround)
-      .alignItems(HorizontalAlign.Center)
-      .backgroundColor(Color.White)
-      .borderRadius(24)
-      .width('100%')
-      .height('100%')
-    } else {
-      Stack().align(Alignment.Center).height('100%').width('100%').backgroundColor(Color.Black)
-    }
-  }
 }
-
-

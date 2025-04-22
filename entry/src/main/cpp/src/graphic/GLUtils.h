@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -18,14 +18,14 @@
 
 #include "RenderHeader.h"
 
-class GLUtils
-{
+class GLUtils {
 public:
     static GLuint CreateProgram(std::string vert, std::string frag);
-    
+
     static void ReleaseProgram(GLuint program);
-    
-    static void CheckError(const std::string& file, int lineNum);
+
+    static void CheckError(const std::string &file, int lineNum);
+
 };
 
-#endif //GLUTILS_H
+#endif // GLUTILS_H

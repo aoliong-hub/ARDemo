@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -13,114 +13,71 @@
  * limitations under the License.
  */
 
-import { Logger } from '../utils/Logger';
-import { router, window } from '@kit.ArkUI';
 import { abilityAccessCtrl, PermissionRequestResult } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { promptAction } from '@kit.ArkUI';
+import { Logger } from '../utils/Logger';
+import { requestPermissionOnSetting } from '../utils/Utils';
 
-function showDialog(context: Context)
-{
-  try {
-    promptAction.showDialog({
-      isModal: true,
-      title: $r('app.string.tips'),
-      message: $r('app.string.permission_desc'),
-      buttons: [
-        {
-          text: $r('app.string.back'),
-          color: '#000000'
-        }
-      ],
-    }).then(data => {
-        if (data.index === 0) {
-          let applicationContext = context.getApplicationContext();
-          applicationContext.killAllProcesses();
-        }
-        console.info('showDialog success, click button: ' + data.index);
-      })
-      .catch((err:Error) => {
-        console.info('showDialog error: ' + err);
-      })
-  } catch (error) {
-    let message = (error as BusinessError).message;
-    let code = (error as BusinessError).code;
-    console.error(`showDialog args error code is ${code}, message is ${message}`);
-  };
-}
 @Entry
 @Component
 struct Selector {
+  pageInfos: NavPathStack = new NavPathStack();
   private hasPermission: boolean = false;
+  @State context: Context = this.getUIContext().getHostContext() as Context;
 
-  aboutToAppear() {
-    Logger.debug('aboutToAppear');
-    abilityAccessCtrl.createAtManager().requestPermissionsFromUser(getContext(this), [
+  aboutToAppear(): void {
+    abilityAccessCtrl.createAtManager().requestPermissionsFromUser(this.context, [
       'ohos.permission.CAMERA'
     ]).then((data: PermissionRequestResult) => {
-      let grantStatus: Array<number> = data.authResults;
+      let grantStatus: number[] = data.authResults;
       let length: number = grantStatus.length;
       for (let i = 0; i < length; i++) {
         if (grantStatus[i] === 0) {
           this.hasPermission = true;
-          Logger.info('requestPermission success');
+          Logger.info('Succeeded in getting requestPermission.');
         } else {
-          // If the user refuses to grant the authorization, display a message indicating that user authorization is required, and direct the user to set the permission in system Settings.
           this.hasPermission = false;
-          showDialog(getContext(this));
-          Logger.error('requestPermission user rejected')
+          Logger.error('Failed to get requestPermission, user rejected.');
           return;
         }
       }
-      Logger.info('requestPermission success');
+      Logger.info('Succeeded in getting requestPermission.');
     }).catch((err: BusinessError) => {
-      Logger.error(`Failed to request permissions from user. Code is ${err.code}, message is ${err.message}`)
+      Logger.error(`Failed to request permissions from user. Code is ${err.code}, message is ${err.message}.`);
     })
   }
 
-  onPageShow(): void {
-    this.setOrientation();
-  }
-
-  setOrientation() {
-    try {
-      window.getLastWindow(getContext(this), (err, data) => {
-        if (err.code) {
-          return;
-        }
-        let windowClass = data;
-        let orientation =  window.Orientation.LOCKED;
-        try {
-          windowClass.setPreferredOrientation(orientation, (err) => {
-            if (err.code) {
-              return;
-            }
-          });
-        } catch (exception) {
-          Logger.error('Failed to set window orientation. Cause: ' + JSON.stringify(exception));
-        };
-      });
-    } catch (exception) {
-      Logger.error('Failed to obtain the top window. Cause: ' + JSON.stringify(exception));
+  build(): void {
+    Navigation(this.pageInfos) {
+      Column() {
+        this.sampleButton('ARWorld')
+        this.sampleButton('ARDepth')
+      }
+      .justifyContent(FlexAlign.SpaceEvenly)
+      .width('100%')
+      .height('100%')
     }
+    .mode(NavigationMode.Stack)
+    .hideTitleBar(true)
+    .hideBackButton(true)
+    .hideToolBar(true)
   }
 
-  build() {
-    Column() {
-      Button('ArWorld', { type: ButtonType.Normal, stateEffect: true })
-        .borderRadius(8)
-        .width('50%')
-        .height('5%')
-        .onClick(()=>{
+  @Builder
+  sampleButton(sampleName: string) {
+    Button(sampleName, { type: ButtonType.Normal, stateEffect: true })
+      .borderRadius(8)
+      .width('50%')
+      .height('5%')
+      .onClick(async () => {
+        if (!this.hasPermission) {
+          this.hasPermission = await requestPermissionOnSetting(this.context);
           if (!this.hasPermission) {
-            showDialog(getContext(this))
-            return
+            return;
           }
-          router.pushUrl({'url':'pages/ArWorld'})
-        })
-    }
-    .justifyContent(FlexAlign.SpaceEvenly)
-    .width('100%')
-    .height('100%')
+        }
+        this.pageInfos.clear();
+        this.pageInfos.pushDestinationByName(sampleName, null);
+      })
   }
 }

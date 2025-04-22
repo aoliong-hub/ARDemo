@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,30 +16,30 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 class LoggerModel {
-  private domain: number
-  private prefix: string
-  private format: string = '%{public}s'
+  private domain: number;
+  private prefix: string;
+  private format: string = '%{public}s';
 
   constructor(prefix: string) {
-    this.prefix = prefix
-    this.domain = 0xFF00
+    this.prefix = prefix;
+    this.domain = 0xFF00;
   }
 
-  debug(...args: string[]) {
-    hilog.debug(this.domain, this.prefix, this.format, args)
+  debug(...args: string[]): void {
+    hilog.debug(this.domain, this.prefix, this.format, args);
   }
 
-  info(...args: string[]) {
-    hilog.info(this.domain, this.prefix, this.format, args)
+  info(...args: string[]): void {
+    hilog.info(this.domain, this.prefix, this.format, args);
   }
 
-  warn(...args: string[]) {
-    hilog.warn(this.domain, this.prefix, this.format, args)
+  warn(...args: string[]): void {
+    hilog.warn(this.domain, this.prefix, this.format, args);
   }
 
-  error(...args: string[]) {
-    hilog.error(this.domain, this.prefix, this.format, args)
+  error(...args: string[]): void {
+    hilog.error(this.domain, this.prefix, this.format, args);
   }
 }
 
-export let Logger = new LoggerModel('[ArDemo][Js]')
+export let Logger = new LoggerModel('[ARSample][Js]');

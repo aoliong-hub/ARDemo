@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,26 +16,23 @@
 #ifndef RENDERSURFACE_H
 #define RENDERSURFACE_H
 
+#include "RenderAttribute.h"
 #include "RenderHeader.h"
 #include "RenderObject.h"
-#include "RenderAttribute.h"
 
 class RenderSurface : public RenderObject {
 public:
-    enum class SurfaceType {
-        SURFACE_TYPE_NULL,
-        SURFACE_TYPE_ON_SCREEN,
-        SURFACE_TYPE_OFF_SCREEN
-    };
+    enum class SurfaceType { SURFACE_TYPE_NULL, SURFACE_TYPE_ON_SCREEN, SURFACE_TYPE_OFF_SCREEN };
 
     RenderSurface();
     ~RenderSurface() override;
-    
-    virtual bool Create(void* window);
+
+    virtual bool Create(void *window);
     virtual bool Init() override;
     virtual bool Release() override;
 
-    void* GetRawSurface() const;
+    void *GetRawSurface() const;
+
 private:
     EGLDisplay m_display;
     EGLConfig m_config;
@@ -43,6 +40,5 @@ private:
     RenderAttribute m_attribute;
     SurfaceType m_surfaceType;
 };
-
 
 #endif // RENDERSURFACE_H

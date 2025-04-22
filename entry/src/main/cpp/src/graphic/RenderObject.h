@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -20,14 +20,11 @@
 
 class RenderObject {
 public:
-    explicit RenderObject()
-        : m_isReady(false)
-    {
-    }
+    explicit RenderObject() : m_isReady(false) {}
     virtual ~RenderObject()
     {
         if (m_isReady) {
-            LOGE("Destructor called without Release()! %s", m_tag.c_str());
+            LOGE("Destructor called without Release()! %s.", m_tag.c_str());
         }
     }
 
@@ -36,10 +33,7 @@ public:
 
     bool IsReady() { return m_isReady; }
 
-    void SetReady(bool flag)
-    {
-        m_isReady = flag;
-    }
+    void SetReady(bool flag) { m_isReady = flag; }
 
 private:
     bool m_isReady;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -13,13 +13,15 @@
  * limitations under the License.
  */
 
-#include <cstdint>
-#include <string>
-#include <cstdio>
-
-#include "utils/log.h"
 #include "napi_manager.h"
+#include "depth/depth_ar_application.h"
+#include "utils/log.h"
 #include "world/world_ar_application.h"
+#include <cstdint>
+#include <cstdio>
+#include <iomanip>
+#include <sstream>
+#include <string>
 
 enum class ContextType {
     APP_LIFECYCLE = 0,
@@ -28,7 +30,8 @@ enum class ContextType {
 
 NapiManager NapiManager::manager_;
 
-void NapiManager::OnSurfaceCreatedCB(OH_NativeXComponent *component, void *window) {
+void NapiManager::OnSurfaceCreatedCB(OH_NativeXComponent *component, void *window)
+{
     LOGD("OnSurfaceCreatedCB");
     int32_t ret;
     char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
@@ -43,7 +46,8 @@ void NapiManager::OnSurfaceCreatedCB(OH_NativeXComponent *component, void *windo
     app->OnSurfaceCreated(component, window);
 }
 
-void NapiManager::OnSurfaceChangedCB(OH_NativeXComponent *component, void *window) {
+void NapiManager::OnSurfaceChangedCB(OH_NativeXComponent *component, void *window)
+{
     int32_t ret;
     char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
     uint64_t idSize = OH_XCOMPONENT_ID_LEN_MAX + 1;
@@ -57,7 +61,8 @@ void NapiManager::OnSurfaceChangedCB(OH_NativeXComponent *component, void *windo
     app->OnSurfaceChanged(component, window);
 }
 
-void NapiManager::OnSurfaceDestroyedCB(OH_NativeXComponent *component, void *window) {
+void NapiManager::OnSurfaceDestroyedCB(OH_NativeXComponent *component, void *window)
+{
     int32_t ret;
     char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
     uint64_t idSize = OH_XCOMPONENT_ID_LEN_MAX + 1;
@@ -71,7 +76,8 @@ void NapiManager::OnSurfaceDestroyedCB(OH_NativeXComponent *component, void *win
     app->OnSurfaceDestroyed(component, window);
 }
 
-void NapiManager::DispatchTouchEventCB(OH_NativeXComponent *component, void *window) {
+void NapiManager::DispatchTouchEventCB(OH_NativeXComponent *component, void *window)
+{
     LOGD("DispatchTouchEventCB");
     int32_t ret;
     char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
@@ -85,7 +91,8 @@ void NapiManager::DispatchTouchEventCB(OH_NativeXComponent *component, void *win
     app->DispatchTouchEvent(component, window);
 }
 
-void NapiManager::DispatchMouseEventCB(OH_NativeXComponent *component, void *window) {
+void NapiManager::DispatchMouseEventCB(OH_NativeXComponent *component, void *window)
+{
     LOGD("DispatchMouseEventCB");
     int32_t ret;
     char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
@@ -114,41 +121,41 @@ bool NapiManager::Export(napi_env env, napi_value exports)
     napi_value exportInstance = nullptr;
     OH_NativeXComponent *nativeXComponent = nullptr;
     int32_t ret;
-    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = { };
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
     uint64_t idSize = OH_XCOMPONENT_ID_LEN_MAX + 1;
 
     status = napi_get_named_property(env, exports, OH_NATIVE_XCOMPONENT_OBJ, &exportInstance);
     if (status != napi_ok) {
-        LOGE("NapiManager::Export fail 0");
+        LOGE("NapiManager::Export fail 0.");
         return false;
     }
 
-    status = napi_unwrap(env, exportInstance, reinterpret_cast<void**>(&nativeXComponent));
+    status = napi_unwrap(env, exportInstance, reinterpret_cast<void **>(&nativeXComponent));
     if (status != napi_ok) {
-        LOGE("NapiManager::Export fail 1: %{public}d", status);
+        LOGE("NapiManager::Export fail 1: %{public}d.", status);
         return false;
     }
 
     ret = OH_NativeXComponent_GetXComponentId(nativeXComponent, idStr, &idSize);
     if (ret != OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
-        LOGE("NapiManager::Export fail 2");
+        LOGE("NapiManager::Export fail 2.");
         return false;
     }
 
     std::string id(idStr);
-    NapiManager* context = NapiManager::GetInstance();
+    NapiManager *context = NapiManager::GetInstance();
     if (context == nullptr) {
-        LOGE("NapiManager::Export fail 3");
+        LOGE("NapiManager::Export fail 3.");
         return false;
     }
-    
+
     context->SetNativeXComponent(id, nativeXComponent);
-    auto app = context->GetApp(id);
-    
+    context->GetApp(id);
+
     return true;
 }
 
-void NapiManager::SetNativeXComponent(std::string& id, OH_NativeXComponent* nativeXComponent)
+void NapiManager::SetNativeXComponent(std::string &id, OH_NativeXComponent *nativeXComponent)
 {
     LOGD("NapiManager::SetNativeXComponent");
     if (nativeXComponentMap_.find(id) == nativeXComponentMap_.end() || nativeXComponentMap_[id] != nativeXComponent) {
@@ -158,10 +165,10 @@ void NapiManager::SetNativeXComponent(std::string& id, OH_NativeXComponent* nati
     }
 }
 
-AppNapi* NapiManager::GetApp(std::string& id)
+AppNapi *NapiManager::GetApp(std::string &id)
 {
     if (appNapiMap_.find(id) == appNapiMap_.end()) {
-        AppNapi* instance = CreateApp(id);
+        AppNapi *instance = CreateApp(id);
         appNapiMap_[id] = instance;
         return instance;
     } else {
@@ -169,7 +176,7 @@ AppNapi* NapiManager::GetApp(std::string& id)
     }
 }
 
-napi_value NapiManager::NapiOnPageAppear(napi_env env, napi_callback_info info) 
+napi_value NapiManager::NapiOnPageAppear(napi_env env, napi_callback_info info)
 {
     LOGD("NapiManager::NapiOnPageAppear");
 
@@ -182,16 +189,17 @@ napi_value NapiManager::NapiOnPageAppear(napi_env env, napi_callback_info info)
     size_t resultSize = 0;
     napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
     std::string id(idStr);
-    // Get the incoming array typedarray to generate input_buffer.
-    napi_typedarray_type type; // 数据类型
+
+    // Get the incoming array typedarray to generate input_buffer
+    napi_typedarray_type type; // data type
     napi_value input_buffer;
-    size_t byte_offset; // 数据偏移
-    size_t i, length;   // 数据字节大小
+    size_t byte_offset; // data offset
+    size_t length;
     napi_get_typedarray_info(env, args[1], &type, &length, NULL, &input_buffer, &byte_offset);
 
     AppNapi::ConfigParams params{};
     if (type == napi_int32_array) {
-        // 获取数组数据
+        // Get array data
         void *data;
         size_t byte_length;
         napi_get_arraybuffer_info(env, input_buffer, &data, &byte_length);
@@ -200,7 +208,9 @@ napi_value NapiManager::NapiOnPageAppear(napi_env env, napi_callback_info info)
         for (int32_t i = 0; i + 1 < num; i += 2) {
             int32_t key = *(data_bytes + i);
             int32_t value = *(data_bytes + i + 1);
-            if (key == AppNapi::ROTATION) {
+            if (key == AppNapi::DEPTH_RENDER_MODE) {
+                params.depthRenderMode = value;
+            } else if (key == AppNapi::ROTATION) {
                 params.rotation = value;
             }
         }
@@ -226,7 +236,7 @@ napi_value NapiManager::NapiOnPageShow(napi_env env, napi_callback_info info)
     std::string id(idStr);
     AppNapi *app = NapiManager::GetInstance()->GetApp(id);
     app->OnResume();
-    
+
     return nullptr;
 }
 
@@ -237,15 +247,15 @@ napi_value NapiManager::NapiOnPageHide(napi_env env, napi_callback_info info)
     size_t argc = 1;
     napi_value args[1] = {nullptr};
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-    
+
     char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
     size_t resultSize = 0;
     napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
-    
+
     std::string id(idStr);
     AppNapi *app = NapiManager::GetInstance()->GetApp(id);
     app->OnPause();
-    
+
     return nullptr;
 }
 
@@ -264,16 +274,17 @@ napi_value NapiManager::NapiOnPageUpdate(napi_env env, napi_callback_info info)
     std::string id(idStr);
     AppNapi *app = NapiManager::GetInstance()->GetApp(id);
     app->OnUpdate();
-    if (id == std::string("ArWorld")) {
+    if (id == std::string("ARWorld")) {
         napi_value res;
-        napi_create_int32(env, ArWorld::WorldRenderManager::mPlaneCount, &res);
+        napi_create_int32(env, ARWorld::WorldRenderManager::mPlaneCount, &res);
         return res;
     }
 
     return nullptr;
 }
 
-napi_value NapiManager::NapiOnPageDisappear(napi_env env, napi_callback_info info) {
+napi_value NapiManager::NapiOnPageDisappear(napi_env env, napi_callback_info info)
+{
     LOGD("NapiManager::NapiOnPageDisappear");
 
     size_t argc = 1;
@@ -291,10 +302,41 @@ napi_value NapiManager::NapiOnPageDisappear(napi_env env, napi_callback_info inf
     return nullptr;
 }
 
+napi_value NapiManager::NapiGetDistance(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiGetCameraPose");
+
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+
+    std::string id(idStr);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    std::string distance = app->GetDistance();
+
+    std::ostringstream distanceString;
+    distanceString << std::setiosflags(std::ios::fixed) << std::setiosflags(std::ios::right) << std::setprecision(4)
+                   << distance << std::endl;
+
+    napi_value ret = nullptr;
+    std::string result = distanceString.str();
+    napi_create_string_utf8(env, result.c_str(), result.length(), &ret);
+
+    return ret;
+}
+
 // Create a service implementation class based on the service ID.
-AppNapi *NapiManager::CreateApp(std::string &id) {
-    if (id == std::string("ArWorld")) {
-        return new ArWorld::ArWorldApp(id);
+AppNapi *NapiManager::CreateApp(std::string &id)
+{
+    if (id == std::string("ARWorld")) {
+        return new ARWorld::ARWorldApp(id);
+    }
+    if (id == std::string("ARDepth")) {
+        return new ARDepth::ARDepthApp(id);
     }
     return nullptr;
 }

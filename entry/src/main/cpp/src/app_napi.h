@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,13 +16,14 @@
 #ifndef APP_NAPI_H_
 #define APP_NAPI_H_
 
-#include <string>
 #include <ace/xcomponent/native_interface_xcomponent.h>
+#include <string>
 
 class AppNapi {
 public:
-    using ParamType = enum { ROTATION };
+    using ParamType = enum { DEPTH_RENDER_MODE = 0, ROTATION };
     using ConfigParams = struct {
+        bool depthRenderMode;
         int32_t rotation;
     };
 
@@ -43,6 +44,7 @@ public:
     virtual void OnResume(){};
     virtual void OnUpdate(){};
     virtual void OnStop(){};
+    virtual std::string GetDistance() { return ""; }
 
 public:
     std::string id_;

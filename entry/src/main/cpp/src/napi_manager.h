@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,22 +16,18 @@
 #ifndef NAPI_MANAGER_H
 #define NAPI_MANAGER_H
 
-#include <string>
-#include <unordered_map>
+#include "app_napi.h"
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <napi/native_api.h>
-#include "utils/native_common.h"
-#include "app_napi.h"
+#include <string>
+#include <unordered_map>
 
 class NapiManager {
 public:
     NapiManager();
     ~NapiManager() {}
 
-    static NapiManager* GetInstance()
-    {
-        return &NapiManager::manager_;
-    }
+    static NapiManager *GetInstance() { return &NapiManager::manager_; }
 
     void SetNativeXComponent(std::string &id, OH_NativeXComponent *nativeXComponent);
     AppNapi *GetApp(std::string &id);
@@ -42,7 +38,8 @@ public:
     static napi_value NapiOnPageHide(napi_env env, napi_callback_info info);
     static napi_value NapiOnPageUpdate(napi_env env, napi_callback_info info);
     static napi_value NapiOnPageDisappear(napi_env env, napi_callback_info info);
-    
+    static napi_value NapiGetDistance(napi_env env, napi_callback_info info);
+
     // Napi export
     bool Export(napi_env env, napi_value exports);
 
@@ -55,15 +52,15 @@ private:
     static void OnSurfaceDestroyedCB(OH_NativeXComponent *component, void *window);
     static void DispatchTouchEventCB(OH_NativeXComponent *component, void *window);
     static void DispatchMouseEventCB(OH_NativeXComponent *component, void *window);
-    
+
     static NapiManager manager_;
 
     std::string id_;
-    std::unordered_map<std::string, OH_NativeXComponent*> nativeXComponentMap_;
-    std::unordered_map<std::string, AppNapi*> appNapiMap_;
+    std::unordered_map<std::string, OH_NativeXComponent *> nativeXComponentMap_;
+    std::unordered_map<std::string, AppNapi *> appNapiMap_;
 
     OH_NativeXComponent_Callback callback_;
     OH_NativeXComponent_MouseEvent_Callback mouseEventcallback_;
 };
 
-#endif // PLUGIN_MANAGER_H
+#endif // NAPI_MANAGER_H

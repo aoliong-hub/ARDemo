@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Huawei Device Co., Ltd.
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,11 +16,11 @@
 #ifndef C_ARENGINE_HELLOE_AR_UTIL_H
 #define C_ARENGINE_HELLOE_AR_UTIL_H
 
-#include <string>
-#include <vector>
-#include <GLES2/gl2.h>
 #include "GLUtils.h"
 #include "ar/ar_engine_core.h"
+#include <GLES2/gl2.h>
+#include <string>
+#include <vector>
 
 #ifndef CHECK
 #define SPLIT_FUNC(str) strtok((str), "(")
@@ -33,9 +33,51 @@
                  SPLIT_FUNC(sentence), ret);                                                                           \
         }                                                                                                              \
     } while (false);
+
+#ifndef ENABLE_API_STAT
+#define CHECK_WITH_API_STAT(condition)                                                                                 \
+    do {                                                                                                               \
+        auto ret = (condition);                                                                                        \
+        if (ret) {                                                                                                     \
+            char sentence[] = #condition;                                                                              \
+            LOGE("*** CHECK FAILED at %{public}s:%{public}d: %{public}s ret: %{public}d", __FILE__, __LINE__,          \
+                 SPLIT_FUNC(sentence), ret);                                                                           \
+            abort();                                                                                                   \
+        }                                                                                                              \
+    } while (false);
+#else
+#define CHECK_WITH_API_STAT(condition)                                                                                 \
+    do {                                                                                                               \
+        auto start = std::chrono::high_resolution_clock::now();                                                        \
+        auto ret = (condition);                                                                                        \
+        auto end = std::chrono::high_resolution_clock::now();                                                          \
+        char sentence[] = #condition;                                                                                  \
+        if (ret) {                                                                                                     \
+            LOGE("*** CHECK FAILED at %{public}s:%{public}d: %{public}s ret: %{public}d", __FILE__, __LINE__,          \
+                 SPLIT_FUNC(sentence), ret);                                                                           \
+            abort();                                                                                                   \
+        }                                                                                                              \
+        auto diff = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();                        \
+        LOGI("%{public}s cost time is : %{public}lld us", SPLIT_FUNC(sentence), diff);                                 \
+    } while (false);
 #endif
 
-namespace ArWorld {
+#define CHECK_WITH_REASON(condition, arSession, arCamera)                                                              \
+    do {                                                                                                               \
+        auto ret = (condition);                                                                                        \
+        if (ret) {                                                                                                     \
+            char sentence[] = #condition;                                                                              \
+            LOGE("*** CHECK FAILED at %{public}s:%{public}d: %{public}s ret: %{public}d", __FILE__, __LINE__,          \
+                 SPLIT_FUNC(sentence), ret);                                                                           \
+            AREngine_ARTrackingStateReason cameraTrackingStateReason = ARENGINE_TRACKING_STATE_REASON_NONE;            \
+            HMS_AREngine_ARCamera_GetTrackingStateReason(arSession, arCamera, &cameraTrackingStateReason);             \
+            if (cameraTrackingStateReason != ARENGINE_TRACKING_STATE_REASON_NONE) {                                    \
+                LOGW("tracking Paused, stateReason is:%{public}d", cameraTrackingStateReason);                         \
+            }                                                                                                          \
+            abort();                                                                                                   \
+        }                                                                                                              \
+    } while (false);
+#endif
 
 using FileInfor = struct {
     std::string fileName;
@@ -70,21 +112,21 @@ bool LoadPngFromAssetManager(const std::string &path);
 bool LoadObjFile(FileInfor fileInformation, std::vector<GLfloat> &outVertices, std::vector<GLfloat> &outNormals,
                  std::vector<GLfloat> &outUv, std::vector<GLushort> &outIndices);
 
+void WriteBin(const char *path, uint8_t *data, int32_t size);
 
-
-static inline AREngine_ARPoseType ArEngineRotateType(int32_t rotation) {
+static AREngine_ARPoseType ArEngineRotateType(int32_t rotation)
+{
     switch (rotation) {
-    case 0:
-        return ARENGINE_POSE_TYPE_IDENTITY;
-    case 1:
-        return ARENGINE_POSE_TYPE_ROTATE_270;
-    case 2:
-        return ARENGINE_POSE_TYPE_ROTATE_180;
-    case 3:
-        return ARENGINE_POSE_TYPE_ROTATE_90;
+        case 0:
+            return ARENGINE_POSE_TYPE_IDENTITY;
+        case 1:
+            return ARENGINE_POSE_TYPE_ROTATE_270;
+        case 2:
+            return ARENGINE_POSE_TYPE_ROTATE_180;
+        case 3:
+            return ARENGINE_POSE_TYPE_ROTATE_90;
     }
     return ARENGINE_POSE_TYPE_IDENTITY;
 }
 
-} // namespace ArWorld
-#endif
+#endif // C_ARENGINE_HELLOE_AR_UTIL_H
