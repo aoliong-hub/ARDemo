@@ -58,8 +58,14 @@ struct ARDepthRender {
           })
 
         Text(this.distance)
-          .fontColor(Color.Red)
-          .fontSize(18)
+          .fontColor(Color.Yellow)
+          .fontSize(24)
+          .textShadow({
+            radius: 10,
+            color: Color.Black,
+            offsetX: 0,
+            offsetY: 0
+          })
           .textAlign(TextAlign.Center)
           .alignRules({
             bottom: { anchor: '__container__', align: VerticalAlign.Bottom },
