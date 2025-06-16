@@ -63,3 +63,75 @@ void GLUtils::CheckError(const std::string &file, int lineNum)
         LOGE("GLUtils: [%{public}s:%{public}d] GL Error: %{public}d.", file.c_str(), lineNum, error);
     }
 }
+
+GLuint GLUtils::CreateTexture(int w, int h, GLenum internalFormat, const unsigned char *data)
+{
+    int align;
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    GLuint tex = 0;
+    int format;
+    int type;
+    GetFormatAndTypeFromInternalFormat(internalFormat, format, type);
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexStorage2D(GL_TEXTURE_2D, 1, internalFormat, w, h);
+    if (data) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, format, type, data);
+    }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, align);
+    return tex;
+}
+
+void GLUtils::GetFormatAndTypeFromInternalFormat(int internalFormat, int &format, int &type)
+{
+    switch (internalFormat) {
+        case GL_R8:
+            format = GL_RED;
+            type = GL_UNSIGNED_BYTE;
+            break;
+        case GL_RGB565:
+            format = GL_RGB;
+            type = GL_UNSIGNED_SHORT_5_6_5;
+            break;
+        case GL_RGBA4:
+            format = GL_RGBA;
+            type = GL_UNSIGNED_SHORT_4_4_4_4;
+            break;
+        case GL_RGBA8:
+            format = GL_RGBA;
+            type = GL_UNSIGNED_BYTE;
+            break;
+        case GL_RGBA16F:
+            format = GL_RGBA;
+            type = GL_HALF_FLOAT;
+            break;
+        case GL_R32F:
+            format = GL_RED;
+            type = GL_FLOAT;
+            break;
+        case GL_RGB8:
+            format = GL_RGB;
+            type = GL_UNSIGNED_BYTE;
+            break;
+        default :
+            break;
+    }
+}
+
+GLuint GLUtils::CreateFbo(GLuint tex)
+{
+    GLuint fbo;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    if (tex != 0) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return fbo;
+}

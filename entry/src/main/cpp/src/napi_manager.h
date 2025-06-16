@@ -39,6 +39,10 @@ public:
     static napi_value NapiOnPageUpdate(napi_env env, napi_callback_info info);
     static napi_value NapiOnPageDisappear(napi_env env, napi_callback_info info);
     static napi_value NapiGetDistance(napi_env env, napi_callback_info info);
+    static napi_value NapiInitImage(napi_env env, napi_callback_info info);
+    static napi_value NapiSetPath(napi_env env, napi_callback_info info);
+    static napi_value NapiSaveImageDataBaseToLocal(napi_env env, napi_callback_info info);
+    static napi_value NapiGetImageCount(napi_env env, napi_callback_info info);
 
     // Napi export
     bool Export(napi_env env, napi_value exports);

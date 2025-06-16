@@ -23,6 +23,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include <multimedia/image_framework/image/image_source_native.h>
 
 bool LoadPngFromAssetManager(const std::string &path)
 {
@@ -383,4 +384,172 @@ void WriteBin(const char *path, uint8_t *data, int32_t size)
     }
     ofs.write(reinterpret_cast<const char *>(data), size);
     ofs.close();
+}
+
+Image_ErrorCode checkImage(AREngine_ARAugmentedImageDatabase *dataBase, const std::string &filePath)
+{
+    // Creating an ImageSource Instance
+    OH_ImageSourceNative *source = nullptr;
+    LOGI("ArImageApp input path is:%s.", const_cast<char *>(filePath.c_str()));
+
+    auto resMgr = Global::mNativeResMgr;
+    auto file = OH_ResourceManager_OpenRawFile(resMgr, filePath.c_str());
+    if (file == nullptr) {
+        LOGE("Failed to run OH_ResourceManager_OpenRawFile(%{public}s).", filePath.c_str());
+        return IMAGE_UNKNOWN_ERROR;
+    }
+    RawFileDescriptor fileDesc;
+    auto ret = OH_ResourceManager_GetRawFileDescriptor(file, fileDesc);
+    if (!ret) {
+        LOGE("OH_ResourceManager_GetRawFileDescriptor failed");
+        return IMAGE_UNKNOWN_ERROR;
+    }
+
+    Image_ErrorCode errCode = OH_ImageSourceNative_CreateFromRawFile(&fileDesc, &source);
+    if (errCode != IMAGE_SUCCESS) {
+        LOGI("ImageSourceNativeCTest sourceTest OH_ImageSourceNative_CreateFromUri failed, errCode: %{public}d.",
+             errCode);
+        return errCode;
+    }
+
+    // Create a structure object that defines image information and obtain image information
+    OH_ImageSource_Info *imageInfo;
+    OH_ImageSourceInfo_Create(&imageInfo);
+    errCode = OH_ImageSourceNative_GetImageInfo(source, 0, imageInfo);
+    if (errCode != IMAGE_SUCCESS) {
+        LOGI("ImageSourceNativeCTest sourceTest OH_ImageSourceNative_GetImageInfo failed, errCode: %{public}d.",
+             errCode);
+        return errCode;
+    }
+
+    // Create a PixelMap object using image decoding parameters
+    OH_DecodingOptions *ops = nullptr;
+    OH_DecodingOptions_Create(&ops);
+    // If set to AUTO, the image will be decoded according to the image resource format.
+    // If the image resource is an HDR resource, it will be decoded into an HDR pixelmap
+    OH_DecodingOptions_SetDesiredDynamicRange(ops, IMAGE_DYNAMIC_RANGE_AUTO);
+    OH_PixelmapNative *resPixMap = nullptr;
+    // The ops parameter supports passing in nullptr. 
+    // When you do not need to set decoding parameters, you do not need to create
+    errCode = OH_ImageSourceNative_CreatePixelmap(source, ops, &resPixMap);
+    OH_DecodingOptions_Release(ops);
+    if (errCode != IMAGE_SUCCESS) {
+        LOGI("ImageSourceNativeCTest sourceTest OH_ImageSourceNative_CreatePixelmap failed, errCode: %{public}d.",
+             errCode);
+        return errCode;
+    }
+
+    OH_Pixelmap_ImageInfo *pixMapImageInfo;
+    OH_PixelmapImageInfo_Create(&pixMapImageInfo);
+    errCode = OH_PixelmapNative_GetImageInfo(resPixMap, pixMapImageInfo);
+    if (errCode != IMAGE_SUCCESS) {
+        LOGI("ImagePixelmapNativeCTest pixelmapTest OH_PixelmapNative_GetImageInfo failed, errCode: %{public}d.",
+             errCode);
+        return errCode;
+    }
+
+    // Get the image's width, height, pixel format, transparency, and other information
+    uint32_t width;
+    uint32_t height;
+    uint32_t rowStride;
+    int32_t pixelFormat;
+    int32_t alphaType;
+    OH_PixelmapImageInfo_GetWidth(pixMapImageInfo, &width);
+    OH_PixelmapImageInfo_GetHeight(pixMapImageInfo, &height);
+    OH_PixelmapImageInfo_GetRowStride(pixMapImageInfo, &rowStride);
+    OH_PixelmapImageInfo_GetPixelFormat(pixMapImageInfo, &pixelFormat);
+    OH_PixelmapImageInfo_GetAlphaType(pixMapImageInfo, &alphaType);
+    OH_PixelmapImageInfo_Release(pixMapImageInfo);
+    LOGI("ImagePixelmapNativeCTest pixelmapTest GetImageInfo success, width: %{public}d, height: %{public}d, "
+         "rowStride: %{public}d, pixelFormat: %{public}d, alphaType: %{public}d.",
+         width, height, rowStride, pixelFormat, alphaType);
+
+    int channel = 4;
+    // Read image pixel data and write the result into an array
+    uint32_t imageSize = width * height * channel;
+    uint8_t *destination = (uint8_t *)malloc(sizeof(uint8_t) * imageSize);
+    size_t destinationSize = imageSize;
+    auto start1 = std::chrono::high_resolution_clock::now();
+    // The buffer size for RGBA format is equal to width * height * 4, and the buffer size for NV21 and NV12 formats 
+    // is equal to width * height + ((width + 1) / 2) * ((height + 1) / 2) * 2.
+    errCode = OH_PixelmapNative_ReadPixels(resPixMap, destination, &destinationSize);
+    if (errCode != IMAGE_SUCCESS) {
+        LOGI("ImagePixelmapNativeCTest pixelmapTest OH_PixelmapNative_ReadPixels failed, errCode: %{public}d.",
+             errCode);
+        return errCode;
+    }
+    auto start = std::chrono::high_resolution_clock::now();
+    uint32_t imageSizeGray = width * height;
+    uint8_t *destinationGray = (uint8_t *)malloc(sizeof(uint8_t) * imageSizeGray);
+    for (int i = 0; i < imageSizeGray; ++i) {
+        destinationGray[i] = (destination[i * channel + 0] * 38 + destination[i * channel + 1] * 75 +
+                              destination[i * channel + 2] * 15) >>
+                             7;
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    LOGI("The rgbaread cost time is : %{public}lld us",
+         std::chrono::duration_cast<std::chrono::microseconds>(start - start1).count());
+    LOGI("The rgba2gray cost time is : %{public}lld us",
+         std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+    AREngine_ARAugmentedImageSource image;
+    image.imageName = filePath.c_str();
+    image.imageData = destinationGray;
+    image.pixelWidth = width;
+    image.pixelHeight = height;
+    image.stride = width;
+    uint32_t outputIndex = 0;
+    AREngine_ARAddAugmentedImageReason reason = ARENGINE_ADD_AUGMENTED_IMAGE_REASON_NONE;
+    auto addRet = HMS_AREngine_ARAugmentedImageDatabase_AddImage(dataBase, &image, &outputIndex, &reason);
+    LOGI("HMS_AREngine_ARAugmentedImageDatabase_AddImage %{public}d, outputIndex:%{public}d, reason:%{public}d.",
+         addRet, outputIndex, reason);
+
+    // 释放ImageSource实例
+    OH_ImageSourceNative_Release(source);
+    free(destination);
+    free(destinationGray);
+    LOGI("Succeeded in checking image by checkImage.");
+    return IMAGE_SUCCESS;
+}
+
+int32_t checkImagePhoto(AREngine_ARAugmentedImageDatabase *dataBase, ImageBufferData &data)
+{
+    if (!data.buffer) {
+        LOGE("The buffer is null.");
+        return IMAGE_UNKNOWN_ERROR;
+    }
+    int channel = 4;
+    if (data.bufferLen <= 0 || data.bufferLen % channel != 0) {
+        LOGE("The buffer size is illegal:%{public}zu.", data.bufferLen);
+        return IMAGE_UNKNOWN_ERROR;
+    }
+    uint8_t *destination = (uint8_t *)malloc(sizeof(uint8_t) * (data.bufferLen / 4));
+
+    uint32_t imageSizeGray = data.bufferLen / 4;
+    uint8_t *destinationGray = (uint8_t *)malloc(sizeof(uint8_t) * imageSizeGray);
+    for (int i = 0; i < imageSizeGray; ++i) {
+        destinationGray[i] = (data.buffer[i * channel + 0] * 38 + data.buffer[i * channel + 1] * 75 +
+                              data.buffer[i * channel + 2] * 15) >>
+                             7; // Calculate the grayscale of RGBA data
+    }
+    AREngine_ARAugmentedImageSource image;
+    image.imageName = "myImage";
+    image.imageData = destinationGray;
+    image.pixelWidth = data.width;
+    image.pixelHeight = data.height;
+    image.stride = data.width;
+    uint32_t outputIndex = 0;
+    AREngine_ARAddAugmentedImageReason reason = ARENGINE_ADD_AUGMENTED_IMAGE_REASON_NONE;
+    auto addRet = HMS_AREngine_ARAugmentedImageDatabase_AddImage(dataBase, &image, &outputIndex, &reason);
+    uint32_t imageNums = 0;
+    HMS_AREngine_ARAugmentedImageDatabase_GetImageCount(dataBase, &imageNums);
+    LOGI("HMS_AREngine_ARAugmentedImageDatabase_AddImage %{public}d, outputIndex:%{public}d, reason:%{public}d, "
+         "nums=%{public}u.", addRet, outputIndex, reason, imageNums);
+
+    free(destination);
+    free(destinationGray);
+
+    if (addRet != ARENGINE_SUCCESS && reason == ARENGINE_ADD_AUGMENTED_IMAGE_REASON_NONE) {
+        reason = ARENGINE_ADD_AUGMENTED_IMAGE_REASON_OTHER;
+    }
+    return reason;
 }

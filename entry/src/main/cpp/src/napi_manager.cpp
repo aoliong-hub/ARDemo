@@ -15,6 +15,8 @@
 
 #include "napi_manager.h"
 #include "depth/depth_ar_application.h"
+#include "image/image_ar_application.h"
+#include "mesh/mesh_ar_application.h"
 #include "utils/log.h"
 #include "world/world_ar_application.h"
 #include <cstdint>
@@ -329,6 +331,109 @@ napi_value NapiManager::NapiGetDistance(napi_env env, napi_callback_info info)
     return ret;
 }
 
+napi_value NapiManager::NapiSaveImageDataBaseToLocal(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiSaveImageDataBaseToLocal");
+
+    size_t argc = 3;
+    napi_value args[3] = {nullptr};
+    napi_value context = nullptr;
+    napi_get_cb_info(env, info, &argc, args, &context, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+
+    char path[128] = {};
+    size_t path_size = 0;
+    napi_get_value_string_utf8(env, args[1], path, OH_XCOMPONENT_ID_LEN_MAX + 1, &path_size);
+    LOGD("NapiManager::NapiSaveImageDataBaseToLocal path=%{public}s.", path);
+    std::string id(idStr);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    app->SaveImageDataBaseToLocal(path);
+
+    return nullptr;
+}
+
+napi_value NapiManager::NapiGetImageCount(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiGetImageCount");
+
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_value context = nullptr;
+    napi_get_cb_info(env, info, &argc, args, &context, nullptr);
+    
+    // get idStr
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+    
+    std::string id(idStr);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    uint32_t imageCount = app->getImageCount();
+    
+    napi_value result = nullptr;
+    napi_create_int32(env, imageCount, &result);
+    return result;
+}
+
+napi_value NapiManager::NapiSetPath(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiSetPath");
+
+    size_t argc = 3;
+    napi_value args[3] = {nullptr};
+    napi_value context = nullptr;
+    napi_get_cb_info(env, info, &argc, args, &context, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+
+    char path[128] = {};
+    size_t path_size = 0;
+    napi_get_value_string_utf8(env, args[1], path, OH_XCOMPONENT_ID_LEN_MAX + 1, &path_size);
+    LOGD("NapiManager::NapiSetPath path=%{public}s.", path);
+    std::string id(idStr);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    app->SetPath(path);
+    return nullptr;
+}
+
+napi_value NapiManager::NapiInitImage(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiInitImage");
+
+    size_t argc = 4;
+    napi_value args[4] = {nullptr};
+    napi_value context = nullptr;
+    napi_get_cb_info(env, info, &argc, args, &context, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+
+    int32_t width = 0;
+    napi_get_value_int32(env, args[1], &width);
+
+    int32_t height = 0;
+    napi_get_value_int32(env, args[2], &height);
+
+    void *data;
+    size_t byte_length;
+    napi_get_arraybuffer_info(env, args[3], &data, &byte_length);
+
+    uint8_t *data_bytes = (uint8_t *)(data);
+
+    std::string id(idStr);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    int32_t ret = app->InitImage(byte_length, width, height, data_bytes);
+    napi_value result = nullptr;
+    napi_create_int32(env, ret, &result);
+    return result;
+}
+
 // Create a service implementation class based on the service ID.
 AppNapi *NapiManager::CreateApp(std::string &id)
 {
@@ -337,6 +442,12 @@ AppNapi *NapiManager::CreateApp(std::string &id)
     }
     if (id == std::string("ARDepth")) {
         return new ARDepth::ARDepthApp(id);
+    }
+    if (id == std::string("ARMesh")) {
+        return new ARMesh::ARMeshApp(id);
+    }
+    if (id == std::string("ARImage")) {
+        return new ARImage::ARImageApp(id);
     }
     return nullptr;
 }

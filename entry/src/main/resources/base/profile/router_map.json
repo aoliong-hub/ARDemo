@@ -17,6 +17,38 @@
       }
     },
     {
+      "name": "ARImage",
+      "pageSourceFile": "src/main/ets/pages/ARImage.ets",
+      "buildFunction": "ARImageBuilder",
+      "data": {
+        "description": "This is ARImage."
+      }
+    },
+    {
+      "name": "ARImageByAdd",
+      "pageSourceFile": "src/main/ets/pages/ARImageByAdd.ets",
+      "buildFunction": "ARImageByAddBuilder",
+      "data": {
+        "description": "This is ARImageByAdd."
+      }
+    },
+    {
+      "name": "ARImageByDatabase",
+      "pageSourceFile": "src/main/ets/pages/ARImageByDatabase.ets",
+      "buildFunction": "ARImageByDatabaseBuilder",
+      "data": {
+        "description": "This is ARImageByDatabase."
+      }
+    },
+    {
+      "name": "ARMesh",
+      "pageSourceFile": "src/main/ets/pages/ARMesh.ets",
+      "buildFunction": "ARMeshBuilder",
+      "data": {
+        "description": "This is ARMesh."
+      }
+    },
+    {
       "name": "ARWorld",
       "pageSourceFile": "src/main/ets/pages/ARWorld.ets",
       "buildFunction": "ARWorldBuilder",

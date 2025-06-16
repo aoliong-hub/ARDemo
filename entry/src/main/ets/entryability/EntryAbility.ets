@@ -14,12 +14,11 @@
  */
 
 import { window } from '@kit.ArkUI';
-import { ConfigurationConstant, UIAbility } from '@kit.AbilityKit';
+import { UIAbility } from '@kit.AbilityKit';
 import { Logger } from '../utils/Logger';
 
 export default class EntryAbility extends UIAbility {
   onCreate(): void {
-    this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
     Logger.info('Ability onCreate.');
   }
 
@@ -28,7 +27,6 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    // Main window is created, set main page for this ability
     Logger.info('Ability onWindowStageCreate.');
 
     windowStage.loadContent('pages/Selector', (err) => {
@@ -37,6 +35,13 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       Logger.info('Succeeded in loading the content.');
+    })
+    windowStage.getMainWindowSync().setWindowKeepScreenOn(true, (err) => {
+      if (err.code) {
+        Logger.error(`Failed to setWindowKeepScreenOn. Code: ${err.code}, message: ${err.message}.`);
+        return;
+      }
+      Logger.info('Succeeded in setting setWindowKeepScreenOn.');
     })
   }
 

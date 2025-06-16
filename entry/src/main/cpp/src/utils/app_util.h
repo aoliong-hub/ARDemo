@@ -19,6 +19,7 @@
 #include "GLUtils.h"
 #include "ar/ar_engine_core.h"
 #include <GLES2/gl2.h>
+#include <multimedia/image_framework/image/image_common.h>
 #include <string>
 #include <vector>
 
@@ -97,6 +98,13 @@ using DrawTempData = struct {
     std::vector<GLushort> uvIndices;
 };
 
+using ImageBufferData = struct {
+    uint8_t *buffer;
+    size_t bufferLen;
+    uint32_t width;
+    uint32_t height;
+};
+
 bool LoadPngFromAssetManager(const std::string &path);
 
 /**
@@ -128,5 +136,8 @@ static AREngine_ARPoseType ArEngineRotateType(int32_t rotation)
     }
     return ARENGINE_POSE_TYPE_IDENTITY;
 }
+
+int32_t checkImagePhoto(AREngine_ARAugmentedImageDatabase *dataBase, ImageBufferData &data);
+Image_ErrorCode checkImage(AREngine_ARAugmentedImageDatabase *dataBase, const std::string &path);
 
 #endif // C_ARENGINE_HELLOE_AR_UTIL_H

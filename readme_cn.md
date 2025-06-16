@@ -22,16 +22,37 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 2. 点击“ARWorld”按钮，拉起AR引擎的平面识别界面，对准地面，桌面，墙面等平面缓慢移动扫描，即可识别到平面并绘制到屏幕上。
 3. 识别出平面后，点击平面上某个点，通过AR引擎提供的命中检测的能力，会在屏幕被点击位置放置一个3D模型。
 
+### ARMesh效果预览
+
+|            **应用首页**            |          **绘制Mesh网格**           |            **通过命中检测显示模型**            |
+|:------------------------------:|:-------------------------------:|:------------------------------------:|
+| ![](screenshots/homePage1.png) | ![](screenshots/meshRender.png) | ![](screenshots/meshRenderModel.png) |
+
+1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARMesh”按钮。
+2. 点击“ARMesh”按钮，拉起AR引擎平面识别界面，对准地面，桌面，墙面等平面缓慢移动扫描，即可绘制mesh网格到屏幕上。
+3. 绘制出mesh网格后，点击网格上某个点，通过AR引擎提供的命中检测的能力，会在屏幕被点击位置放置一个3D模型。
+
 ### ARDepth效果预览
 
 |            **应用首页**            |         **Depth模式选择**          |           **关闭深度图渲染模式**            |          **开启深度图渲染模式**           |
 |:------------------------------:|:------------------------------:|:----------------------------------:|:--------------------------------:|
-| ![](screenshots/homePage1.png) | ![](screenshots/depthMode.png) | ![](screenshots/depthNoRender.png) | ![](screenshots/depthRender.png) |
+| ![](screenshots/homePage2.png) | ![](screenshots/depthMode.png) | ![](screenshots/depthNoRender.png) | ![](screenshots/depthRender.png) |
 
 1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARDepth”按钮。
 2. 选择是否开启深度渲染图模式。
 3. 进入AR场景，屏幕中心上的点，即为相机距离点的位置，距离会显示在屏幕上。
 4. 选择开启深度图渲染的模式，屏幕上即可显示深度渲染图。
+
+### ARImage效果预览
+
+|            **应用首页**            |            **Image模式选择**             |           **选取跟踪图片**           |           **跟踪图片**            |
+|:------------------------------:|:------------------------------------:|:------------------------------:|:-----------------------------:|
+| ![](screenshots/homePage3.png) | ![](screenshots/imageSelectMode.png) | ![](screenshots/selectPic.png) | ![](screenshots/tracePic.png) |
+
+1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARImage”按钮。
+2. 选择添加图片跟踪或者使用本地数据库。
+3. 若选择添加图片，则弹出图片添加窗口，否则直接进入下一步。
+4. 开始跟踪目标图片，屏幕上可看见红色线框框选的目标图片。
 
 ## 使用说明
 
@@ -67,6 +88,30 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 │  │  │
 │  │  ├──graphic                                    // 渲染相关工具类
 │  │  │
+│  │  ├──image                                      // ARImage模块 
+│  │  │  ├──image_ar_application.cpp                // ARImage模块接口实现
+│  │  │  ├──image_ar_application.h
+│  │  │  ├──image_background_renderer.cpp           // 背景渲染
+│  │  │  ├──image_background_renderer.h
+│  │  │  ├──image_line_render.cpp                   // 线框渲染
+│  │  │  ├──image_line_render.h
+│  │  │  ├──image_render_base.cpp                   // 图像渲染
+│  │  │  ├──image_render_base.h
+│  │  │  ├──image_render_manager.cpp                // 每一帧渲染
+│  │  │  └──image_render_manager.h
+│  │  │
+│  │  ├──mesh                                       // ARMesh模块 
+│  │  │  ├──mesh_ar_application.cpp                 // ARMesh模块接口实现
+│  │  │  ├──mesh_ar_application.h
+│  │  │  ├──mesh_background_renderer.cpp            // 背景渲染
+│  │  │  ├──mesh_background_renderer.h
+│  │  │  ├──mesh_object_renderer.cpp                // 3D物体渲染
+│  │  │  ├──mesh_object_renderer.h
+│  │  │  ├──mesh_render_manager.cpp                 // 每一帧渲染
+│  │  │  ├──mesh_render_manager.h
+│  │  │  ├──scenemesh_display_renderer.cpp          // Mesh网格渲染
+│  │  │  └──scenemesh_display_renderer.h
+│  │  │
 │  │  ├──utils                                      // Util工具类
 │  │  │
 │  │  └──world                                      // ARWorld模块
@@ -74,6 +119,8 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 │  │     ├──world_ar_application.h
 │  │     ├──world_background_renderer.cpp           // 背景渲染
 │  │     ├──world_background_renderer.h
+│  │     ├──world_file_manager.cpp                  // 文件操作
+│  │     ├──world_file_manager.h
 │  │     ├──world_object_renderer.cpp               // 3D物体渲染
 │  │     ├──world_object_renderer.h
 │  │     ├──world_plane_renderer.cpp                // 平面渲染
@@ -95,6 +142,10 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 │  ├──pages
 │  │  ├──ARDepth.ets                                // ARDepth选择模式界面
 │  │  ├──ARDepthRender.ets                          // ARDepth界面
+│  │  ├──ARImage.ets                                // ARImage选择模式界面
+│  │  ├──ARImageByAdd.ets                           // ARImage本地图片模式界面
+│  │  ├──ARImageByDatabase.ets                      // ARImage本地数据库模式界面
+│  │  ├──ARMesh.ets                                 // ARMesh界面
 │  │  ├──ARWorld.ets                                // ARWorld界面
 │  │  └──Selector.ets                               // 主界面
 │  │
@@ -107,7 +158,7 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 
 ### 集成服务
 
-使用AR引擎服务接口需要在`CMakeLists`中引入依赖：
+使用AREngine服务接口需要在`CMakeLists`中引入依赖：
 
 ```cmake
 find_library(
@@ -159,7 +210,7 @@ AREngine_ARStatus HMS_AREngine_ARPlane_GetPolygon(const AREngine_ARSession *sess
 AREngine_ARStatus HMS_AREngine_ARPlane_IsPoseInPolygon(const AREngine_ARSession *session, const AREngine_ARPlane *plane, const AREngine_ARPose *pose, int32_t *outPoseInPolygon);
 ```
 
-### 命中检测相关接口：
+### 命中检测相关接口
 
 ```c
 AREngine_ARStatus HMS_AREngine_ARHitResultList_Create(const AREngine_ARSession *session, AREngine_ARHitResultList **outHitResultList);
@@ -181,7 +232,34 @@ AREngine_ARStatus HMS_AREngine_ARFrame_AcquireDepthImage16Bits(const AREngine_AR
 AREngine_ARStatus HMS_AREngine_ARFrame_AcquireDepthConfidenceImage(const AREngine_ARSession *session, const AREngine_ARFrame *frame, AREngine_ARImage **outConfidenceImage);
 ```
 
-### 运动跟踪能力图文介绍：
+### 网格扫描相关接口
+
+```c
+AREngine_ARStatus HMS_AREngine_ARConfig_SetMeshMode(const AREngine_ARSession *session, AREngine_ARConfig *config, AREngine_ARMeshMode meshMode);
+AREngine_ARStatus HMS_AREngine_ARFrame_AcquireSceneMesh(const AREngine_ARSession *session, const AREngine_ARFrame *frame,  AREngine_ARSceneMesh **outSceneMesh);
+AREngine_ARStatus HMS_AREngine_ARSceneMesh_AcquireVerticesSize(const AREngine_ARSession *session, const AREngine_ARSceneMesh *sceneMesh, int32_t *outSize);
+AREngine_ARStatus HMS_AREngine_ARSceneMesh_AcquireVertexList(const AREngine_ARSession *session, const AREngine_ARSceneMesh *sceneMesh, float *outData, int32_t dataSize);
+AREngine_ARStatus HMS_AREngine_ARSceneMesh_AcquireVertexNormalList(const AREngine_ARSession *session, const AREngine_ARSceneMesh *sceneMesh, float *outData, int32_t dataSize);
+AREngine_ARStatus HMS_AREngine_ARSceneMesh_AcquireIndexListSize(const AREngine_ARSession *session, const AREngine_ARSceneMesh *sceneMesh, int32_t *outSize);
+AREngine_ARStatus HMS_AREngine_ARSceneMesh_AcquireIndexList(const AREngine_ARSession *session, const AREngine_ARSceneMesh *sceneMesh, int32_t *outData, int32_t dataSize);
+void HMS_AREngine_ARSceneMesh_Release(AREngine_ARSceneMesh *sceneMesh);
+```
+
+### 图像跟踪相关接口
+
+```c
+AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_Create(AREngine_ARAugmentedImageDatabase **outDatabase);
+AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_AddImage(AREngine_ARAugmentedImageDatabase *database, const AREngine_ARAugmentedImageSource *image, uint32_t *outIndex, AREngine_ARAddAugmentedImageReason *outReason);
+AREngine_ARStatus HMS_AREngine_ARSession_GetAllTrackables(const AREngine_ARSession *session, AREngine_ARTrackableType filterType, AREngine_ARTrackableList *outTrackableList);
+AREngine_ARStatus HMS_AREngine_ARTrackableList_GetSize(const AREngine_ARSession *session, const AREngine_ARTrackableList *trackableList, int32_t *outSize);
+AREngine_ARStatus HMS_AREngine_ARAugmentedImage_GetCenterPose(const AREngine_ARSession *session, const AREngine_ARAugmentedImage *augmentedImage, AREngine_ARPose *outPose);
+AREngine_ARStatus HMS_AREngine_ARAugmentedImage_GetExtendX(const AREngine_ARSession *session, const AREngine_ARAugmentedImage *augmentedImage, float *outExtendX);
+AREngine_ARStatus HMS_AREngine_ARAugmentedImage_GetExtendZ(const AREngine_ARSession *session, const AREngine_ARAugmentedImage *augmentedImage, float *outExtendZ);
+AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_Serialize(const AREngine_ARAugmentedImageDatabase *database, uint8_t **outBuffer, uint64_t *outBufSize);
+AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_Deserialize(const uint8_t *buffer, const uint64_t bufSize, AREngine_ARAugmentedImageDatabase **outDatabase);
+```
+
+### 运动跟踪能力图文介绍
 
 AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传感器（IMU），计算设备位置（沿x、y、z轴方向位移）和位姿（绕x、y、z轴旋转），
 实现6自由度（6DoF）运动跟踪能力。
@@ -229,26 +307,34 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
      </tr>
    </table>
 
-2. 本实例支持的DevEco Studio版本：推荐DevEco Studio 5.0.5 Release及以上。
-3. 本实例为Stage模型，支持的HarmonyOS SDK版本：推荐HarmonyOS 5.0.5 Release SDK及以上。
+2. 本实例支持的DevEco Studio版本：推荐DevEco Studio 5.1.0 Release及以上。
+3. 本实例为Stage模型，支持的HarmonyOS SDK版本：推荐HarmonyOS 5.1.0 Release SDK及以上。
 
 ## AR Engine深度估计功能技术局限性及免责声明
 
 1. 技术局限性声明：本功能提供的能力，涉及深度估计精度可能受以下因素影响：
-    1. 环境光照条件（例如强光/弱光/反光场景）。
-    2. 物体表面材质特性（例如透明/镜面/单色物体）。
-    3. 设备硬件性能差异（例如摄像头/传感器参数）。
-    4. 动态场景下的实时性限制等。
+   1. 环境光照条件（例如强光/弱光/反光场景）。
+   2. 物体表面材质特性（例如透明/镜面/单色物体）。 
+   3. 设备硬件性能差异（例如摄像头/传感器参数）。 
+   4. 动态场景下的实时性限制等。
 2. 免责声明：
    本深度估计仅提供功能，并不构成对产品的质量保证或任何承诺。开发者自主选择是否使用HarmonyOS提供的功能开发应用软件，开发者对应用软件的使用目的、
    效果和责任自行负责。若开发用于视障人士避障、残疾人辅助等场景的应用软件，开发者应承担开展多场景压力测试，并建立数据校验机制，特别在安全相关场景需
    部署冗余保障方案，并确保应用合法合规的开发和运营。HarmonyOS不承担由此产生的任何直接或间接责任。
-
+   
    深度估计提供的功能：
-    1. 不作为医疗设备或生命安全系统设计。
-    2. 未经认证，不作为医疗辅助设备；不作为医疗器材；未经无障碍设施认证或生命安全认证。
+   1. 不作为医疗设备或生命安全系统设计。 
+   2. 未经认证，不作为医疗辅助设备；不作为医疗器材；未经无障碍设施认证或生命安全认证。
 
 ## 更新日志
+
+### 1.2.0版本更新功能介绍
+
+1. ARMesh能力上线。<br>
+   网格扫描、网格图绘制能力上线。
+2. ARImage能力上线。<br>
+   图像跟踪能力上线，开发者可通过本地图片检测环境目标特征点。 
+3. 修改了工程模板，适配最新的API18工程。
 
 ### 1.1.0版本更新功能介绍
 
@@ -258,7 +344,7 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
 
 ### 1.0.0版本更新功能介绍
 
-1. ArWorld能力上线。<br>
+1. ARWorld能力上线。<br>
    平面识别、碰撞检测、物体摆放功能上线。
 
 ## 相关文档

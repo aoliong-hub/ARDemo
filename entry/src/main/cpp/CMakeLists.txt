@@ -40,6 +40,7 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/napi_manager.cpp
     ${NATIVE_ROOT_PATH}/src/global.cpp
     ${NATIVE_ROOT_PATH}/src/utils/app_util.cpp
+    ${NATIVE_ROOT_PATH}/src/utils/app_file.cpp
     ${NATIVE_ROOT_PATH}/src/graphic/GLUtils.cpp
     ${NATIVE_ROOT_PATH}/src/graphic/RenderAttribute.cpp
     ${NATIVE_ROOT_PATH}/src/graphic/RenderContext.cpp
@@ -51,12 +52,27 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/world/world_object_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/world/world_plane_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/world/world_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/world/world_file_manager.cpp
 
     # depth
     ${NATIVE_ROOT_PATH}/src/depth/depth_ar_application.cpp
     ${NATIVE_ROOT_PATH}/src/depth/depth_background_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/depth/depth_render_manager.cpp
     ${NATIVE_ROOT_PATH}/src/depth/depth_background_no_renderer.cpp
+
+     # mesh
+    ${NATIVE_ROOT_PATH}/src/mesh/mesh_ar_application.cpp
+    ${NATIVE_ROOT_PATH}/src/mesh/mesh_background_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/mesh/mesh_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/mesh/scenemesh_display_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/mesh/mesh_object_renderer.cpp
+
+     # image
+     ${NATIVE_ROOT_PATH}/src/image/image_ar_application.cpp
+     ${NATIVE_ROOT_PATH}/src/image/image_background_renderer.cpp
+     ${NATIVE_ROOT_PATH}/src/image/image_render_manager.cpp
+     ${NATIVE_ROOT_PATH}/src/image/image_render_base.cpp
+     ${NATIVE_ROOT_PATH}/src/image/image_line_render.cpp
 )
 
 # Link the OpenHarmony native library (using OpenGL).
@@ -70,6 +86,8 @@ target_link_libraries(entry PUBLIC
     uv
     ace_napi.z
     rawfile.z
+    libohfileio.so
+    image_source
     pixelmap
     pixelmap_ndk.z
     ${arengine-lib}

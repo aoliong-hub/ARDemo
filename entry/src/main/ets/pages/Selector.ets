@@ -25,38 +25,21 @@ struct Selector {
   private hasPermission: boolean = false;
   @State context: Context = this.getUIContext().getHostContext() as Context;
 
-  aboutToAppear(): void {
-    abilityAccessCtrl.createAtManager().requestPermissionsFromUser(this.context, [
-      'ohos.permission.CAMERA'
-    ]).then((data: PermissionRequestResult) => {
-      let grantStatus: number[] = data.authResults;
-      let length: number = grantStatus.length;
-      for (let i = 0; i < length; i++) {
-        if (grantStatus[i] === 0) {
-          this.hasPermission = true;
-          Logger.info('Succeeded in getting requestPermission.');
-        } else {
-          this.hasPermission = false;
-          Logger.error('Failed to get requestPermission, user rejected.');
-          return;
-        }
-      }
-      Logger.info('Succeeded in getting requestPermission.');
-    }).catch((err: BusinessError) => {
-      Logger.error(`Failed to request permissions from user. Code is ${err.code}, message is ${err.message}.`);
-    })
-  }
-
   build(): void {
     Navigation(this.pageInfos) {
       Column() {
         this.sampleButton('ARWorld')
+        this.sampleButton('ARMesh')
         this.sampleButton('ARDepth')
+        this.sampleButton('ARImage')
       }
       .justifyContent(FlexAlign.SpaceEvenly)
       .width('100%')
       .height('100%')
     }
+    .onAppear(() => {
+      this.requestPermissionOnFirstStartup();
+    })
     .mode(NavigationMode.Stack)
     .hideTitleBar(true)
     .hideBackButton(true)
@@ -64,7 +47,7 @@ struct Selector {
   }
 
   @Builder
-  sampleButton(sampleName: string) {
+  sampleButton(sampleName: string): void {
     Button(sampleName, { type: ButtonType.Normal, stateEffect: true })
       .borderRadius(8)
       .width('50%')
@@ -78,6 +61,24 @@ struct Selector {
         }
         this.pageInfos.clear();
         this.pageInfos.pushDestinationByName(sampleName, null);
+      })
+  }
+
+  private requestPermissionOnFirstStartup(): void {
+    abilityAccessCtrl.createAtManager()
+      .requestPermissionsFromUser(this.context, ['ohos.permission.CAMERA'])
+      .then((data: PermissionRequestResult) => {
+        let grantStatus: number[] = data.authResults;
+        if (grantStatus[0] === 0) {
+          this.hasPermission = true;
+          Logger.info('Succeeded in getting requestPermission.');
+        } else {
+          this.hasPermission = false;
+          Logger.error('Failed to get requestPermission, user rejected.');
+        }
+      })
+      .catch((err: BusinessError) => {
+        Logger.error(`Failed to request permissions from user. Code is ${err.code}, message is ${err.message}.`);
       })
   }
 }

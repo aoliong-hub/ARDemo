@@ -30,7 +30,7 @@ struct ARDepth {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushPathByName('ARDepthRender', 0)
+            this.pageInfos.pushPathByName('ARDepthRender', 0);
           })
 
         Button($r('app.string.open_depth_render'), { type: ButtonType.Normal, stateEffect: true })
@@ -38,7 +38,7 @@ struct ARDepth {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushPathByName('ARDepthRender', 1)
+            this.pageInfos.pushPathByName('ARDepthRender', 1);
           })
       }
       .justifyContent(FlexAlign.SpaceEvenly)

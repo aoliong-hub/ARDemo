@@ -22,3 +22,7 @@ export const update: (id: string) => number;
 export const stop: (id: string) => void;
 export const init: (resmgr: resourceManager.ResourceManager) => void;
 export const getDistance: (id: string) => string;
+export const initImage: (id: string, width: number, height: number, buffer: ArrayBuffer) => number;
+export const setPath: (id: string, path: string) => void;
+export const saveImageDataBaseToLocal: (id: string, path: string) => void;
+export const getImageCount: (id: string) => number;

@@ -26,6 +26,11 @@ public:
 
     static void CheckError(const std::string &file, int lineNum);
 
+    static GLuint CreateTexture(int w, int h, GLenum internalFormat, const unsigned char *data = nullptr);
+
+    static GLuint CreateFbo(GLuint tex = 0);
+
+    static void GetFormatAndTypeFromInternalFormat(int internalFormat, int &format, int &type);
 };
 
 #endif // GLUTILS_H

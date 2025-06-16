@@ -45,6 +45,10 @@ public:
     virtual void OnUpdate(){};
     virtual void OnStop(){};
     virtual std::string GetDistance() { return ""; }
+    virtual int32_t InitImage(size_t bufferLen, uint32_t width, uint32_t height, uint8_t *buffer) { return 0; }
+    virtual void SetPath(std::string){};
+    virtual void SaveImageDataBaseToLocal(std::string){};
+    virtual uint32_t getImageCount() { return 0; };
 
 public:
     std::string id_;
