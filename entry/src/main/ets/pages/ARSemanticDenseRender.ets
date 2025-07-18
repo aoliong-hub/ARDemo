@@ -13,68 +13,87 @@
  * limitations under the License.
  */
 
-import { deviceInfo } from '@kit.BasicServicesKit';
+import { display } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import arEngineDemo from 'libentry.so';
-import { Logger } from '../utils/Logger';
 
 @Builder
-export function ARImageByDatabaseBuilder() {
-  ARImageByDatabase();
+export function ARSemanticDenseRenderBuilder() {
+  ARSemanticDenseRender();
 }
 
 @Component
-struct ARImageByDatabase {
+struct ARSemanticDenseRender {
   pageInfos: NavPathStack = new NavPathStack();
-  private isSurfaceDestroy: boolean = false;
-  private interval: number = -1;
-  private isUpdate: boolean = false;
-  private xComponentId: string = 'ARImage';
   @State context: Context = this.getUIContext().getHostContext() as Context;
+  private xComponentId: string = 'ARSemanticDense';
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
-  @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  private interval: number = -1;
+  private inputInterval: number = -1;
+  private getCubeInfoInterval: number = -1;
+  private isUpdate: boolean = false;
+  private semanticDenseMode: number = 0;
   @State showPage: boolean = true;
+  @State rotation: number = display.getDefaultDisplaySync().rotation;
+  @State volume: string = '';
 
   build(): void {
     NavDestination() {
       RelativeContainer() {
+
         XComponent({ id: this.xComponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
+          .opacity(0.2)
           .width('100%')
           .height('100%')
+          .zIndex(0.1)
           .visibility(this.showPage ? Visibility.Visible : Visibility.None)
           .alignRules({
             center: { anchor: '__container__', align: VerticalAlign.Center },
             middle: { anchor: '__container__', align: HorizontalAlign.Center }
           })
           .onLoad(() => {
-            Logger.info(`XComponent onLoad ${this.xComponentId}.`);
             this.interval = setInterval(() => {
               if (this.isUpdate) {
                 arEngineDemo.update(this.xComponentId);
+                if (this.semanticDenseMode != 0) {
+                  this.volume = arEngineDemo.getVolume(this.xComponentId);
+                }
               }
             }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
           })
           .onDestroy(() => {
-            Logger.info(`XComponent onDestroy ${this.xComponentId}.`);
-            this.isSurfaceDestroy = true;
-            clearInterval(this.interval);
+            if (this.interval !== -1) {
+              clearInterval(this.interval);
+              this.interval = -1;
+            }
+
+            if (this.inputInterval !== -1) {
+              clearInterval(this.inputInterval);
+              this.inputInterval = -1;
+            }
+
+            if (this.getCubeInfoInterval !== -1) {
+              clearInterval(this.getCubeInfoInterval);
+              this.getCubeInfoInterval = -1;
+            }
+          })
+
+        Text(this.volume)
+          .fontColor(Color.Red)
+          .fontSize(14)
+          .textAlign(TextAlign.Center)
+          .alignRules({
+            bottom: { anchor: '__container__', align: VerticalAlign.Bottom },
+            middle: { anchor: '__container__', align: HorizontalAlign.Center }
           })
       }
     }
     .onAppear(() => {
       arEngineDemo.init(this.resMgr);
-      let config: Int32Array = new Int32Array([1, this.rotation]);
+      let config: Int32Array = new Int32Array([1, this.rotation, 2, this.semanticDenseMode]);
       arEngineDemo.start(this.xComponentId, config);
-
-      arEngineDemo.setPath(this.xComponentId, this.context.filesDir);
-
-      let imageCountInDatabase: number = arEngineDemo.getImageCount(this.xComponentId);
-      Logger.info(`ImageCountInDatabase: ${imageCountInDatabase}.`);
-      if (imageCountInDatabase <= 0) {
-        this.ShowDialog(this.context.resourceManager.getStringSync($r('app.string.invalid_image_added')));
-      }
     })
-    .onWillDisappear(() => {
+    .onWillDisappear(async () => {
       arEngineDemo.stop(this.xComponentId);
     })
     .onShown(() => {
@@ -83,48 +102,14 @@ struct ARImageByDatabase {
     })
     .onHidden(() => {
       this.isUpdate = false;
-      if (!this.isSurfaceDestroy) {
-        arEngineDemo.hide(this.xComponentId);
-      }
+      arEngineDemo.hide(this.xComponentId);
     })
     .onReady((context: NavDestinationContext) => {
       this.pageInfos = context.pathStack;
+      this.semanticDenseMode = context.pathInfo.param as number;
     })
     .hideTitleBar(true)
     .hideBackButton(true)
     .hideToolBar(true)
-  }
-
-  ShowDialog(msg: string): void {
-    this.getUIContext().showAlertDialog({
-      title: $r('app.string.warning'),
-      message: msg,
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      offset: { dx: 0, dy: -20 },
-      gridCount: 3,
-      transition: TransitionEffect
-        .asymmetric(TransitionEffect.OPACITY
-          .animation({ duration: 1000, curve: Curve.Sharp })
-          .combine(TransitionEffect
-            .scale({ x: 1.5, y: 1.5 })
-            .animation({ duration: 1000, curve: Curve.Sharp })
-          ),
-          TransitionEffect.OPACITY.animation({ duration: 100, curve: Curve.Smooth })
-          .combine(TransitionEffect.scale({ x: 0.5, y: 0.5 })
-            .animation({ duration: 100, curve: Curve.Smooth })
-          )
-        ),
-      buttons: [{
-        enabled: true,
-        defaultFocus: true,
-        style: DialogButtonStyle.HIGHLIGHT,
-        value: $r('app.string.back'),
-        action: () => {
-          console.info('Callback when the second button is clicked.');
-          this.pageInfos.pop();
-        }
-      }]
-    })
   }
 }

@@ -1,4 +1,4 @@
-# AREngine
+# Spatial Awareness Capability Based on AR Engine (C++)
 
 ## Overview
 
@@ -18,9 +18,9 @@ provided by AR Engine.
 
 ### ARWorld preview
 
-|      **App home screen**      |      **Plane recognition**       | **Model display through hit testing** |
-|:-----------------------------:|:--------------------------------:|:-------------------------------------:|
-| ![](screenshots/homePage.png) | ![](screenshots/detectPlane.png) |    ![](screenshots/showModel.png)     |
+|            **App home screen**             |      **Plane recognition**       | **Model display through hit testing** |
+|:------------------------------------------:|:--------------------------------:|:-------------------------------------:|
+| ![](screenshots/homePage_ClickARWorld.png) | ![](screenshots/detectPlane.png) |    ![](screenshots/showModel.png)     |
 
 1. On the home screen of your phone, touch **ARSample** to start the app. You'll find an **ARWorld** button on
    the app home screen.
@@ -31,9 +31,9 @@ provided by AR Engine.
 
 ### ARMesh preview
 
-|      **App home screen**       |        **Mesh drawing**         | **Model display through hit testing** |
-|:------------------------------:|:-------------------------------:|:-------------------------------------:|
-| ![](screenshots/homePage1.png) | ![](screenshots/meshRender.png) | ![](screenshots/meshRenderModel.png)  |
+|            **App home screen**            |        **Mesh drawing**         | **Model display through hit testing** |
+|:-----------------------------------------:|:-------------------------------:|:-------------------------------------:|
+| ![](screenshots/homePage_ClickARMesh.png) | ![](screenshots/meshRender.png) | ![](screenshots/meshRenderModel.png)  |
 
 1. On the home screen of your phone, tap **ARSample** to start the app. You'll find an **ARMesh** button on the app
    home screen.
@@ -44,9 +44,9 @@ provided by AR Engine.
 
 ### ARDepth preview
 
-|      **App home screen**       |     **Depth mode selection**      |    **Depth rendering disabled**    |   **Depth rendering enabled**    |
-|:------------------------------:|:---------------------------------:|:----------------------------------:|:--------------------------------:|
-| ![](screenshots/homePage2.png) | ![](screenshots/depthMode_en.png) | ![](screenshots/depthNoRender.png) | ![](screenshots/depthRender.png) |
+|            **App home screen**             |     **Depth mode selection**      |    **Depth rendering disabled**    |   **Depth rendering enabled**    |
+|:------------------------------------------:|:---------------------------------:|:----------------------------------:|:--------------------------------:|
+| ![](screenshots/homePage_ClickARDepth.png) | ![](screenshots/depthMode_en.png) | ![](screenshots/depthNoRender.png) | ![](screenshots/depthRender.png) |
 
 1. On the home screen of your phone, tap **ARSample** to start the app. You'll find an **ARDepth** button on the app
    home screen.
@@ -57,15 +57,30 @@ provided by AR Engine.
 
 ### ARImage preview
 
-|      **App home screen**       |        **Image mode selection**         |    **Select tracking images**     |  **Display tracking image**   |
-|:------------------------------:|:---------------------------------------:|:---------------------------------:|:-----------------------------:|
-| ![](screenshots/homePage3.png) | ![](screenshots/imageSelectMode_en.png) | ![](screenshots/selectPic_en.png) | ![](screenshots/tracePic.png) |
+|            **App home screen**             |        **Image mode selection**         |    **Select tracking images**     |  **Display tracking image**   |
+|:------------------------------------------:|:---------------------------------------:|:---------------------------------:|:-----------------------------:|
+| ![](screenshots/homePage_ClickARImage.png) | ![](screenshots/imageSelectMode_en.png) | ![](screenshots/selectPic_en.png) | ![](screenshots/tracePic.png) |
 
 1. On the home screen of your phone, tap **ARSample** to start the app. You'll find an **ARImage** button on the app
    home screen.
 2. Choose to add a local image or load local database.
 3. If you choose to add a local image, the image adding screen will be displayed. Otherwise, this step is skipped.
 4. The tracking starts for the target image, which is framed in red.
+
+### ARSemanticDense preview
+
+|                **App home screen**                 |          **SemanticDense mode selection**           |  **Enable dense point cloud**   | **Open Semantic Dense Cube Volume** | **Open Semantic Dense Cube Space** |
+|:--------------------------------------------------:|:---------------------------------------------------:|:-------------------------------:|:-----------------------------------:|:----------------------------------:|
+| ![](screenshots/homePage_ClickARSemanticDense.png) | ![](screenshots/second_ARSemanticDense_English.png) | ![](screenshots/pointCloud.png) |   ![](screenshots/cubeVolume.png)   |   ![](screenshots/cubeSpace.png)   |
+
+1. On the home screen of your phone, tap **ARSample** to start the app. You'll find an **ARSemanticDense** button on the
+   app
+   home screen.
+2. Select to click to enable dense point cloud, and open either of the buttons for semantic dense cube volume or 
+   semantic dense cube space.
+3. Scan the corresponding ground, object, or corner of the wall in three different modes.
+4. After identifying the relevant subject information, corresponding dense point clouds, cube information can
+   be seen on the screen.
 
 ## Usage Instructions
 
@@ -127,6 +142,18 @@ Developers can open this project using DevEco, sign it, and directly run it on a
 │  │  │
 │  │  ├──utils                                      // Utility class
 │  │  │
+│  │  ├──semanticdense 
+│  │  │  ├──semanticdense_ar_application.cpp        // ARSemanticDense module API implementation
+│  │  │  ├──semanticdense_ar_application.h
+│  │  │  ├──semanticdense_background_renderer.cpp   // Background rendering
+│  │  │  ├──semanticdense_background_renderer.h
+│  │  │  ├──semanticdense_cube_renderer.cpp         // Cube rendering
+│  │  │  ├──semanticdense_cube_renderer.h
+│  │  │  ├──semanticdense_point_cloud_renderer.cpp  // Point cloud rendering
+│  │  │  ├──semanticdense_point_cloud_renderer.h
+│  │  │  ├──semanticdense_render_manager.cpp        // Rendering of each frame
+│  │  │  └──semanticdense_render_manager.h
+│  │  │ 
 │  │  └──world                                      // ARWorld module
 │  │     ├──world_ar_application.cpp                // ARWorld module API implementation
 │  │     ├──world_ar_application.h
@@ -159,6 +186,8 @@ Developers can open this project using DevEco, sign it, and directly run it on a
 │  │  ├──ARImageByAdd.ets                           // ARImage local image mode screen
 │  │  ├──ARImageByDatabase.ets                      // ARImage local database mode screen
 │  │  ├──ARMesh.ets                                 // ARMesh screen
+│  │  ├──ARSemanticDense.ets                        // ARSemanticDense mode selection screen
+│  │  ├──ARSemanticDenseRender.ets                  // ARSemanticDense screen
 │  │  ├──ARWorld.ets                                // ARWorld screen
 │  │  └──Selector.ets                               // Home screen
 │  │
@@ -272,6 +301,19 @@ AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_Serialize(const AREngine
 AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_Deserialize(const uint8_t *buffer, const uint64_t bufSize, AREngine_ARAugmentedImageDatabase **outDatabase);
 ```
 
+### APIs for high-precision geometric reconstruction
+
+```c
+AREngine_ARStatus HMS_AREngine_ARConfig_SetSemanticDenseMode(const AREngine_ARSession *session, AREngine_ARConfig *config, AREngine_ARSemanticDenseMode semanticDenseMode);
+AREngine_ARStatus HMS_AREngine_ARConfig_GetSemanticDenseMode(const AREngine_ARSession *session, const AREngine_ARConfig *config, AREngine_ARSemanticDenseMode *outSemanticDenseMode);
+AREngine_ARStatus HMS_AREngine_ARFrame_AcquireSemanticDenseData(const AREngine_ARSession *session, const AREngine_ARFrame *frame, AREngine_ARSemanticDenseData **outSemanticDenseData);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquirePointData(const AREngine_ARSession *session, const AREngine_ARSemanticDenseData* semanticDenseData, AREngine_ARSemanticDensePointData **outPointData);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquirePointDataSize(const AREngine_ARSession *session,const AREngine_ARSemanticDenseData* semanticDenseData, int64_t *outSize);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquireCubeData(const AREngine_ARSession *session, const AREngine_ARSemanticDenseData* semanticDenseData, AREngine_ARSemanticDenseCubeData **outCubeData);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquireCubeDataSize(const AREngine_ARSession *session, const AREngine_ARSemanticDenseData* semanticDenseData, int64_t *outSize);
+void HMS_AREngine_ARSemanticDense_Release(AREngine_ARSemanticDenseData *semanticDenseData);
+```
+
 ### About motion tracking capability
 
 AR Engine acquires camera data from the device, combines it with image features and the inertial measurement unit (IMU)
@@ -300,15 +342,15 @@ and z axes) to achieve 6 degrees of freedom (6DoF) motion tracking.
      <tr>
        <td rowspan="4">Phone</td>
        <td>Mate Series</td>
-       <td>Mate 60, Mate 60 RS ULTIMATE DESIGN, Mate 60 Pro, Mate 60 Pro+, Mate 70, Mate 70 RS ULTIMATE DESIGN, Mate 70 Pro, Mate 70 Pro+, Mate X5, Mate X6, and Mate XT ULTIMATE DESIGN</td>
+       <td>Mate 60, Mate 60 RS ULTIMATE DESIGN, Mate 60 Pro, Mate 60 Pro+,<br>Mate 70, Mate 70 RS ULTIMATE DESIGN, Mate 70 Pro, Mate 70 Pro+,<br>Mate X5, Mate X6, and Mate XT ULTIMATE DESIGN</td>
      </tr>
      <tr>
        <td>Pura Series</td>
-       <td>Pura 70, Pura 70 Pro, Pura 70 Pro+, Pura 70 Ultra, and Pura X</td>
+       <td>Pura 70, Pura 70 Pro, Pura 70 Pro+, Pura 70 Ultra, Pura X,<br>Pura 80, Pura 80 Pro, Pura 80 Pro+, and Pura 80 Ultra</td>
      </tr>
      <tr>
        <td>Nova Series</td>
-       <td>Nova 12 Pro</td>
+       <td>Nova 12 Ultra, Nova 14 Pro, and Nova 14 Ultra</td>
      </tr>
      <tr>
        <td>Pocket Series</td>
@@ -317,12 +359,12 @@ and z axes) to achieve 6 degrees of freedom (6DoF) motion tracking.
      <tr>
        <td>Tablet</td>
        <td>MatePad Series</td>
-       <td>MatePad Pro 13.2</td>
+       <td>MatePad Pro 13.2 2025</td>
      </tr>
    </table>
 
-2. It is recommended that DevEco Studio 5.1.0 Release or later be used.
-3. This sample is based on the stage model. It is recommended that HarmonyOS 5.1.0 Release SDK or later be used.
+2. It is recommended that DevEco Studio 6.0.0 Release or later be used.
+3. This sample is based on the stage model. It is recommended that HarmonyOS 6.0.0 Release SDK or later be used.
 
 ## AR Engine Depth Estimation Technology Limitations and Disclaimer
 
@@ -334,29 +376,61 @@ and z axes) to achieve 6 degrees of freedom (6DoF) motion tracking.
     4. Real-time limitations in dynamic scenes, among others.
 2. Disclaimer:
    This depth estimation feature is provided solely for functionality and does not constitute a warranty regarding
-   product quality or any other commitments. Developers have the sole discretion to decide whether to use 
-   the functionalities offered by HarmonyOS in developing their apps, and they are entirely responsible for the apps' 
-   intended purpose, performance, and any associated liabilities. If an app is developed for scenarios such as obstacle 
-   avoidance for visually impaired individuals or assistance for persons with disabilities, developers must conduct 
-   extensive multi-scenario stress testing and implement a data validation mechanism. Particularly in safety-related 
-   contexts, redundant safeguards should be deployed, and it must be ensured that the app is developed and operated in 
-   full compliance with legal and regulatory requirements. HarmonyOS shall not bear any direct or indirect liability 
+   product quality or any other commitments. Developers have the sole discretion to decide whether to use
+   the functionalities offered by HarmonyOS in developing their apps, and they are entirely responsible for the apps'
+   intended purpose, performance, and any associated liabilities. If an app is developed for scenarios such as obstacle
+   avoidance for visually impaired individuals or assistance for persons with disabilities, developers must conduct
+   extensive multi-scenario stress testing and implement a data validation mechanism. Particularly in safety-related
+   contexts, redundant safeguards should be deployed, and it must be ensured that the app is developed and operated in
+   full compliance with legal and regulatory requirements. HarmonyOS shall not bear any direct or indirect liability
    arising from such use.
 
    Additional note on depth estimation functionality:
     1. The depth estimation functionality is not designed as a medical device or life safety system.
-    2. Without the proper certifications, the depth estimation functionality should not be used as a medical assistive 
-       device. It is not intended for use as medical equipment. It also hasn't been approved to meet accessibility or 
+    2. Without the proper certifications, the depth estimation functionality should not be used as a medical assistive
+       device. It is not intended for use as medical equipment. It also hasn't been approved to meet accessibility or
        life safety standards.
 
+## AR Engine High-Precision Geometric Reconstruction Technology Limitations and Disclaimer
+
+1. Technology limitations: The capabilities provided by this feature may have their geometric reconstruction accuracy influenced
+   by the following factors:
+   1. Ambient lighting conditions (such as strong light, low light, or reflective environments).
+   2. Surface material characteristics of objects (such as transparency, mirror-like surfaces, or uniform colors).
+   3. Differences in device hardware performance (such as variations in camera/sensor parameters).
+   4. Real-time limitations in dynamic scenes, among others.
+2. Disclaimer:
+   This high-precision geometric reconstruction feature is provided solely for functionality and does not constitute a warranty regarding
+   product quality or any other commitments. Developers have the sole discretion to decide whether to use
+   the functionalities offered by HarmonyOS in developing their apps, and they are entirely responsible for the apps'
+   intended purpose, performance, and any associated liabilities. If an app is developed for scenarios such as obstacle
+   avoidance for visually impaired individuals or assistance for persons with disabilities, developers must conduct
+   extensive multi-scenario stress testing and implement a data validation mechanism. Particularly in safety-related
+   contexts, redundant safeguards should be deployed, and it must be ensured that the app is developed and operated in
+   full compliance with legal and regulatory requirements. HarmonyOS shall not bear any direct or indirect liability
+   arising from such use.
+
+   Additional note on High-Precision geometric reconstruction functionality:
+   1. The high-precision geometric reconstruction functionality is not designed as a medical device or life safety system.
+   2. Without the proper certifications, the High-Precision geometric reconstruction functionality should not be used as a medical assistive
+      device. It is not intended for use as medical equipment. It also hasn't been approved to meet accessibility or
+      life safety standards.
+
 ## Change log
+
+### Features of Version 1.3.0 Update
+
+1. **ARSemanticDense** capability launched.<br>
+   With the launch of high-precision geometric reconstruction capabilities, developers can perform spatial measurements
+   and obtain the volume of a cube.
+2. The project template has been modified to adapt to the latest API20 framework.
 
 ### Features of Version 1.2.0 Update
 
 1. **ARMesh** capability launched.<br>
    Mesh scanning and mesh map rendering capabilities are now available.
 2. **ARImage** capability launched.<br>
-   Image tracking capability is now available, enabling developers to detect environmental target feature points via 
+   Image tracking capability is now available, enabling developers to detect environmental target feature points via
    local images.
 3. The project template has been modified to adapt to the latest API18 framework.
 

@@ -67,12 +67,19 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/mesh/scenemesh_display_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/mesh/mesh_object_renderer.cpp
 
-     # image
-     ${NATIVE_ROOT_PATH}/src/image/image_ar_application.cpp
-     ${NATIVE_ROOT_PATH}/src/image/image_background_renderer.cpp
-     ${NATIVE_ROOT_PATH}/src/image/image_render_manager.cpp
-     ${NATIVE_ROOT_PATH}/src/image/image_render_base.cpp
-     ${NATIVE_ROOT_PATH}/src/image/image_line_render.cpp
+    # image
+    ${NATIVE_ROOT_PATH}/src/image/image_ar_application.cpp
+    ${NATIVE_ROOT_PATH}/src/image/image_background_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/image/image_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/image/image_render_base.cpp
+    ${NATIVE_ROOT_PATH}/src/image/image_line_render.cpp
+
+    # semanticdense
+    ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_ar_application.cpp
+    ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_background_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_point_cloud_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_cube_renderer.cpp
 )
 
 # Link the OpenHarmony native library (using OpenGL).

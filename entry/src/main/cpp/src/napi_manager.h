@@ -43,6 +43,7 @@ public:
     static napi_value NapiSetPath(napi_env env, napi_callback_info info);
     static napi_value NapiSaveImageDataBaseToLocal(napi_env env, napi_callback_info info);
     static napi_value NapiGetImageCount(napi_env env, napi_callback_info info);
+    static napi_value NapiGetVolume(napi_env env, napi_callback_info info);
 
     // Napi export
     bool Export(napi_env env, napi_value exports);

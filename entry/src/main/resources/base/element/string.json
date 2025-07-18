@@ -79,6 +79,18 @@
     {
       "name": "image_add_reason_by_add",
       "value": "Failed reason: "
+    },
+    {
+      "name": "semantic_dense_normal",
+      "value": "Semantic Dense Normal"
+    },
+    {
+      "name": "semantic_dense_cube_volume",
+      "value": "Semantic Dense Cube Volume"
+    },
+    {
+      "name": "semantic_dense_cube_space",
+      "value": "Semantic Dense Cube Space"
     }
   ]
 }

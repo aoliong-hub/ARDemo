@@ -79,6 +79,18 @@
     {
       "name": "image_add_reason_by_add",
       "value": "失败原因："
+    },
+    {
+      "name": "semantic_dense_normal",
+      "value": "开启稠密点云"
+    },
+    {
+      "name": "semantic_dense_cube_volume",
+      "value": "打开体积测量"
+    },
+    {
+      "name": "semantic_dense_cube_space",
+      "value": "打开空间测量"
     }
   ]
 }

@@ -28,7 +28,7 @@ struct ARDepthRender {
   private interval: number = -1;
   private isUpdate: boolean = true;
   private params: number = 0;
-  private xComponentId = 'ARDepth';
+  private xComponentId: string = 'ARDepth';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State distance: string = '';

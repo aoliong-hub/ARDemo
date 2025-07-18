@@ -26,3 +26,4 @@ export const initImage: (id: string, width: number, height: number, buffer: Arra
 export const setPath: (id: string, path: string) => void;
 export const saveImageDataBaseToLocal: (id: string, path: string) => void;
 export const getImageCount: (id: string) => number;
+export const getVolume: (id: string) => string;

@@ -17,6 +17,7 @@
 #include "depth/depth_ar_application.h"
 #include "image/image_ar_application.h"
 #include "mesh/mesh_ar_application.h"
+#include "semanticdense/semanticdense_ar_application.h"
 #include "utils/log.h"
 #include "world/world_ar_application.h"
 #include <cstdint>
@@ -214,6 +215,8 @@ napi_value NapiManager::NapiOnPageAppear(napi_env env, napi_callback_info info)
                 params.depthRenderMode = value;
             } else if (key == AppNapi::ROTATION) {
                 params.rotation = value;
+            } else if (key == AppNapi::SEMANTICDENSEMODE) {
+                params.semanticDenseMode = value;
             }
         }
     }
@@ -378,6 +381,32 @@ napi_value NapiManager::NapiGetImageCount(napi_env env, napi_callback_info info)
     return result;
 }
 
+napi_value NapiManager::NapiGetVolume(napi_env env, napi_callback_info info) {
+    LOGD("NapiManager::NapiGetVolume");
+
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+
+    std::string id(idStr);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    std::string volume = app->GetVolume();
+    LOGE("NapiManager::NapiGetVolume volume is:%{public}s", volume.c_str());
+
+    std::ostringstream distanceString;
+    distanceString << setiosflags(ios::fixed) << setiosflags(ios::right) << setprecision(4)  <<volume << std::endl;
+
+    napi_value ret = nullptr;
+    string result = distanceString.str();
+    napi_create_string_utf8(env, result.c_str(), result.length(), &ret);
+
+    return ret;
+}
+
 napi_value NapiManager::NapiSetPath(napi_env env, napi_callback_info info)
 {
     LOGD("NapiManager::NapiSetPath");
@@ -448,6 +477,9 @@ AppNapi *NapiManager::CreateApp(std::string &id)
     }
     if (id == std::string("ARImage")) {
         return new ARImage::ARImageApp(id);
+    }
+    if (id == std::string("ARSemanticDense")) {
+        return new ARSemanticDense::ArSemanticDenseApp(id);
     }
     return nullptr;
 }

@@ -1,4 +1,4 @@
-# AREngine
+# 基于AR引擎实现空间感知能力（C++）
 
 ## 介绍
 
@@ -14,9 +14,9 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 
 ### ARWorld效果预览
 
-|           **应用首页**            |             **识别平面**             |         **通过命中检测显示模型**         |
-|:-----------------------------:|:--------------------------------:|:------------------------------:|
-| ![](screenshots/homePage.png) | ![](screenshots/detectPlane.png) | ![](screenshots/showModel.png) |
+|                  **应用首页**                  |             **识别平面**             |         **通过命中检测显示模型**         |
+|:------------------------------------------:|:--------------------------------:|:------------------------------:|
+| ![](screenshots/homePage_ClickARWorld.png) | ![](screenshots/detectPlane.png) | ![](screenshots/showModel.png) |
 
 1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARWorld”按钮。
 2. 点击“ARWorld”按钮，拉起AR引擎的平面识别界面，对准地面，桌面，墙面等平面缓慢移动扫描，即可识别到平面并绘制到屏幕上。
@@ -24,9 +24,9 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 
 ### ARMesh效果预览
 
-|            **应用首页**            |          **绘制Mesh网格**           |            **通过命中检测显示模型**            |
-|:------------------------------:|:-------------------------------:|:------------------------------------:|
-| ![](screenshots/homePage1.png) | ![](screenshots/meshRender.png) | ![](screenshots/meshRenderModel.png) |
+|                 **应用首页**                  |          **绘制Mesh网格**           |            **通过命中检测显示模型**            |
+|:-----------------------------------------:|:-------------------------------:|:------------------------------------:|
+| ![](screenshots/homePage_ClickARMesh.png) | ![](screenshots/meshRender.png) | ![](screenshots/meshRenderModel.png) |
 
 1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARMesh”按钮。
 2. 点击“ARMesh”按钮，拉起AR引擎平面识别界面，对准地面，桌面，墙面等平面缓慢移动扫描，即可绘制mesh网格到屏幕上。
@@ -34,9 +34,9 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 
 ### ARDepth效果预览
 
-|            **应用首页**            |         **Depth模式选择**          |           **关闭深度图渲染模式**            |          **开启深度图渲染模式**           |
-|:------------------------------:|:------------------------------:|:----------------------------------:|:--------------------------------:|
-| ![](screenshots/homePage2.png) | ![](screenshots/depthMode.png) | ![](screenshots/depthNoRender.png) | ![](screenshots/depthRender.png) |
+|                  **应用首页**                  |         **Depth模式选择**          |           **关闭深度图渲染模式**            |          **开启深度图渲染模式**           |
+|:------------------------------------------:|:------------------------------:|:----------------------------------:|:--------------------------------:|
+| ![](screenshots/homePage_ClickARDepth.png) | ![](screenshots/depthMode.png) | ![](screenshots/depthNoRender.png) | ![](screenshots/depthRender.png) |
 
 1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARDepth”按钮。
 2. 选择是否开启深度渲染图模式。
@@ -45,14 +45,25 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 
 ### ARImage效果预览
 
-|            **应用首页**            |            **Image模式选择**             |           **选取跟踪图片**           |           **跟踪图片**            |
-|:------------------------------:|:------------------------------------:|:------------------------------:|:-----------------------------:|
-| ![](screenshots/homePage3.png) | ![](screenshots/imageSelectMode.png) | ![](screenshots/selectPic.png) | ![](screenshots/tracePic.png) |
+|                  **应用首页**                  |            **Image模式选择**             |           **选取跟踪图片**           |           **跟踪图片**            |
+|:------------------------------------------:|:------------------------------------:|:------------------------------:|:-----------------------------:|
+| ![](screenshots/homePage_ClickARImage.png) | ![](screenshots/imageSelectMode.png) | ![](screenshots/selectPic.png) | ![](screenshots/tracePic.png) |
 
 1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARImage”按钮。
 2. 选择添加图片跟踪或者使用本地数据库。
 3. 若选择添加图片，则弹出图片添加窗口，否则直接进入下一步。
 4. 开始跟踪目标图片，屏幕上可看见红色线框框选的目标图片。
+
+### ARSemanticDense效果预览
+
+|                      **应用首页**                      |              **SemanticDense模式选择**              |           **开启稠密点云**            |           **打开体积测量**            |           **打开空间测量**           |
+|:--------------------------------------------------:|:-----------------------------------------------:|:-------------------------------:|:-------------------------------:|:------------------------------:|
+| ![](screenshots/homePage_ClickARSemanticDense.png) | ![](screenshots/secondPage_ARSemanticDense.png) | ![](screenshots/pointCloud.png) | ![](screenshots/cubeVolume.png) | ![](screenshots/cubeSpace.png) |
+
+1. 在手机的主屏幕，点击“ARSample”，启动应用，在主界面可见“ARSemanticDense”按钮。
+2. 选择点击开启稠密点云，打开体积测量和打开空间测量中的任意一个按钮。
+3. 三个模式下分别对着相对应的地面，物体或墙角进行扫描。
+4. 识别出相应主体信息后，屏幕上可以看见相对应的稠密点云或立方体信息。
 
 ## 使用说明
 
@@ -114,6 +125,18 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 │  │  │
 │  │  ├──utils                                      // Util工具类
 │  │  │
+│  │  ├──semanticdense 
+│  │  │  ├──semanticdense_ar_application.cpp        // ARSemanticDense模块接口实现
+│  │  │  ├──semanticdense_ar_application.h
+│  │  │  ├──semanticdense_background_renderer.cpp   // 背景渲染
+│  │  │  ├──semanticdense_background_renderer.h
+│  │  │  ├──semanticdense_cube_renderer.cpp         // 立方体渲染
+│  │  │  ├──semanticdense_cube_renderer.h
+│  │  │  ├──semanticdense_point_cloud_renderer.cpp  // 点云渲染
+│  │  │  ├──semanticdense_point_cloud_renderer.h
+│  │  │  ├──semanticdense_render_manager.cpp        // 每一帧渲染
+│  │  │  └──semanticdense_render_manager.h
+│  │  │ 
 │  │  └──world                                      // ARWorld模块
 │  │     ├──world_ar_application.cpp                // ARWorld模块接口实现
 │  │     ├──world_ar_application.h
@@ -146,6 +169,8 @@ AR Engine（以下统称AR引擎）助力应用融合虚拟世界与现实世界
 │  │  ├──ARImageByAdd.ets                           // ARImage本地图片模式界面
 │  │  ├──ARImageByDatabase.ets                      // ARImage本地数据库模式界面
 │  │  ├──ARMesh.ets                                 // ARMesh界面
+│  │  ├──ARSemanticDense.ets                        // ARSemanticDense模式选择界面
+│  │  ├──ARSemanticDenseRender.ets                  // ARSemanticDense界面
 │  │  ├──ARWorld.ets                                // ARWorld界面
 │  │  └──Selector.ets                               // 主界面
 │  │
@@ -259,6 +284,19 @@ AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_Serialize(const AREngine
 AREngine_ARStatus HMS_AREngine_ARAugmentedImageDatabase_Deserialize(const uint8_t *buffer, const uint64_t bufSize, AREngine_ARAugmentedImageDatabase **outDatabase);
 ```
 
+### 高精几何重建相关接口
+
+```c
+AREngine_ARStatus HMS_AREngine_ARConfig_SetSemanticDenseMode(const AREngine_ARSession *session, AREngine_ARConfig *config, AREngine_ARSemanticDenseMode semanticDenseMode);
+AREngine_ARStatus HMS_AREngine_ARConfig_GetSemanticDenseMode(const AREngine_ARSession *session, const AREngine_ARConfig *config, AREngine_ARSemanticDenseMode *outSemanticDenseMode);
+AREngine_ARStatus HMS_AREngine_ARFrame_AcquireSemanticDenseData(const AREngine_ARSession *session, const AREngine_ARFrame *frame, AREngine_ARSemanticDenseData **outSemanticDenseData);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquirePointData(const AREngine_ARSession *session, const AREngine_ARSemanticDenseData* semanticDenseData, AREngine_ARSemanticDensePointData **outPointData);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquirePointDataSize(const AREngine_ARSession *session,const AREngine_ARSemanticDenseData* semanticDenseData, int64_t *outSize);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquireCubeData(const AREngine_ARSession *session, const AREngine_ARSemanticDenseData* semanticDenseData, AREngine_ARSemanticDenseCubeData **outCubeData);
+AREngine_ARStatus HMS_AREngine_ARSemanticDense_AcquireCubeDataSize(const AREngine_ARSession *session, const AREngine_ARSemanticDenseData* semanticDenseData, int64_t *outSize);
+void HMS_AREngine_ARSemanticDense_Release(AREngine_ARSemanticDenseData *semanticDenseData);
+```
+
 ### 运动跟踪能力图文介绍
 
 AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传感器（IMU），计算设备位置（沿x、y、z轴方向位移）和位姿（绕x、y、z轴旋转），
@@ -284,56 +322,78 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
        <th>产品型号</th>
      </tr>
      <tr>
-       <td rowspan="4">手机</td>
+       <td rowspan="4">Phone</td>
        <td>Mate系列</td>
-       <td>Mate 60, Mate 60 RS非凡大师, Mate 60 Pro, Mate 60 Pro+, <br>Mate 70, Mate 70 RS非凡大师, Mate 70 Pro, Mate 70 Pro+,<br> Mate X5, Mate X6, Mate XT非凡大师</td>
+       <td>Mate 60, Mate 60 RS非凡大师, Mate 60 Pro, Mate 60 Pro+,<br>Mate 70, Mate 70 RS非凡大师, Mate 70 Pro, Mate 70 Pro+,<br> Mate X5, Mate X6, Mate XT非凡大师</td>
      </tr>
      <tr>
        <td>Pura系列</td>
-       <td>Pura 70, Pura 70 Pro, Pura 70 Pro+, Pura 70 Ultra, Pure X</td>
+       <td>Pura 70, Pura 70 Pro, Pura 70 Pro+, Pura 70 Ultra, Pura X,<br>Pura 80, Pura 80 Pro, Pura 80 Pro+, Pura 80 Ultra</td>
      </tr>
      <tr>
        <td>Nova系列</td>
-       <td>Nova 12 Pro</td>
+       <td>Nova 12 Ultra, Nova 14 Pro, Nova 14 Ultra</td>
      </tr>
      <tr>
        <td>Pocket系列</td>
        <td>Pocket 2</td>
      </tr>
      <tr>
-       <td>平板</td>
+       <td>Tablet</td>
        <td>MatePad系列</td>
-       <td>MatePad Pro 13.2</td>
+       <td>MatePad Pro 13.2 2025</td>
      </tr>
    </table>
 
-2. 本实例支持的DevEco Studio版本：推荐DevEco Studio 5.1.0 Release及以上。
-3. 本实例为Stage模型，支持的HarmonyOS SDK版本：推荐HarmonyOS 5.1.0 Release SDK及以上。
+2. 本实例支持的DevEco Studio版本：推荐DevEco Studio 6.0.0 Release及以上。
+3. 本实例为Stage模型，支持的HarmonyOS SDK版本：推荐HarmonyOS 6.0.0 Release SDK及以上。
 
 ## AR Engine深度估计功能技术局限性及免责声明
 
 1. 技术局限性声明：本功能提供的能力，涉及深度估计精度可能受以下因素影响：
-   1. 环境光照条件（例如强光/弱光/反光场景）。
-   2. 物体表面材质特性（例如透明/镜面/单色物体）。 
-   3. 设备硬件性能差异（例如摄像头/传感器参数）。 
-   4. 动态场景下的实时性限制等。
+    1. 环境光照条件（例如强光/弱光/反光场景）。
+    2. 物体表面材质特性（例如透明/镜面/单色物体）。
+    3. 设备硬件性能差异（例如摄像头/传感器参数）。
+    4. 动态场景下的实时性限制等。
 2. 免责声明：
    本深度估计仅提供功能，并不构成对产品的质量保证或任何承诺。开发者自主选择是否使用HarmonyOS提供的功能开发应用软件，开发者对应用软件的使用目的、
    效果和责任自行负责。若开发用于视障人士避障、残疾人辅助等场景的应用软件，开发者应承担开展多场景压力测试，并建立数据校验机制，特别在安全相关场景需
    部署冗余保障方案，并确保应用合法合规的开发和运营。HarmonyOS不承担由此产生的任何直接或间接责任。
-   
+
    深度估计提供的功能：
-   1. 不作为医疗设备或生命安全系统设计。 
+    1. 不作为医疗设备或生命安全系统设计。
+    2. 未经认证，不作为医疗辅助设备；不作为医疗器材；未经无障碍设施认证或生命安全认证。
+
+## AR Engine高精几何重建功能技术局限性及免责声明
+
+1. 技术局限性声明：本功能提供的能力，涉及几何数值精度可能受以下因素影响：
+   1. 环境光照条件（例如强光/弱光/反光场景）。
+   2. 物体表面材质特性（例如透明/镜面/单色物体）。
+   3. 设备硬件性能差异（例如摄像头/传感器参数）。
+   4. 动态场景下的实时性限制等。
+2. 免责声明：
+   本高精几何重建仅提供功能，并不构成对产品的质量保证或任何承诺。开发者自主选择是否使用HarmonyOS提供的功能开发应用软件，开发者对应用软件的使用目的、
+   效果和责任自行负责。若开发用于视障人士避障、残疾人辅助等场景的应用软件，开发者应承担开展多场景压力测试，并建立数据校验机制，特别在安全相关场景需
+   部署冗余保障方案，并确保应用合法合规的开发和运营。HarmonyOS不承担由此产生的任何直接或间接责任。
+
+   高精几何重建提供的功能：
+   1. 不作为医疗设备或生命安全系统设计。
    2. 未经认证，不作为医疗辅助设备；不作为医疗器材；未经无障碍设施认证或生命安全认证。
 
 ## 更新日志
+
+### 1.3.0版本更新功能介绍
+
+1. ARSemanticDense能力上线。<br>
+   高精几何重建能力上线，开发者可以进行空间测量，获取立方体的体积。
+2. 修改了工程模板，适配最新的API20工程。
 
 ### 1.2.0版本更新功能介绍
 
 1. ARMesh能力上线。<br>
    网格扫描、网格图绘制能力上线。
 2. ARImage能力上线。<br>
-   图像跟踪能力上线，开发者可通过本地图片检测环境目标特征点。 
+   图像跟踪能力上线，开发者可通过本地图片检测环境目标特征点。
 3. 修改了工程模板，适配最新的API18工程。
 
 ### 1.1.0版本更新功能介绍

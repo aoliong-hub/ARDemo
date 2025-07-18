@@ -21,10 +21,11 @@
 
 class AppNapi {
 public:
-    using ParamType = enum { DEPTH_RENDER_MODE = 0, ROTATION };
+    using ParamType = enum { DEPTH_RENDER_MODE = 0, ROTATION, SEMANTICDENSEMODE };
     using ConfigParams = struct {
         bool depthRenderMode;
         int32_t rotation;
+        int32_t semanticDenseMode;
     };
 
 public:
@@ -49,6 +50,7 @@ public:
     virtual void SetPath(std::string){};
     virtual void SaveImageDataBaseToLocal(std::string){};
     virtual uint32_t getImageCount() { return 0; };
+    virtual std::string GetVolume() {return "";};
 
 public:
     std::string id_;

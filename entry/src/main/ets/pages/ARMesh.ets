@@ -27,7 +27,7 @@ export function ARMeshBuilder() {
 struct ARMesh {
   pageInfos: NavPathStack = new NavPathStack();
   private interval: number = -1;
-  private xComponentId = 'ARMesh';
+  private xComponentId: string = 'ARMesh';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;

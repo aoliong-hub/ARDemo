@@ -29,7 +29,7 @@ struct ARWorld {
   private currentMillisecond: number = 0;
   private interval: number = -1;
   private isUpdate: boolean = true;
-  private xComponentId = 'ARWorld';
+  private xComponentId: string = 'ARWorld';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State numberOfPlans: number = 0;

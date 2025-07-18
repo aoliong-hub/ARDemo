@@ -28,10 +28,11 @@ struct Selector {
   build(): void {
     Navigation(this.pageInfos) {
       Column() {
-        this.sampleButton('ARWorld')
-        this.sampleButton('ARMesh')
-        this.sampleButton('ARDepth')
-        this.sampleButton('ARImage')
+        this.sampleButton('ARWorld');
+        this.sampleButton('ARMesh');
+        this.sampleButton('ARDepth');
+        this.sampleButton('ARImage');
+        this.sampleButton('ARSemanticDense');
       }
       .justifyContent(FlexAlign.SpaceEvenly)
       .width('100%')

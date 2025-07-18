@@ -119,7 +119,7 @@ int32_t ARImageApp::InitImage(size_t bufferLen, uint32_t width, uint32_t height,
 
 void ARImageApp::OnUpdate()
 {
-    LOGD("ARImageApp::OnUpdate is going.");
+    LOGD("ARWorldApp::OnUpdate is going.");
 
     CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
     CHECK_WITH_API_STAT(HMS_AREngine_ARSession_SetCameraGLTexture(
@@ -152,7 +152,7 @@ void ARImageApp::OnUpdate()
 void ARImageApp::OnStop()
 {
     isPaused = true;
-    LOGI("ARImageApp::OnStop");
+    LOGI("ARWorldApp::OnStop");
     std::lock_guard<std::mutex> lock(mImageMutex);
     if (mArFrame != nullptr) {
         HMS_AREngine_ARFrame_Destroy(mArFrame);

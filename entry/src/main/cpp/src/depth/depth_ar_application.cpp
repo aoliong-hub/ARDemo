@@ -148,7 +148,7 @@ void ARDepthApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window)
     });
 }
 
-void ARDepthApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window) { LOGD("ARDepthApp::OnTouched"); }
+void ARDepthApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window) { LOGD("ArDepthApp::OnTouched"); }
 
 void ARDepthApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *window)
 {

@@ -114,7 +114,7 @@ void ARMeshApp::OnUpdate()
         for (auto &item : touchPoints) {
             DispatchTouchEvent(item.first, item.second);
         }
-        LOGD("ARMeshApp::OnDrawFrame");
+        LOGD("ARWorldApp::OnDrawFrame");
         mMeshRenderManager.OnDrawFrame(mArSession, mArFrame, mColoredAnchors);
     });
 }

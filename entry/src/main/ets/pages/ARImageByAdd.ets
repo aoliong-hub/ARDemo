@@ -35,7 +35,7 @@ struct ARImageByAdd {
   private isSurfaceDestroy: boolean = false;
   private interval: number = -1;
   private isUpdate: boolean = false;
-  private xComponentId = 'ARImage';
+  private xComponentId: string = 'ARImage';
   @State addImageLog: string = '';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
@@ -87,7 +87,7 @@ struct ARImageByAdd {
       }
     }
     .onBackPressed(() => {
-      Logger.error('Failed to onBackPressed.')
+      Logger.error('Failed to onBackPressed.');
       return false;
     })
     .onAppear(() => {
@@ -159,7 +159,7 @@ struct ARImageByAdd {
         style: DialogButtonStyle.HIGHLIGHT,
         value: $r('app.string.back'),
         action: () => {
-          console.info('Callback when the second button is clicked')
+          console.info('Callback when the second button is clicked');
           this.pageInfos.pop();
         }
       }]
@@ -237,7 +237,7 @@ async function addImage(componentId: string, imagePathList: string[],
 
     let result: number = arEngineDemo.initImage(componentId, imageInfo.size.width, imageInfo.size.height, readBuffer);
     if (errcode.has(result) === false) {
-      Logger.error('Failed to add image, break.')
+      Logger.error('Failed to add image, break.');
       imageSourceApi.release();
       break;
     }
