@@ -189,10 +189,10 @@ void ARMeshApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window)
 void ARMeshApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *window)
 {
     LOGD("ARMeshApp::OnSurfaceDestroyed");
-    std::lock_guard<std::mutex> lock(mImageMutex);
-
-    LOGD("PoseRenderManager release.");
-    mMeshRenderManager.Release();
+    mTaskQueue.Push([this] {
+        LOGD("MeshRenderManager release.");
+        mMeshRenderManager.Release();
+    });
 }
 
 void ARMeshApp::DispatchTouchEvent(float eventX, float eventY)

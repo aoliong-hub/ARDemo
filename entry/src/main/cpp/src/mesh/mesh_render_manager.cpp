@@ -20,41 +20,48 @@
 #include "utils/log.h"
 #include <glm.hpp>
 #include <gtc/type_ptr.hpp>
+#include "renderer_ref.h"
 
 namespace ARMesh {
 
 void MeshRenderManager::Initialize(void *window, uint64_t width, uint64_t height)
 {
-    LOGD("PoseRenderManager-----Initialize start.");
+    LOGD("MeshRenderManager-----Initialize start.");
 
     if (!isInited) {
         mRenderContext.Init();
         mRenderSurface.Create(window);
         mRenderContext.MakeCurrent(&mRenderSurface);
+        LOGD("MeshRenderManager-----do real Initialize(). get current context %{public}d",
+             eglGetCurrentContext() == EGL_NO_CONTEXT);
 
         mBackgroundRenderer.InitializeBackGroundGlContent(width, height);
         mObjectRenderer.InitializeObjectGlContent("AR_logo_obj.obj", "AR_logo.png");
         mSceneMeshDisplayRenderer.InitializeSceneMeshGlContent();
 
         isInited = true;
+        RenderRef::GetInstance().Increment();
     }
 
-    LOGD("PoseRenderManager-----Initialize end.");
+    LOGD("MeshRenderManager-----Initialize end.");
 }
 
 void MeshRenderManager::Release()
 {
-    LOGD("PoseRenderManager-----Release start.");
+    LOGD("MeshRenderManager-----Release start.");
 
-    if (isInited) {
+    if (isInited && RenderRef::GetInstance().IsOne()) {
         mBackgroundRenderer.Release();
         mObjectRenderer.Release();
         mSceneMeshDisplayRenderer.Release();
         mRenderContext.ReleaseCurrent();
+        LOGD("MeshRenderManager-----do real Release(). get current context %{public}d",
+             eglGetCurrentContext() == EGL_NO_CONTEXT);
         mRenderSurface.Release();
         mRenderContext.Release();
         isInited = false;
     }
+    RenderRef::GetInstance().Decrement();
 
     LOGD("MeshRenderManager-----Release end.");
 }

@@ -77,6 +77,7 @@ void NapiManager::OnSurfaceDestroyedCB(OH_NativeXComponent *component, void *win
     std::string id(idStr);
     auto app = NapiManager::GetInstance()->GetApp(id);
     app->OnSurfaceDestroyed(component, window);
+    NapiManager::GetInstance()->Release(id);
 }
 
 void NapiManager::DispatchTouchEventCB(OH_NativeXComponent *component, void *window)
@@ -176,6 +177,14 @@ AppNapi *NapiManager::GetApp(std::string &id)
         return instance;
     } else {
         return appNapiMap_[id];
+    }
+}
+
+void NapiManager::Release(const std::string &id)
+{
+    if (appNapiMap_.find(id) != appNapiMap_.end()) {
+        delete appNapiMap_[id];
+        appNapiMap_.erase(id);
     }
 }
 
@@ -466,20 +475,31 @@ napi_value NapiManager::NapiInitImage(napi_env env, napi_callback_info info)
 // Create a service implementation class based on the service ID.
 AppNapi *NapiManager::CreateApp(std::string &id)
 {
-    if (id == std::string("ARWorld")) {
-        return new ARWorld::ARWorldApp(id);
+    std::string scene;
+    auto currentTime = std::chrono::system_clock::now();
+    auto currentiTime_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(currentTime);
+    auto valueMs = currentiTime_ms.time_since_epoch().count();
+    int len = std::to_string(valueMs).length();
+
+    if(id.length() >= len) {
+        scene = id.substr(len);
+        LOGE("NapiManager::Before CreateApp is:%{public}s", scene.c_str());
     }
-    if (id == std::string("ARDepth")) {
-        return new ARDepth::ARDepthApp(id);
+    
+    if (scene == std::string("ARWorld")) {
+        return new ARWorld::ARWorldApp(scene);
     }
-    if (id == std::string("ARMesh")) {
-        return new ARMesh::ARMeshApp(id);
+    if (scene == std::string("ARDepth")) {
+        return new ARDepth::ARDepthApp(scene);
     }
-    if (id == std::string("ARImage")) {
-        return new ARImage::ARImageApp(id);
+    if (scene == std::string("ARMesh")) {
+        return new ARMesh::ARMeshApp(scene);
     }
-    if (id == std::string("ARSemanticDense")) {
-        return new ARSemanticDense::ArSemanticDenseApp(id);
+    if (scene == std::string("ARImage")) {
+        return new ARImage::ARImageApp(scene);
+    }
+    if (scene == std::string("ARSemanticDense")) {
+        return new ARSemanticDense::ArSemanticDenseApp(scene);
     }
     return nullptr;
 }

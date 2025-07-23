@@ -38,7 +38,7 @@ public:
      *
      * @param assetManager Wrapper of the bottom native implementation.
      */
-    void Initialize(void* window);
+    void Initialize(void *window, AREngine_ARSession *arSession);
     void Release();
 
     /**
@@ -50,6 +50,8 @@ public:
     void OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame);
     
     std::string GetVolume();
+    
+    GLuint GetPreviewTextureId() { return mBackgroundRenderer.GetTextureId(); }
     
 private:
     RenderContext mRenderContext;
@@ -71,7 +73,6 @@ private:
 
     std::mutex mPoseMutex;
     float cameraPoseRaw[8] = {0.0f};
-    static int32_t ref;
     glm::mat4 modelMat;
     std::vector<float> pointClouldData;
     glm::mat4 modelViewProjection;

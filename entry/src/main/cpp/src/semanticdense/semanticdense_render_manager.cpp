@@ -19,12 +19,11 @@
 #include "utils/log.h"
 #include <glm.hpp>
 #include <gtc/type_ptr.hpp>
+#include "renderer_ref.h"
 
 namespace ARSemanticDense {
 
-int32_t SemanticDenseRenderManager::ref = 0;
-
-void SemanticDenseRenderManager::Initialize(void *window) {
+void SemanticDenseRenderManager::Initialize(void *window, AREngine_ARSession *arSession) {
     LOGD("SemanticDenseRenderManager-----Initialize() start.");
 
     if (!isInited) {
@@ -37,9 +36,9 @@ void SemanticDenseRenderManager::Initialize(void *window) {
         mPointCloudRenderer.InitializePointCloudGlContent();
         mBackgroundRenderer.InitializeBackGroundGlContent();
         mCubeRenderer.InitializeCubeGlContent();
-
+        CHECK(HMS_AREngine_ARSession_SetCameraGLTexture(arSession, mBackgroundRenderer.GetTextureId()));
         isInited = true;
-        ref++;
+        RenderRef::GetInstance().Increment();
     }
     LOGD("SemanticDenseRenderManager-----Initialize() end. get current context %{public}d",
          eglGetCurrentContext() == EGL_NO_CONTEXT);
@@ -48,7 +47,7 @@ void SemanticDenseRenderManager::Initialize(void *window) {
 void SemanticDenseRenderManager::Release() {
     LOGD("SemanticDenseRenderManager-----Release() start.");
 
-    if (isInited && ref == 1) {
+    if (isInited && RenderRef::GetInstance().IsOne()) {
         mCubeRenderer.Release();
         mPointCloudRenderer.Release();
         mBackgroundRenderer.Release();
@@ -64,7 +63,7 @@ void SemanticDenseRenderManager::Release() {
             cameraPoseRaw[i] = 0.0f;
         }
     }
-    ref--;
+    RenderRef::GetInstance().Decrement();
     LOGD("SemanticDenseRenderManager-----Release() end. get current context %{public}d",
          eglGetCurrentContext() == EGL_NO_CONTEXT);
 }

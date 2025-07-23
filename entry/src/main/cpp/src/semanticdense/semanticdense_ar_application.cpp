@@ -79,7 +79,6 @@ void ArSemanticDenseApp::OnStop() {
 }
 
 void ArSemanticDenseApp::OnPause() {
-    std::lock_guard<std::mutex> lock(mMutex);
     isPaused = true;
     mTaskQueue.Push([this] {
         LOGD("ArSemanticDenseApp::OnPause()");
@@ -97,12 +96,15 @@ void ArSemanticDenseApp::OnResume() {
 
 void ArSemanticDenseApp::OnUpdate() {
     if (isPaused) {
-        LOGI("ArSemanticDenseApp::OnUpdate() is paused");
+        LOGD("ArSemanticDenseApp::OnUpdate is paused.");
         return;
     }
-    LOGD("ArSemanticDenseApp::OnDrawFrame()");
-    std::lock_guard<std::mutex> imageLock(mImageMutex);
-    mSemanticDenseRenderManager.OnDrawFrame(mArSession, mArFrame);
+    mTaskQueue.Push([this] {
+        HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mSemanticDenseRenderManager.GetPreviewTextureId());
+        HMS_AREngine_ARSession_Update(mArSession, mArFrame);
+        LOGD("ARWorldApp::OnDrawFrame");
+        mSemanticDenseRenderManager.OnDrawFrame(mArSession, mArFrame);
+    });
 }
 
 void ArSemanticDenseApp::OnSurfaceCreated(OH_NativeXComponent *component, void *window) {
@@ -116,9 +118,12 @@ void ArSemanticDenseApp::OnSurfaceCreated(OH_NativeXComponent *component, void *
             LOGE("ArSemanticDenseApp::OnSurfaceCreated Offset : x = %{public}lf, y = %{public}lf ", mX, mY);
         }
     }
-
-    LOGI("SegmentationRenderManager init ");
-    mSemanticDenseRenderManager.Initialize(window);
+    
+    mTaskQueue.Push([this, window] {
+        LOGD("WorldRenderManager is init.");
+        mSemanticDenseRenderManager.Initialize(window, mArSession);
+        CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mDisplayWidth, mDisplayHeight));
+    });
 }
 
 void ArSemanticDenseApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window) {
@@ -148,10 +153,11 @@ void ArSemanticDenseApp::DispatchTouchEvent(OH_NativeXComponent *component, void
 }
 
 void ArSemanticDenseApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *window) {
-    LOGI("ArSemanticDenseApp::OnSurfaceDestroyed");
-    std::lock_guard<std::mutex> lock(mMutex);
-    LOGI("SemanticDenseRenderManager release");
-    mSemanticDenseRenderManager.Release();
+    LOGD("ArSemanticDenseApp::OnSurfaceDestroyed");
+    mTaskQueue.Push([this] {
+        LOGD("SemanticDenseRenderManager release.");
+        mSemanticDenseRenderManager.Release();
+    });
 }
 
 void ArSemanticDenseApp::SetSemanticDenseMode(int32_t semanticDenseMode, AREngine_ARSession *mArSession,

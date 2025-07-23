@@ -19,6 +19,7 @@
 #include "utils/log.h"
 #include <glm.hpp>
 #include <gtc/type_ptr.hpp>
+#include "renderer_ref.h"
 
 namespace ARImage {
 
@@ -30,6 +31,8 @@ void ImageRenderManager::Initialize(void *window)
         mRenderContext.Init();
         mRenderSurface.Create(window);
         mRenderContext.MakeCurrent(&mRenderSurface);
+        LOGD("ImageRenderManager-----do real Initialize(). get current context %{public}d",
+             eglGetCurrentContext() == EGL_NO_CONTEXT);
 
         mBackgroundRenderer.InitializeBackGroundGlContent();
         ImageLineRender *mLineRender = new ImageLineRender();
@@ -38,6 +41,7 @@ void ImageRenderManager::Initialize(void *window)
             render->Init();
         }
         isInited = true;
+        RenderRef::GetInstance().Increment();
     }
 
     LOGD("ImageRenderManager-----Initialize end.");
@@ -47,10 +51,12 @@ void ImageRenderManager::Release()
 {
     LOGD("ImageRenderManager-----Release start.");
 
-    if (isInited) {
+    if (isInited && RenderRef::GetInstance().IsOne()) {
         mBackgroundRenderer.Release();
 
         mRenderContext.ReleaseCurrent();
+        LOGD("ImageRenderManager-----do real Release(). get current context %{public}d",
+             eglGetCurrentContext() == EGL_NO_CONTEXT);
         mRenderSurface.Release();
         mRenderContext.Release();
         isInited = false;
@@ -59,6 +65,7 @@ void ImageRenderManager::Release()
             cameraPoseRaw[i] = 0.0f;
         }
     }
+    RenderRef::GetInstance().Decrement();
 
     LOGD("ImageRenderManager-----Release end.");
 }

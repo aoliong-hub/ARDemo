@@ -15,6 +15,7 @@
 
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { resourceManager } from '@kit.LocalizationKit';
+import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
 import { Logger } from '../utils/Logger';
 
@@ -31,11 +32,12 @@ struct ARMesh {
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   build(): void {
     NavDestination() {
       RelativeContainer() {
-        XComponent({ id: this.xComponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
+        XComponent({ id: this.idStr, type: XComponentType.SURFACE, libraryname: 'entry' })
           .width('100%')
           .height('100%')
           .alignRules({
@@ -43,14 +45,14 @@ struct ARMesh {
             middle: { anchor: '__container__', align: HorizontalAlign.Center }
           })
           .onLoad(() => {
-            Logger.info(`XComponent onLoad ${this.xComponentId}.`);
+            Logger.info(`XComponent onLoad ${this.idStr}.`);
             this.interval = setInterval(() => {
               // Call the update Native API to update the calculation result of each frame by AR Engine.
-              arEngineDemo.update(this.xComponentId);
+              arEngineDemo.update(this.idStr);
             }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
           })
           .onDestroy(() => {
-            Logger.info(`XComponent onDestroy ${this.xComponentId}.`);
+            Logger.info(`XComponent onDestroy ${this.idStr}.`);
             clearInterval(this.interval);
           })
       }
@@ -58,16 +60,16 @@ struct ARMesh {
     .onAppear(() => {
       arEngineDemo.init(this.resMgr);
       let config: Int32Array = new Int32Array([1, this.rotation]);
-      arEngineDemo.start(this.xComponentId, config);
+      arEngineDemo.start(this.idStr, config);
     })
     .onWillDisappear(() => {
-      arEngineDemo.stop(this.xComponentId);
+      arEngineDemo.stop(this.idStr);
     })
     .onShown(() => {
-      arEngineDemo.show(this.xComponentId);
+      arEngineDemo.show(this.idStr);
     })
     .onHidden(() => {
-      arEngineDemo.hide(this.xComponentId);
+      arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
       this.pageInfos = context.pathStack;

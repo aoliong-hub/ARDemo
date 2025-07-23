@@ -58,7 +58,12 @@ uint32_t ARImageApp::getImageCount() {
     return imageCount;
 }
 
-ARImageApp::~ARImageApp() { LOGD("ARImageApp::Destructor"); }
+ARImageApp::~ARImageApp()
+{
+    LOGD("ARImageApp::Destructor");
+    mTaskQueue.Stop();
+}
+
 
 void ARImageApp::OnStart(const ConfigParams &params)
 {
@@ -220,9 +225,11 @@ void ARImageApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window
 
 void ARImageApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *window)
 {
-    LOGI("ARImageApp::OnSurfaceDestroyed");
-    LOGI("PoseRenderManager release.");
-    mImageRenderManager.Release();
+    LOGD("ARImageApp::OnSurfaceDestroyed");
+    mTaskQueue.Push([this] {
+        LOGD("ImageRenderManager release.");
+        mImageRenderManager.Release();
+    });
 }
 
 void ARImageApp::OnPause()

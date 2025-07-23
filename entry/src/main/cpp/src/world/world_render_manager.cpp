@@ -20,6 +20,7 @@
 #include <gtc/matrix_transform.hpp>
 #include <gtc/type_ptr.hpp>
 #include <gtx/quaternion.hpp>
+#include "renderer_ref.h"
 
 int32_t ARWorld::WorldRenderManager::mPlaneCount = 0;
 namespace ARWorld {
@@ -29,6 +30,7 @@ void WorldRenderManager::Initialize(void *window, AREngine_ARSession *arSession)
 
     if (!isInited) {
         mRenderContext.Init();
+        LOGD("WorldRenderManager-----do real Initialize(). get current context %{public}d", eglGetCurrentContext()==EGL_NO_CONTEXT);
         mRenderSurface.Create(window);
         mRenderContext.MakeCurrent(&mRenderSurface);
 
@@ -39,6 +41,7 @@ void WorldRenderManager::Initialize(void *window, AREngine_ARSession *arSession)
         // HMS_AREngine_ARSession_Update, AR Engine will update the camera preview to the texture.
         CHECK(HMS_AREngine_ARSession_SetCameraGLTexture(arSession, mBackgroundRenderer.GetTextureId()));
         isInited = true;
+        RenderRef::GetInstance().Increment();
     }
 
     LOGI("WorldRenderManager-----Initialize end.");
@@ -48,14 +51,15 @@ void WorldRenderManager::Release()
 {
     LOGD("WorldRenderManager-----Release start.");
 
-    if (isInited) {
+    if (isInited && RenderRef::GetInstance().IsOne()) {
         mPlaneRenderer.Release();
         mRenderContext.ReleaseCurrent();
+        LOGD("WorldRenderManager-----do real Release(). get current context %{public}d", eglGetCurrentContext()==EGL_NO_CONTEXT);
         mRenderSurface.Release();
         mRenderContext.Release();
         isInited = false;
     }
-
+    RenderRef::GetInstance().Decrement();
     LOGD("WorldRenderManager-----Release end.");
 }
 

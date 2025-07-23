@@ -41,6 +41,7 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/global.cpp
     ${NATIVE_ROOT_PATH}/src/utils/app_util.cpp
     ${NATIVE_ROOT_PATH}/src/utils/app_file.cpp
+    ${NATIVE_ROOT_PATH}/src/utils/renderer_ref.cpp
     ${NATIVE_ROOT_PATH}/src/graphic/GLUtils.cpp
     ${NATIVE_ROOT_PATH}/src/graphic/RenderAttribute.cpp
     ${NATIVE_ROOT_PATH}/src/graphic/RenderContext.cpp

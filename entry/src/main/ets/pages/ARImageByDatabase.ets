@@ -15,6 +15,7 @@
 
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { resourceManager } from '@kit.LocalizationKit';
+import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
 import { Logger } from '../utils/Logger';
 
@@ -34,11 +35,12 @@ struct ARImageByDatabase {
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
   @State showPage: boolean = true;
+  private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   build(): void {
     NavDestination() {
       RelativeContainer() {
-        XComponent({ id: this.xComponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
+        XComponent({ id: this.idStr, type: XComponentType.SURFACE, libraryname: 'entry' })
           .width('100%')
           .height('100%')
           .visibility(this.showPage ? Visibility.Visible : Visibility.None)
@@ -47,15 +49,15 @@ struct ARImageByDatabase {
             middle: { anchor: '__container__', align: HorizontalAlign.Center }
           })
           .onLoad(() => {
-            Logger.info(`XComponent onLoad ${this.xComponentId}.`);
+            Logger.info(`XComponent onLoad ${this.idStr}.`);
             this.interval = setInterval(() => {
               if (this.isUpdate) {
-                arEngineDemo.update(this.xComponentId);
+                arEngineDemo.update(this.idStr);
               }
             }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
           })
           .onDestroy(() => {
-            Logger.info(`XComponent onDestroy ${this.xComponentId}.`);
+            Logger.info(`XComponent onDestroy ${this.idStr}.`);
             this.isSurfaceDestroy = true;
             clearInterval(this.interval);
           })
@@ -64,27 +66,27 @@ struct ARImageByDatabase {
     .onAppear(() => {
       arEngineDemo.init(this.resMgr);
       let config: Int32Array = new Int32Array([1, this.rotation]);
-      arEngineDemo.start(this.xComponentId, config);
+      arEngineDemo.start(this.idStr, config);
 
-      arEngineDemo.setPath(this.xComponentId, this.context.filesDir);
+      arEngineDemo.setPath(this.idStr, this.context.filesDir);
 
-      let imageCountInDatabase: number = arEngineDemo.getImageCount(this.xComponentId);
+      let imageCountInDatabase: number = arEngineDemo.getImageCount(this.idStr);
       Logger.info(`ImageCountInDatabase: ${imageCountInDatabase}.`);
       if (imageCountInDatabase <= 0) {
         this.ShowDialog(this.context.resourceManager.getStringSync($r('app.string.invalid_image_added')));
       }
     })
     .onWillDisappear(() => {
-      arEngineDemo.stop(this.xComponentId);
+      arEngineDemo.stop(this.idStr);
     })
     .onShown(() => {
       this.isUpdate = true;
-      arEngineDemo.show(this.xComponentId);
+      arEngineDemo.show(this.idStr);
     })
     .onHidden(() => {
       this.isUpdate = false;
       if (!this.isSurfaceDestroy) {
-        arEngineDemo.hide(this.xComponentId);
+        arEngineDemo.hide(this.idStr);
       }
     })
     .onReady((context: NavDestinationContext) => {
@@ -121,7 +123,7 @@ struct ARImageByDatabase {
         style: DialogButtonStyle.HIGHLIGHT,
         value: $r('app.string.back'),
         action: () => {
-          console.info('Callback when the second button is clicked.');
+          Logger.info('Callback when the second button is clicked.');
           this.pageInfos.pop();
         }
       }]

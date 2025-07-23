@@ -17,6 +17,7 @@ import { abilityAccessCtrl, PermissionRequestResult } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Logger } from '../utils/Logger';
 import { requestPermissionOnSetting } from '../utils/Utils';
+import { DeviceUtil } from '../utils/DeviceUtils';
 
 @Entry
 @Component
@@ -26,25 +27,27 @@ struct Selector {
   @State context: Context = this.getUIContext().getHostContext() as Context;
 
   build(): void {
-    Navigation(this.pageInfos) {
-      Column() {
-        this.sampleButton('ARWorld');
-        this.sampleButton('ARMesh');
-        this.sampleButton('ARDepth');
-        this.sampleButton('ARImage');
-        this.sampleButton('ARSemanticDense');
+    if (!DeviceUtil.getInstance().isPuraXFolded()) {
+      Navigation(this.pageInfos) {
+        Column() {
+          this.sampleButton('ARWorld');
+          this.sampleButton('ARMesh');
+          this.sampleButton('ARDepth');
+          this.sampleButton('ARImage');
+          this.sampleButton('ARSemanticDense');
+        }
+        .justifyContent(FlexAlign.SpaceEvenly)
+        .width('100%')
+        .height('100%')
       }
-      .justifyContent(FlexAlign.SpaceEvenly)
-      .width('100%')
-      .height('100%')
+      .onAppear(() => {
+        this.requestPermissionOnFirstStartup();
+      })
+      .mode(NavigationMode.Stack)
+      .hideTitleBar(true)
+      .hideBackButton(true)
+      .hideToolBar(true)
     }
-    .onAppear(() => {
-      this.requestPermissionOnFirstStartup();
-    })
-    .mode(NavigationMode.Stack)
-    .hideTitleBar(true)
-    .hideBackButton(true)
-    .hideToolBar(true)
   }
 
   @Builder

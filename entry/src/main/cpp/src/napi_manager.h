@@ -51,6 +51,7 @@ public:
 private:
     // XComponent Callback
     AppNapi *CreateApp(std::string &id);
+    void Release(const std::string &id);
 
     static void OnSurfaceCreatedCB(OH_NativeXComponent *component, void *window);
     static void OnSurfaceChangedCB(OH_NativeXComponent *component, void *window);

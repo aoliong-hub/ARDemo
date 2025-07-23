@@ -18,6 +18,7 @@ import { BusinessError, deviceInfo, emitter } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { resourceManager } from '@kit.LocalizationKit';
+import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
 import { Logger } from '../utils/Logger';
 
@@ -43,11 +44,12 @@ struct ARImageByAdd {
   @State private isImageAddComplete: boolean = false;
   @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
   @State showPage: boolean = true;
+  private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   build(): void {
     NavDestination() {
       RelativeContainer() {
-        XComponent({ id: this.xComponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
+        XComponent({ id: this.idStr, type: XComponentType.SURFACE, libraryname: 'entry' })
           .width('100%')
           .height('100%')
           .visibility(this.showPage ? Visibility.Visible : Visibility.None)
@@ -56,16 +58,16 @@ struct ARImageByAdd {
             middle: { anchor: '__container__', align: HorizontalAlign.Center }
           })
           .onLoad(() => {
-            Logger.info(`XComponent onLoad ${this.xComponentId}.`);
+            Logger.info(`XComponent onLoad ${this.idStr}.`);
             this.interval = setInterval(() => {
               if (!this.isUpdate || !this.isImageAddComplete || this.imageAddNumbers === 0) {
                 return;
               }
-              arEngineDemo.update(this.xComponentId);
+              arEngineDemo.update(this.idStr);
             }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
           })
           .onDestroy(() => {
-            Logger.info(`XComponent onDestroy ${this.xComponentId}.`);
+            Logger.info(`XComponent onDestroy ${this.idStr}.`);
             this.isSurfaceDestroy = true;
             clearInterval(this.interval);
           })
@@ -93,12 +95,12 @@ struct ARImageByAdd {
     .onAppear(() => {
       arEngineDemo.init(this.resMgr);
       let config: Int32Array = new Int32Array([1, this.rotation]);
-      arEngineDemo.start(this.xComponentId, config);
+      arEngineDemo.start(this.idStr, config);
 
       try {
         Logger.info(`Image path length: ${this.imagePathList.length}.`);
         this.RegisterAddImageCallback();
-        taskpool.execute(addImage, this.xComponentId, this.imagePathList, errcode).then(() => {
+        taskpool.execute(addImage, this.idStr, this.imagePathList, errcode).then(() => {
           Logger.info('Add image task complete.');
           emitter.emit('checkAddImageResult');
         })
@@ -109,18 +111,18 @@ struct ARImageByAdd {
     })
     .onWillDisappear(() => {
       if (this.imageAddNumbers > 0) {
-        arEngineDemo.saveImageDataBaseToLocal(this.xComponentId, this.context.filesDir);
+        arEngineDemo.saveImageDataBaseToLocal(this.idStr, this.context.filesDir);
       }
-      arEngineDemo.stop(this.xComponentId);
+      arEngineDemo.stop(this.idStr);
     })
     .onShown(() => {
       this.isUpdate = true;
-      arEngineDemo.show(this.xComponentId);
+      arEngineDemo.show(this.idStr);
     })
     .onHidden(() => {
       this.isUpdate = false;
       if (!this.isSurfaceDestroy) {
-        arEngineDemo.hide(this.xComponentId);
+        arEngineDemo.hide(this.idStr);
       }
     })
     .onReady((context: NavDestinationContext) => {
@@ -159,7 +161,7 @@ struct ARImageByAdd {
         style: DialogButtonStyle.HIGHLIGHT,
         value: $r('app.string.back'),
         action: () => {
-          console.info('Callback when the second button is clicked');
+          Logger.info('Callback when the second button is clicked');
           this.pageInfos.pop();
         }
       }]

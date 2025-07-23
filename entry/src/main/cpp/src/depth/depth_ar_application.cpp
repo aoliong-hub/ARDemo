@@ -153,9 +153,10 @@ void ARDepthApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window
 void ARDepthApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *window)
 {
     LOGD("ARDepthApp::OnSurfaceDestroyed");
-    std::lock_guard<std::mutex> lock(mImageMutex);
-    LOGD("PoseRenderManager release.");
-    mDetphRenderManager.Release();
+    mTaskQueue.Push([this] {
+        LOGD("DepthRenderManager release.");
+        mDetphRenderManager.Release();
+    });
 }
 
 std::string ARDepthApp::GetDistance() { return mDetphRenderManager.GetDistance(); }

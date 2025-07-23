@@ -19,18 +19,21 @@
 #include "utils/log.h"
 #include <glm.hpp>
 #include <gtc/type_ptr.hpp>
+#include "renderer_ref.h"
 
 namespace ARDepth {
 
 void DepthRenderManager::Initialize(void *window)
 {
-    LOGD("PoseRenderManager-----Initialize start.");
+    LOGD("DepthRenderManager-----Initialize start.");
     distance = "0 | 0";
 
     if (!isInited) {
         mRenderContext.Init();
         mRenderSurface.Create(window);
         mRenderContext.MakeCurrent(&mRenderSurface);
+        LOGD("DepthRenderManager-----do real Initialize(). get current context %{public}d",
+             eglGetCurrentContext() == EGL_NO_CONTEXT);
         if (isRenderer) {
             mBackgroundRenderer.InitializeBackGroundGlContent();
         } else {
@@ -38,34 +41,38 @@ void DepthRenderManager::Initialize(void *window)
         }
 
         isInited = true;
+        RenderRef::GetInstance().Increment();
     }
 
-    LOGD("PoseRenderManager-----Initialize end.");
+    LOGD("DepthRenderManager-----Initialize end.");
 }
 
 void DepthRenderManager::Release()
 {
-    LOGD("PoseRenderManager-----Release start.");
+    LOGD("DepthRenderManager-----Release start.");
 
-    if (isInited) {
+    if (isInited && RenderRef::GetInstance().IsOne()) {
         if (isRenderer) {
             mBackgroundRenderer.Release();
         } else {
             mBackgroundNoRenderer.Release();
         }
         mRenderContext.ReleaseCurrent();
+        LOGD("DepthRenderManager-----do real Release(). get current context %{public}d",
+             eglGetCurrentContext() == EGL_NO_CONTEXT);
         mRenderSurface.Release();
         mRenderContext.Release();
         isInited = false;
     }
+    RenderRef::GetInstance().Decrement();
 
-    LOGD("PoseRenderManager-----Release end.");
+    LOGD("DepthRenderManager-----Release end.");
 }
 
 void DepthRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame)
 {
     if (!isInited) {
-        LOGE("PoseRenderManager not ready!");
+        LOGE("DepthRenderManager not ready!");
         return;
     }
 

@@ -1,4 +1,4 @@
-# 基于AR引擎实现空间感知能力（C++）
+# AREngine
 
 ## 介绍
 
@@ -341,7 +341,7 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
      <tr>
        <td>Tablet</td>
        <td>MatePad系列</td>
-       <td>MatePad Pro 13.2 2025</td>
+       <td>MatePad Pro 13.2 2025款</td>
      </tr>
    </table>
 

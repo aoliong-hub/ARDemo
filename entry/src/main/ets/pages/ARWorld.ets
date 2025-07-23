@@ -16,6 +16,7 @@
 import { PromptAction } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { resourceManager } from '@kit.LocalizationKit';
+import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
 
 @Builder
@@ -34,11 +35,12 @@ struct ARWorld {
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State numberOfPlans: number = 0;
   @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   build(): void {
     NavDestination() {
       RelativeContainer() {
-        XComponent({ id: this.xComponentId, type: XComponentType.SURFACE, libraryname: 'entry' })
+        XComponent({ id: this.idStr, type: XComponentType.SURFACE, libraryname: 'entry' })
           .width('100%')
           .height('100%')
           .alignRules({
@@ -49,7 +51,7 @@ struct ARWorld {
             this.interval = setInterval(() => {
               if (this.isUpdate) {
                 // Call the update Native API to update the calculation result of each frame by AR Engine.
-                this.numberOfPlans = arEngineDemo.update(this.xComponentId);
+                this.numberOfPlans = arEngineDemo.update(this.idStr);
                 this.planeNum();
               }
             }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
@@ -62,18 +64,18 @@ struct ARWorld {
     .onAppear(() => {
       arEngineDemo.init(this.resMgr);
       let config: Int32Array = new Int32Array([1, this.rotation]);
-      arEngineDemo.start(this.xComponentId, config);
+      arEngineDemo.start(this.idStr, config);
     })
     .onWillDisappear(() => {
-      arEngineDemo.stop(this.xComponentId);
+      arEngineDemo.stop(this.idStr);
     })
     .onShown(() => {
       this.isUpdate = true;
-      arEngineDemo.show(this.xComponentId);
+      arEngineDemo.show(this.idStr);
     })
     .onHidden(() => {
       this.isUpdate = false;
-      arEngineDemo.hide(this.xComponentId);
+      arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
       this.pageInfos = context.pathStack;
