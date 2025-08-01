@@ -1,19 +1,6 @@
 {
   "app": {
     "signingConfigs": [
-      {
-        "name": "default",
-        "type": "HarmonyOS",
-        "material": {
-          "certpath": "C:\\Users\\l00897424\\.ohos\\config\\default_arengine-codelab-ar-sample-master_vIhpT68pPnOeDLVnD9fJhmrQsA4NlK5biVSIfKmemfo=.cer",
-          "keyAlias": "debugKey",
-          "keyPassword": "0000001B6DCA0B20EE6DEC7F337C97DF93E3DD5CDC0134CF2780DE3B54A1A37DDDC5BC194EB5CCA26AA353",
-          "profile": "C:\\Users\\l00897424\\.ohos\\config\\default_arengine-codelab-ar-sample-master_vIhpT68pPnOeDLVnD9fJhmrQsA4NlK5biVSIfKmemfo=.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\l00897424\\.ohos\\config\\default_arengine-codelab-ar-sample-master_vIhpT68pPnOeDLVnD9fJhmrQsA4NlK5biVSIfKmemfo=.p12",
-          "storePassword": "0000001BBFE53A5E0271029BA9D0BAFE501D9BB2D7CA595EFC7EA688A52E5CA076539DF7B0B40C14C21A44"
-        }
-      }
     ],
     "products": [
       {
