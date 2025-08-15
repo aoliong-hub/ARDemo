@@ -29,7 +29,7 @@ export function ARImageByAddBuilder() {
 
 @Component
 struct ARImageByAdd {
-  pageInfos: NavPathStack = new NavPathStack();
+  pageInfo: NavPathStack = new NavPathStack();
   private imageAddFailedNumbers: number = 0;
   private imageAddNumbers: number = 0;
   private imagePathList: string[] = [];
@@ -72,11 +72,11 @@ struct ARImageByAdd {
             clearInterval(this.interval);
           })
 
-        Text(this.context.resourceManager.getStringSync($r('app.string.add_image_msg_count')) +
+        Text(this.context.resourceManager.getStringByNameSync('add_image_msg_count') +
         this.imageTotalNumbers.toString() + '/' + this.imagePathList.length.toString() + '\n ' +
-        this.context.resourceManager.getStringSync($r('app.string.add_image_msg_success')) +
+        this.context.resourceManager.getStringByNameSync('add_image_msg_success') +
         this.imageAddNumbers + ' \n' +
-        this.context.resourceManager.getStringSync($r('app.string.add_image_msg_fail')) +
+        this.context.resourceManager.getStringByNameSync('add_image_msg_fail') +
         this.imageAddFailedNumbers + '\n' + this.addImageLog)
           .width(300)
           .textAlign(TextAlign.Center)
@@ -126,7 +126,7 @@ struct ARImageByAdd {
       }
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfos = context.pathStack;
+      this.pageInfo = context.pathStack;
       this.imagePathList = context.pathInfo.param as string[];
     })
     .hideTitleBar(true)
@@ -162,7 +162,7 @@ struct ARImageByAdd {
         value: $r('app.string.back'),
         action: () => {
           Logger.info('Callback when the second button is clicked');
-          this.pageInfos.pop();
+          this.pageInfo.pop();
         }
       }]
     })
@@ -175,9 +175,9 @@ struct ARImageByAdd {
         Logger.info(`Succeeded in adding image, image numbers: ${this.imageAddNumbers}.`);
       } else {
         this.imageAddFailedNumbers++;
-        this.addImageLog += this.context.resourceManager.getStringSync($r('app.string.image_name_by_add')) +
+        this.addImageLog += this.context.resourceManager.getStringByNameSync('image_name_by_add') +
           data.data?.imageName + '\n' +
-          this.context.resourceManager.getStringSync($r('app.string.image_add_reason_by_add')) +
+          this.context.resourceManager.getStringByNameSync('image_add_reason_by_add') +
           errcode.get(data.data?.addImageReason) + '\n';
         Logger.error(`Failed to add image, image numbers: ${this.imageAddFailedNumbers}.`);
       }
@@ -187,7 +187,7 @@ struct ARImageByAdd {
     emitter.on('checkAddImageResult', () => {
       if (this.imageAddNumbers === 0 && this.isUpdate) {
         this.showPage = false;
-        this.ShowDialog(this.context.resourceManager.getStringSync($r('app.string.invalid_image_added')));
+        this.ShowDialog(this.context.resourceManager.getStringByNameSync('invalid_image_added'));
       }
       emitter.off('addImage');
       this.isImageAddComplete = true;

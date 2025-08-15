@@ -22,7 +22,7 @@ export function ARSemanticDenseBuilder() {
 
 @Component
 struct ARSemanticDense {
-  pageInfos: NavPathStack = new NavPathStack();
+  pageInfo: NavPathStack = new NavPathStack();
   @State context: Context = this.getUIContext().getHostContext() as Context;
   @State showPage: boolean = true;
   @State rotation: number = display.getDefaultDisplaySync().rotation;
@@ -36,7 +36,7 @@ struct ARSemanticDense {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 0);
+            this.pageInfo.pushDestinationByName('ARSemanticDenseRender', 0);
           })
 
         Button($r('app.string.semantic_dense_cube_volume'), { type: ButtonType.Normal, stateEffect: true })
@@ -44,7 +44,7 @@ struct ARSemanticDense {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 1);
+            this.pageInfo.pushDestinationByName('ARSemanticDenseRender', 1);
           })
 
         Button($r('app.string.semantic_dense_cube_space'), { type: ButtonType.Normal, stateEffect: true })
@@ -52,7 +52,7 @@ struct ARSemanticDense {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 2);
+            this.pageInfo.pushDestinationByName('ARSemanticDenseRender', 2);
           })
       }
       .justifyContent(FlexAlign.SpaceEvenly)
@@ -60,7 +60,7 @@ struct ARSemanticDense {
       .height('100%')
     }
     .onReady((context: NavDestinationContext) => {
-      this.pageInfos = context.pathStack;
+      this.pageInfo = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)

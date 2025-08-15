@@ -26,7 +26,7 @@ export function ARMeshBuilder() {
 
 @Component
 struct ARMesh {
-  pageInfos: NavPathStack = new NavPathStack();
+  pageInfo: NavPathStack = new NavPathStack();
   private interval: number = -1;
   private xComponentId: string = 'ARMesh';
   @State context: Context = this.getUIContext().getHostContext() as Context;
@@ -72,7 +72,7 @@ struct ARMesh {
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfos = context.pathStack;
+      this.pageInfo = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)

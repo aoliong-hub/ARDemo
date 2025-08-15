@@ -156,11 +156,11 @@ void ARWorldApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window)
     });
 }
 
-void ARWorldApp::DispatchTouchEvent(float pixeLX, float pixeLY)
+void ARWorldApp::DispatchTouchEvent(float pixelX, float pixelY)
 {
     AREngine_ARHitResultList *hitResultList = nullptr;
     CHECK(HMS_AREngine_ARHitResultList_Create(mArSession, &hitResultList));
-    CHECK(HMS_AREngine_ARFrame_HitTest(mArSession, mArFrame, pixeLX, pixeLY, hitResultList));
+    CHECK(HMS_AREngine_ARFrame_HitTest(mArSession, mArFrame, pixelX, pixelY, hitResultList));
 
     int32_t hitResultListSize = 0;
     CHECK(HMS_AREngine_ARHitResultList_GetSize(mArSession, hitResultList, &hitResultListSize));
@@ -210,14 +210,14 @@ void ARWorldApp::DispatchTouchEvent(float pixeLX, float pixeLY)
 void ARWorldApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window)
 {
     LOGD("ARWorldApp::DispatchTouchEvent");
-    float pixeLX = 0.0f;
-    float pixeLY = 0.0f;
+    float pixelX = 0.0f;
+    float pixelY = 0.0f;
     int32_t ret = OH_NativeXComponent_GetTouchEvent(component, window, &mTouchEvent);
     if (ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
         if (mTouchEvent.type == OH_NATIVEXCOMPONENT_DOWN) {
-            pixeLX = mTouchEvent.touchPoints[0].x;
-            pixeLY = mTouchEvent.touchPoints[0].y;
-            LOGD("Pos: %{public}f %{public}f.", pixeLX, pixeLY);
+            pixelX = mTouchEvent.touchPoints[0].x;
+            pixelY = mTouchEvent.touchPoints[0].y;
+            LOGD("Pos: %{public}f %{public}f.", pixelX, pixelY);
         } else {
             return;
         }
@@ -226,12 +226,12 @@ void ARWorldApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window
         return;
     }
 
-    mTaskQueue.Push([this, pixeLX, pixeLY] {
+    mTaskQueue.Push([this, pixelX, pixelY] {
         if (isPaused) {
             LOGI("ARWorldApp DispatchTouchEvent isPaused!");
             return;
         }
-        DispatchTouchEvent(pixeLX, pixeLY);
+        DispatchTouchEvent(pixelX, pixelY);
     });
 }
 

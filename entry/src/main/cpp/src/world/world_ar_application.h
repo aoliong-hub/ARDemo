@@ -43,7 +43,7 @@ public:
     void DispatchTouchEvent(OH_NativeXComponent *component, void *window) override;
 
 private:
-    void DispatchTouchEvent(float pixeLX, float pixeLY);
+    void DispatchTouchEvent(float pixelX, float pixelY);
     void ReCreateSession();
 
     static void SetColor(float colorR, float colorG, float colorB, float colorA, ColoredAnchor &coloredAnchor);

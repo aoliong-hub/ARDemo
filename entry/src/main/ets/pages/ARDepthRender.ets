@@ -25,7 +25,7 @@ export function ARDepthRenderBuilder() {
 
 @Component
 struct ARDepthRender {
-  pageInfos: NavPathStack = new NavPathStack();
+  pageInfo: NavPathStack = new NavPathStack();
   private interval: number = -1;
   private isUpdate: boolean = true;
   private params: number = 0;
@@ -92,7 +92,7 @@ struct ARDepthRender {
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfos = context.pathStack;
+      this.pageInfo = context.pathStack;
       this.params = context.pathInfo.param as number;
     })
     .hideTitleBar(true)

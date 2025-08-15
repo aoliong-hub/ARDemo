@@ -132,11 +132,11 @@ void ImageRenderManager::ImageRender(AREngine_ARSession *arSession, glm::mat4 &v
         CHECK(HMS_AREngine_ARTrackableList_AcquireItem(arSession, augmentList, i, &augment));
         uint32_t index = -1;
         char *name = new char[256];
-        uint32_t len = 0;
+        uint32_t length = 0;
         CHECK(HMS_AREngine_ARAugmentedImage_GetIndex(arSession, reinterpret_cast<AREngine_ARAugmentedImage *>(augment),
                                                      &index));
         CHECK(HMS_AREngine_ARAugmentedImage_AcquireName(
-            arSession, reinterpret_cast<AREngine_ARAugmentedImage *>(augment), name, &len));
+            arSession, reinterpret_cast<AREngine_ARAugmentedImage *>(augment), name, &length));
         LOGI("Get augmented image index and name, index=%{public}d, name:%{public}s.", index, name);
 
         delete[] name;

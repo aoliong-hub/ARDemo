@@ -25,7 +25,7 @@ export function ARSemanticDenseRenderBuilder() {
 
 @Component
 struct ARSemanticDenseRender {
-  pageInfos: NavPathStack = new NavPathStack();
+  pageInfo: NavPathStack = new NavPathStack();
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private xComponentId: string = 'ARSemanticDense';
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
@@ -107,7 +107,7 @@ struct ARSemanticDenseRender {
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfos = context.pathStack;
+      this.pageInfo = context.pathStack;
       this.semanticDenseMode = context.pathInfo.param as number;
     })
     .hideTitleBar(true)

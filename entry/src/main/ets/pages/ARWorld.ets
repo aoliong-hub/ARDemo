@@ -26,7 +26,7 @@ export function ARWorldBuilder() {
 
 @Component
 struct ARWorld {
-  pageInfos: NavPathStack = new NavPathStack();
+  pageInfo: NavPathStack = new NavPathStack();
   private currentMillisecond: number = 0;
   private interval: number = -1;
   private isUpdate: boolean = true;
@@ -78,7 +78,7 @@ struct ARWorld {
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfos = context.pathStack;
+      this.pageInfo = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)

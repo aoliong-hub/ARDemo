@@ -26,7 +26,7 @@ export function ARImageByDatabaseBuilder() {
 
 @Component
 struct ARImageByDatabase {
-  pageInfos: NavPathStack = new NavPathStack();
+  pageInfo: NavPathStack = new NavPathStack();
   private isSurfaceDestroy: boolean = false;
   private interval: number = -1;
   private isUpdate: boolean = false;
@@ -73,7 +73,7 @@ struct ARImageByDatabase {
       let imageCountInDatabase: number = arEngineDemo.getImageCount(this.idStr);
       Logger.info(`ImageCountInDatabase: ${imageCountInDatabase}.`);
       if (imageCountInDatabase <= 0) {
-        this.ShowDialog(this.context.resourceManager.getStringSync($r('app.string.invalid_image_added')));
+        this.ShowDialog(this.context.resourceManager.getStringByNameSync('invalid_image_added'));
       }
     })
     .onWillDisappear(() => {
@@ -90,7 +90,7 @@ struct ARImageByDatabase {
       }
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfos = context.pathStack;
+      this.pageInfo = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)
@@ -124,7 +124,7 @@ struct ARImageByDatabase {
         value: $r('app.string.back'),
         action: () => {
           Logger.info('Callback when the second button is clicked.');
-          this.pageInfos.pop();
+          this.pageInfo.pop();
         }
       }]
     })

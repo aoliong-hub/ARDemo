@@ -72,8 +72,8 @@ int32_t app_file::Read(void *buffer, uint32_t size)
         return -1;
     }
 
-    int32_t len = (int32_t)OS_READ(m_fd, buffer, size);
-    return len;
+    int32_t length = (int32_t)OS_READ(m_fd, buffer, size);
+    return length;
 }
 
 int64_t app_file::GetSize()
