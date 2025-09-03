@@ -331,38 +331,24 @@ and z axes) to achieve 6 degrees of freedom (6DoF) motion tracking.
 
 ## Constraints
 
-1. The sample is supported only on devices running the standard system, not on emulators.
+1. The current supported models of AR Engine are as follows:
+- Mate Series: Mate 60 series and later Mate models.
+- Pura Series: Pura 70 series and later Pura models.
+- Some Nova models: such as Nova 12 Ultra、Nova 14 Pro、Nova 14 Ultra，The specific scope is subject to the results returned by the API query.
+- Some Pocket models: such as Pocket 2，The specific scope is subject to the results returned by the API query.
+- Some MatePad models: such as MatePad Pro 13.2 2025，The specific scope is subject to the results returned by the API query.
 
-   <table>
-     <tr>
-       <th>Device Type</th>
-       <th>Product Series</th>
-       <th>Product Model</th>
-     </tr>
-     <tr>
-       <td rowspan="4">Phone</td>
-       <td>Mate Series</td>
-       <td>Mate 60, Mate 60 RS ULTIMATE DESIGN, Mate 60 Pro, Mate 60 Pro+,<br>Mate 70, Mate 70 RS ULTIMATE DESIGN, Mate 70 Pro, Mate 70 Pro+,<br>Mate X5, Mate X6, and Mate XT ULTIMATE DESIGN</td>
-     </tr>
-     <tr>
-       <td>Pura Series</td>
-       <td>Pura 70, Pura 70 Pro, Pura 70 Pro+, Pura 70 Ultra, Pura X,<br>Pura 80, Pura 80 Pro, Pura 80 Pro+, and Pura 80 Ultra</td>
-     </tr>
-     <tr>
-       <td>Nova Series</td>
-       <td>Nova 12 Ultra, Nova 14 Pro, and Nova 14 Ultra</td>
-     </tr>
-     <tr>
-       <td>Pocket Series</td>
-       <td>Pocket 2</td>
-     </tr>
-     <tr>
-       <td>Tablet</td>
-       <td>MatePad Series</td>
-       <td>MatePad Pro 13.2 2025</td>
-     </tr>
-   </table>
+Developers can use interface calls to determine whether the current device supports AR Engine.
+The interface is called in the following way:
 
+```c
+#include "ar/ar_engine_core.h"
+AREngine_ARSession *arSession = nullptr;
+if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
+    console.error(`the device not support AR Engine`);
+}
+```
+If the error code returned by the corresponding interface is ARENGINE_ERROR_DEVICE_NOT_SUPPORTED, AR Engine does not support the current device.
 2. It is recommended that DevEco Studio 6.0.0 Release or later be used.
 3. This sample is based on the stage model. It is recommended that HarmonyOS 6.0.0 Release SDK or later be used.
 

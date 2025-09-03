@@ -313,38 +313,23 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
 
 ## 约束与限制
 
-1. 本实例仅支持标准系统上运行，不支持模拟器，支持设备见下表。
+1. AR Engine现阶段支持机型参考如下：
+- Mate系列：Mate 60系列及之后的Mate机型。
+- Pura系列：Pura 70系列及之后的Pura机型。
+- 部分Nova机型：如Nova 12 Ultra、Nova 14 Pro、Nova 14 Ultra，具体范围以API查询返回结果为准。
+- 部分Pocket机型：如 Pocket 2，具体范围以API查询返回结果为准。
+- 部分MatePad机型：如MatePad Pro 13.2 2025，具体范围以API查询返回结果为准。
 
-   <table>
-     <tr>
-       <th>设备类型</th>
-       <th>产品系列</th>
-       <th>产品型号</th>
-     </tr>
-     <tr>
-       <td rowspan="4">Phone</td>
-       <td>Mate系列</td>
-       <td>Mate 60, Mate 60 RS非凡大师, Mate 60 Pro, Mate 60 Pro+,<br>Mate 70, Mate 70 RS非凡大师, Mate 70 Pro, Mate 70 Pro+,<br> Mate X5, Mate X6, Mate XT非凡大师</td>
-     </tr>
-     <tr>
-       <td>Pura系列</td>
-       <td>Pura 70, Pura 70 Pro, Pura 70 Pro+, Pura 70 Ultra, Pura X,<br>Pura 80, Pura 80 Pro, Pura 80 Pro+, Pura 80 Ultra</td>
-     </tr>
-     <tr>
-       <td>Nova系列</td>
-       <td>Nova 12 Ultra, Nova 14 Pro, Nova 14 Ultra</td>
-     </tr>
-     <tr>
-       <td>Pocket系列</td>
-       <td>Pocket 2</td>
-     </tr>
-     <tr>
-       <td>Tablet</td>
-       <td>MatePad系列</td>
-       <td>MatePad Pro 13.2 2025款</td>
-     </tr>
-   </table>
+开发者可通过接口调用判断当前设备是否支持AR Engine。接口的调用参考方式如下：
 
+```c
+#include "ar/ar_engine_core.h"
+AREngine_ARSession *arSession = nullptr;
+if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
+    console.error(`the device not support AR Engine`);
+}
+```
+若对应接口返回错误码为ARENGINE_ERROR_DEVICE_NOT_SUPPORTED，则表示AR Engine不支持当前设备。
 2. 本实例支持的DevEco Studio版本：推荐DevEco Studio 6.0.0 Release及以上。
 3. 本实例为Stage模型，支持的HarmonyOS SDK版本：推荐HarmonyOS 6.0.0 Release SDK及以上。
 
