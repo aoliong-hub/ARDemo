@@ -342,10 +342,10 @@ Developers can use interface calls to determine whether the current device suppo
 The interface is called in the following way:
 
 ```c
-#include "ar/ar_engine_core.h"
+#include "ar/ar_engine_core.h" 
 AREngine_ARSession *arSession = nullptr;
 if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
-    console.error(`the device not support AR Engine`);
+    return;
 }
 ```
 If the error code returned by the corresponding interface is ARENGINE_ERROR_DEVICE_NOT_SUPPORTED, AR Engine does not support the current device.

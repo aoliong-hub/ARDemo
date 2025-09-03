@@ -323,10 +323,10 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
 开发者可通过接口调用判断当前设备是否支持AR Engine。接口的调用参考方式如下：
 
 ```c
-#include "ar/ar_engine_core.h"
+#include "ar/ar_engine_core.h" 
 AREngine_ARSession *arSession = nullptr;
 if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
-    console.error(`the device not support AR Engine`);
+    return;
 }
 ```
 若对应接口返回错误码为ARENGINE_ERROR_DEVICE_NOT_SUPPORTED，则表示AR Engine不支持当前设备。
