@@ -324,9 +324,13 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
 
 ```c
 #include "ar/ar_engine_core.h" 
-AREngine_ARSession *arSession = nullptr;
-if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
-    return;
+
+bool isSupportAREngine() {
+    AREngine_ARSession *arSession = nullptr;
+    if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
+        return false;
+    }
+    return true;
 }
 ```
 若对应接口返回错误码为ARENGINE_ERROR_DEVICE_NOT_SUPPORTED，则表示AR Engine不支持当前设备。

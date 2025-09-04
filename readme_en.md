@@ -343,9 +343,13 @@ The interface is called in the following way:
 
 ```c
 #include "ar/ar_engine_core.h" 
-AREngine_ARSession *arSession = nullptr;
-if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
-    return;
+
+bool isSupportAREngine() {
+    AREngine_ARSession *arSession = nullptr;
+    if(HMS_AREngine_ARSession_Create(nullptr, nullptr, &arSession) == ARENGINE_ERROR_DEVICE_NOT_SUPPORTED){
+        return false;
+    }
+    return true;
 }
 ```
 If the error code returned by the corresponding interface is ARENGINE_ERROR_DEVICE_NOT_SUPPORTED, AR Engine does not support the current device.
