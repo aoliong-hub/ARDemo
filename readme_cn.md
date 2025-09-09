@@ -313,14 +313,7 @@ AR引擎通过获取终端设备摄像头数据，结合图像特征和惯性传
 
 ## 约束与限制
 
-1. AR Engine现阶段支持机型参考如下：
-- Mate系列：Mate 60系列及之后的Mate机型。
-- Pura系列：Pura 70系列及之后的Pura机型。
-- 部分Nova机型：如Nova 12 Ultra、Nova 14 Pro、Nova 14 Ultra，具体范围以API查询返回结果为准。
-- 部分Pocket机型：如 Pocket 2，具体范围以API查询返回结果为准。
-- 部分MatePad机型：如MatePad Pro 13.2 2025，具体范围以API查询返回结果为准。
-
-开发者可通过接口调用判断当前设备是否支持AR Engine。接口的调用参考方式如下：
+1. 开发者可通过接口调用判断当前设备是否支持AR Engine。接口的调用参考方式如下：
 
 ```c
 #include "ar/ar_engine_core.h" 

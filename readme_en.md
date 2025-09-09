@@ -331,14 +331,7 @@ and z axes) to achieve 6 degrees of freedom (6DoF) motion tracking.
 
 ## Constraints
 
-1. The current supported models of AR Engine are as follows:
-- Mate Series: Mate 60 series and later Mate models.
-- Pura Series: Pura 70 series and later Pura models.
-- Some Nova models: such as Nova 12 Ultra、Nova 14 Pro、Nova 14 Ultra，The specific scope is subject to the results returned by the API query.
-- Some Pocket models: such as Pocket 2，The specific scope is subject to the results returned by the API query.
-- Some MatePad models: such as MatePad Pro 13.2 2025，The specific scope is subject to the results returned by the API query.
-
-Developers can use interface calls to determine whether the current device supports AR Engine.
+1. Developers can use interface calls to determine whether the current device supports AR Engine.
 The interface is called in the following way:
 
 ```c
