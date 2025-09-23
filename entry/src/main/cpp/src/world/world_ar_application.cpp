@@ -17,6 +17,8 @@
 #include "app_util.h"
 #include "world_render_manager.h"
 #include <ace/xcomponent/native_interface_xcomponent.h>
+#include <window_manager/oh_display_info.h>
+#include <window_manager/oh_display_manager.h>
 
 namespace ARWorld {
 namespace {
@@ -49,7 +51,11 @@ void ARWorldApp::OnStart(const ConfigParams &params)
         HMS_AREngine_ARConfig_Destroy(arConfig);
         // Create an AREngine_ARFrame object.
         CHECK(HMS_AREngine_ARFrame_Create(mArSession, &mArFrame));
-        mDisplayRotation = ArEngineRotateType(params.rotation);
+        NativeDisplayManager_Rotation displayRotation;
+        if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+            mDisplayRotation = ArEngineRotateType(displayRotation);
+        }
+        HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mWorldRenderManager.GetPreviewTextureId());
         CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
         // Set the display height and width (in pixels). Make sure that the height and width you set here are consistent
         // with those of the display view.
@@ -99,11 +105,10 @@ void ARWorldApp::OnUpdate()
         return;
     }
     mTaskQueue.Push([this] {
-        HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mWorldRenderManager.GetPreviewTextureId());
+        CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
         HMS_AREngine_ARSession_Update(mArSession, mArFrame);
         if (mIsSurfaceChange) {
             glViewport(0, 0, mWidth, mHeight);
-            ReCreateSession();
             mWorldRenderManager.DrawBlack();
             mIsSurfaceChange = false;
             return;
@@ -129,7 +134,6 @@ void ARWorldApp::OnSurfaceCreated(OH_NativeXComponent *component, void *window)
     mTaskQueue.Push([this, window] {
         LOGD("WorldRenderManager is init.");
         mWorldRenderManager.Initialize(window, mArSession);
-        CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
     });
 }
 
@@ -148,19 +152,22 @@ void ARWorldApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window)
             LOGE("Failed to get offset.");
         }
     }
-
     mTaskQueue.Push([this, width, height] {
         mHeight = height;
         mWidth = width;
         mIsSurfaceChange = true;
+        NativeDisplayManager_Rotation displayRotation;
+        if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+            mDisplayRotation = ArEngineRotateType(displayRotation);
+        }
     });
 }
 
-void ARWorldApp::DispatchTouchEvent(float pixelX, float pixelY)
+void ARWorldApp::DispatchTouchEvent(float pixeLX, float pixeLY)
 {
     AREngine_ARHitResultList *hitResultList = nullptr;
     CHECK(HMS_AREngine_ARHitResultList_Create(mArSession, &hitResultList));
-    CHECK(HMS_AREngine_ARFrame_HitTest(mArSession, mArFrame, pixelX, pixelY, hitResultList));
+    CHECK(HMS_AREngine_ARFrame_HitTest(mArSession, mArFrame, pixeLX, pixeLY, hitResultList));
 
     int32_t hitResultListSize = 0;
     CHECK(HMS_AREngine_ARHitResultList_GetSize(mArSession, hitResultList, &hitResultListSize));
@@ -210,14 +217,14 @@ void ARWorldApp::DispatchTouchEvent(float pixelX, float pixelY)
 void ARWorldApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window)
 {
     LOGD("ARWorldApp::DispatchTouchEvent");
-    float pixelX = 0.0f;
-    float pixelY = 0.0f;
+    float pixeLX = 0.0f;
+    float pixeLY = 0.0f;
     int32_t ret = OH_NativeXComponent_GetTouchEvent(component, window, &mTouchEvent);
     if (ret == OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
         if (mTouchEvent.type == OH_NATIVEXCOMPONENT_DOWN) {
-            pixelX = mTouchEvent.touchPoints[0].x;
-            pixelY = mTouchEvent.touchPoints[0].y;
-            LOGD("Pos: %{public}f %{public}f.", pixelX, pixelY);
+            pixeLX = mTouchEvent.touchPoints[0].x;
+            pixeLY = mTouchEvent.touchPoints[0].y;
+            LOGD("Pos: %{public}f %{public}f.", pixeLX, pixeLY);
         } else {
             return;
         }
@@ -226,12 +233,12 @@ void ARWorldApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window
         return;
     }
 
-    mTaskQueue.Push([this, pixelX, pixelY] {
+    mTaskQueue.Push([this, pixeLX, pixeLY] {
         if (isPaused) {
             LOGI("ARWorldApp DispatchTouchEvent isPaused!");
             return;
         }
-        DispatchTouchEvent(pixelX, pixelY);
+        DispatchTouchEvent(pixeLX, pixeLY);
     });
 }
 
@@ -310,12 +317,4 @@ void ARWorldApp::SetColor(float colorR, float colorG, float colorB, float colorA
     *(coloredAnchor.color + 2) = colorB;
     *(coloredAnchor.color + 3) = colorA;
 }
-
-void ARWorldApp::ReCreateSession() {
-    OnPause();
-    OnStop();
-    OnStart(mConfigParam);
-    OnResume();
-}
-
 } // namespace ARWorld

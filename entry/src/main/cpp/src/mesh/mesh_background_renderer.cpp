@@ -81,13 +81,22 @@ void MeshBackgroundRenderer::Release()
     GLUtils::ReleaseProgram(shaderProgram);
 }
 
-void MeshBackgroundRenderer::Draw(const AREngine_ARSession *session, const AREngine_ARFrame *frame)
+void MeshBackgroundRenderer::Draw(const AREngine_ARSession *session, const AREngine_ARFrame *frame, uint64_t width, uint64_t height)
 {
     // In OpenGLES, the texture coordinate dimension is 2.
     static_assert(std::extent<decltype(UVS)>::value == VERTICES_NUM * 2, "Incorrect kUvs length.");
     // The dimension of the vertex in OpenGLES is 3.
     static_assert(std::extent<decltype(VERTICES)>::value == VERTICES_NUM * 3, "Incorrect kVertices length.");
-
+    
+    if (width != mWidth || height != mHeight) {
+        mWidth = width;
+        mHeight = height;
+        glDeleteTextures(1, &m_tex);
+        glDeleteFramebuffers(1, &m_fbo);
+        m_tex = GLUtils::CreateTexture(mWidth, mHeight, GL_RGBA8);
+        m_fbo = GLUtils::CreateFbo(m_tex);
+    }
+    
     // If the display rotation changes (including the view size change),
     // you need to re-query the UVs.
     int32_t geometryChanged = 0;

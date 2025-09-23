@@ -95,8 +95,7 @@ void DepthRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARF
     CHECK(HMS_AREngine_ARCamera_GetProjectionMatrix(arSession, arCamera, {0.1f, 100.f}, glm::value_ptr(projectionMat),
                                                     16));
     AREngine_ARTrackingState cameraTrackingState = ARENGINE_TRACKING_STATE_STOPPED;
-    CHECK_WITH_REASON(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState), arSession,
-                      arCamera);
+    CHECK(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState));
 
     if (cameraTrackingState == ARENGINE_TRACKING_STATE_TRACKING) {
         AREngine_ARImage *depthImage = nullptr;

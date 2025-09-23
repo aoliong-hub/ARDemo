@@ -13,8 +13,9 @@
  * limitations under the License.
  */
 
+import { display } from '@kit.ArkUI';
 import { taskpool } from '@kit.ArkTS';
-import { BusinessError, deviceInfo, emitter } from '@kit.BasicServicesKit';
+import { BusinessError, emitter } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { resourceManager } from '@kit.LocalizationKit';
@@ -29,7 +30,7 @@ export function ARImageByAddBuilder() {
 
 @Component
 struct ARImageByAdd {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
   private imageAddFailedNumbers: number = 0;
   private imageAddNumbers: number = 0;
   private imagePathList: string[] = [];
@@ -42,7 +43,7 @@ struct ARImageByAdd {
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State imageTotalNumbers: number = 0;
   @State private isImageAddComplete: boolean = false;
-  @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  @State rotation: number = display.getDefaultDisplaySync().rotation;
   @State showPage: boolean = true;
   private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
@@ -126,7 +127,7 @@ struct ARImageByAdd {
       }
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfo = context.pathStack;
+      this.pageInfos = context.pathStack;
       this.imagePathList = context.pathInfo.param as string[];
     })
     .hideTitleBar(true)
@@ -162,7 +163,7 @@ struct ARImageByAdd {
         value: $r('app.string.back'),
         action: () => {
           Logger.info('Callback when the second button is clicked');
-          this.pageInfo.pop();
+          this.pageInfos.pop();
         }
       }]
     })

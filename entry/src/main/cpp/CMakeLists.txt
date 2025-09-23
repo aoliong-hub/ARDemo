@@ -99,4 +99,5 @@ target_link_libraries(entry PUBLIC
     pixelmap
     pixelmap_ndk.z
     ${arengine-lib}
+    libnative_display_manager.so
 )

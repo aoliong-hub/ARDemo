@@ -20,7 +20,7 @@ export function ARDepthBuilder() {
 
 @Component
 struct ARDepth {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
 
   build(): void {
     NavDestination() {
@@ -30,7 +30,7 @@ struct ARDepth {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfo.pushPathByName('ARDepthRender', 0);
+            this.pageInfos.pushPathByName('ARDepthRender', 0);
           })
 
         Button($r('app.string.open_depth_render'), { type: ButtonType.Normal, stateEffect: true })
@@ -38,7 +38,7 @@ struct ARDepth {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfo.pushPathByName('ARDepthRender', 1);
+            this.pageInfos.pushPathByName('ARDepthRender', 1);
           })
       }
       .justifyContent(FlexAlign.SpaceEvenly)
@@ -46,7 +46,7 @@ struct ARDepth {
       .height('100%')
     }
     .onReady((context: NavDestinationContext) => {
-      this.pageInfo = context.pathStack;
+      this.pageInfos = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)

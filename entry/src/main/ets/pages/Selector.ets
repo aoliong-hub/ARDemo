@@ -21,12 +21,12 @@ import { requestPermissionOnSetting } from '../utils/Utils';
 @Entry
 @Component
 struct Selector {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
   private hasPermission: boolean = false;
   @State context: Context = this.getUIContext().getHostContext() as Context;
 
   build(): void {
-    Navigation(this.pageInfo) {
+    Navigation(this.pageInfos) {
       Column() {
         this.sampleButton('ARWorld');
         this.sampleButton('ARMesh');
@@ -60,8 +60,8 @@ struct Selector {
             return;
           }
         }
-        this.pageInfo.clear();
-        this.pageInfo.pushDestinationByName(sampleName, null);
+        this.pageInfos.clear();
+        this.pageInfos.pushDestinationByName(sampleName, null);
       })
   }
 

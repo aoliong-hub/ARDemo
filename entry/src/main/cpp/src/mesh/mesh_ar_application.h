@@ -48,7 +48,6 @@ private:
                       AREngine_ARHitResultList *hitResultList) const;
     void SetAnchorColour(AREngine_ARAnchor *anchor);
     static void SetColor(float colorR, float colorG, float colorB, float colorA, ColoredAnchor &coloredAnchor);
-    void ReCreateSession();
     AREngine_ARSession *mArSession = nullptr;
     AREngine_ARFrame *mArFrame = nullptr;
     std::mutex mImageMutex;

@@ -44,7 +44,6 @@ public:
     std::string GetDistance() override;
 
 private:
-    void ReCreateSession();
     AREngine_ARSession *mArSession = nullptr;
     AREngine_ARFrame *mArFrame = nullptr;
     std::mutex mImageMutex;

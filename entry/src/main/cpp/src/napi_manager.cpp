@@ -479,10 +479,10 @@ AppNapi *NapiManager::CreateApp(std::string &id)
     auto currentTime = std::chrono::system_clock::now();
     auto currentiTime_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(currentTime);
     auto valueMs = currentiTime_ms.time_since_epoch().count();
-    int length = std::to_string(valueMs).length();
+    int len = std::to_string(valueMs).length();
 
-    if(id.length() >= length) {
-        scene = id.substr(length);
+    if(id.length() >= len) {
+        scene = id.substr(len);
         LOGE("NapiManager::Before CreateApp is:%{public}s", scene.c_str());
     }
     

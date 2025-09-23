@@ -42,7 +42,7 @@ public:
      * @param session This API is used to query the sessions in the background drawing.
      * @param fram Information about each frame during background drawing.
      */
-    void Draw(const AREngine_ARSession *session, const AREngine_ARFrame *frame);
+    void Draw(const AREngine_ARSession *session, const AREngine_ARFrame *frame, uint64_t width, uint64_t height);
 
     /**
      * Obtain the texture ID.
@@ -65,6 +65,7 @@ private:
     float transformedUvs[VERTICES_NUM * 2] = {};
     bool uvsInitialized = false;
     GLuint m_fbo{0};
+    GLuint m_fboNew{0};
     uint64_t mWidth;
     uint64_t mHeight;
 };

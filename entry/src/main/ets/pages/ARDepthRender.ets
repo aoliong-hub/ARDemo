@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-import { deviceInfo } from '@kit.BasicServicesKit';
+import { display } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
@@ -25,7 +25,7 @@ export function ARDepthRenderBuilder() {
 
 @Component
 struct ARDepthRender {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
   private interval: number = -1;
   private isUpdate: boolean = true;
   private params: number = 0;
@@ -33,7 +33,7 @@ struct ARDepthRender {
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State distance: string = '';
-  @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  @State rotation: number = display.getDefaultDisplaySync().rotation;
   private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   build(): void {
@@ -92,7 +92,7 @@ struct ARDepthRender {
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfo = context.pathStack;
+      this.pageInfos = context.pathStack;
       this.params = context.pathInfo.param as number;
     })
     .hideTitleBar(true)

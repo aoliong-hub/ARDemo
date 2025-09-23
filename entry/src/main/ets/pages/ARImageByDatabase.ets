@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-import { deviceInfo } from '@kit.BasicServicesKit';
+import { display } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
@@ -26,14 +26,14 @@ export function ARImageByDatabaseBuilder() {
 
 @Component
 struct ARImageByDatabase {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
   private isSurfaceDestroy: boolean = false;
   private interval: number = -1;
   private isUpdate: boolean = false;
   private xComponentId: string = 'ARImage';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
-  @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  @State rotation: number = display.getDefaultDisplaySync().rotation;
   @State showPage: boolean = true;
   private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
@@ -90,7 +90,7 @@ struct ARImageByDatabase {
       }
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfo = context.pathStack;
+      this.pageInfos = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)
@@ -124,7 +124,7 @@ struct ARImageByDatabase {
         value: $r('app.string.back'),
         action: () => {
           Logger.info('Callback when the second button is clicked.');
-          this.pageInfo.pop();
+          this.pageInfos.pop();
         }
       }]
     })

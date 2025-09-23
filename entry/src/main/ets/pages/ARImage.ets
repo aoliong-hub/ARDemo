@@ -24,7 +24,7 @@ export function ARImageBuilder() {
 
 @Component
 struct ARImage {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
   private imagePathArray: string[] = [];
 
   build(): void {
@@ -46,7 +46,7 @@ struct ARImage {
               let photoResult: photoAccessHelper.PhotoSelectResult = await photoPicker.select(photoOption);
               if (photoResult.photoUris.length > 0 && photoResult.photoUris[0].length > 0) {
                 this.imagePathArray = photoResult.photoUris;
-                this.pageInfo.pushDestinationByName('ARImageByAdd', this.imagePathArray);
+                this.pageInfos.pushDestinationByName('ARImageByAdd', this.imagePathArray);
               }
             } catch (error) {
               const err: BusinessError = error as BusinessError;
@@ -59,7 +59,7 @@ struct ARImage {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfo.pushDestinationByName('ARImageByDatabase', null);
+            this.pageInfos.pushDestinationByName('ARImageByDatabase', null);
           })
       }
       .justifyContent(FlexAlign.SpaceEvenly)
@@ -67,7 +67,7 @@ struct ARImage {
       .height('100%')
     }
     .onReady((context: NavDestinationContext) => {
-      this.pageInfo = context.pathStack;
+      this.pageInfos = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)

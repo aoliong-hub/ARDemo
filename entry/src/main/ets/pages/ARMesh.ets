@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-import { deviceInfo } from '@kit.BasicServicesKit';
+import { display } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
@@ -26,12 +26,12 @@ export function ARMeshBuilder() {
 
 @Component
 struct ARMesh {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
   private interval: number = -1;
   private xComponentId: string = 'ARMesh';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
-  @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  @State rotation: number = display.getDefaultDisplaySync().rotation;
   private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   build(): void {
@@ -72,7 +72,7 @@ struct ARMesh {
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfo = context.pathStack;
+      this.pageInfos = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)

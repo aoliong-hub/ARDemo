@@ -76,7 +76,7 @@ provided by AR Engine.
 1. On the home screen of your phone, tap **ARSample** to start the app. You'll find an **ARSemanticDense** button on the
    app
    home screen.
-2. Select to click to enable dense point cloud, and open either of the buttons for semantic dense cube volume or 
+2. Select to click to enable dense point cloud, and open either of the buttons for semantic dense cube volume or
    semantic dense cube space.
 3. Scan the corresponding ground, object, or corner of the wall in three different modes.
 4. After identifying the relevant subject information, corresponding dense point clouds, cube information can
@@ -332,7 +332,7 @@ and z axes) to achieve 6 degrees of freedom (6DoF) motion tracking.
 ## Constraints
 
 1. Developers can use interface calls to determine whether the current device supports AR Engine.
-The interface is called in the following way:
+   The interface is called in the following way:
 
 ```c
 #include "ar/ar_engine_core.h" 
@@ -353,10 +353,10 @@ If the error code returned by the corresponding interface is ARENGINE_ERROR_DEVI
 
 1. Technology limitations: The capabilities provided by this feature may have their depth estimation accuracy influenced
    by the following factors:
-    1. Ambient lighting conditions (such as strong light, low light, or reflective environments).
-    2. Surface material characteristics of objects (such as transparency, mirror-like surfaces, or uniform colors).
-    3. Differences in device hardware performance (such as variations in camera/sensor parameters).
-    4. Real-time limitations in dynamic scenes, among others.
+   1. Ambient lighting conditions (such as strong light, low light, or reflective environments).
+   2. Surface material characteristics of objects (such as transparency, mirror-like surfaces, or uniform colors).
+   3. Differences in device hardware performance (such as variations in camera/sensor parameters).
+   4. Real-time limitations in dynamic scenes, among others.
 2. Disclaimer:
    This depth estimation feature is provided solely for functionality and does not constitute a warranty regarding
    product quality or any other commitments. Developers have the sole discretion to decide whether to use
@@ -369,10 +369,10 @@ If the error code returned by the corresponding interface is ARENGINE_ERROR_DEVI
    arising from such use.
 
    Additional note on depth estimation functionality:
-    1. The depth estimation functionality is not designed as a medical device or life safety system.
-    2. Without the proper certifications, the depth estimation functionality should not be used as a medical assistive
-       device. It is not intended for use as medical equipment. It also hasn't been approved to meet accessibility or
-       life safety standards.
+   1. The depth estimation functionality is not designed as a medical device or life safety system.
+   2. Without the proper certifications, the depth estimation functionality should not be used as a medical assistive
+      device. It is not intended for use as medical equipment. It also hasn't been approved to meet accessibility or
+      life safety standards.
 
 ## AR Engine High-Precision Geometric Reconstruction Technology Limitations and Disclaimer
 

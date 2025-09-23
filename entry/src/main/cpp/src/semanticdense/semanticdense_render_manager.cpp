@@ -96,8 +96,7 @@ void SemanticDenseRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREn
     modelViewProjection = projectionMat * viewMat;
     AREngine_ARTrackingState cameraTrackingState = ARENGINE_TRACKING_STATE_STOPPED;
     AREngine_ARTrackingStateReason reason = ARENGINE_TRACKING_STATE_REASON_NONE;
-    CHECK_WITH_REASON(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState), arSession,
-                      arCamera);
+    CHECK(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState));
     HMS_AREngine_ARCamera_GetTrackingStateReason(arSession, arCamera, &reason);
     LOGI("[ArSemanticdense][CameraPose] state:%{public}d,  reason:%{public}d", static_cast<int32_t>(cameraTrackingState),
          static_cast<int32_t>(reason));
@@ -109,7 +108,7 @@ void SemanticDenseRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREn
     if (cameraTrackingState == ARENGINE_TRACKING_STATE_TRACKING) {
         AREngine_ARPose *cameraPose = nullptr;
         CHECK(HMS_AREngine_ARPose_Create(arSession, nullptr, 0, &cameraPose));
-        CHECK_WITH_REASON(HMS_AREngine_ARCamera_GetPose(arSession, arCamera, cameraPose), arSession, arCamera);
+        CHECK(HMS_AREngine_ARCamera_GetPose(arSession, arCamera, cameraPose));
         CHECK(HMS_AREngine_ARPose_GetMatrix(arSession, cameraPose, glm::value_ptr(modelMat), 16));
         HMS_AREngine_ARPose_Destroy(cameraPose);
     } else {

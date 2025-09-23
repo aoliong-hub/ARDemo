@@ -14,6 +14,8 @@
  *    limitations under the License.
  */
 
+#include <window_manager/oh_display_info.h>
+#include <window_manager/oh_display_manager.h>
 #include "semanticdense_ar_application.h"
 #include "app_util.h"
 #include <vector>
@@ -54,8 +56,10 @@ void ArSemanticDenseApp::OnStart(const ConfigParams &params) {
         HMS_AREngine_ARConfig_Destroy(arConfig);
     
         CHECK(HMS_AREngine_ARFrame_Create(mArSession, &mArFrame));
-        AREngine_ARPoseType arRotation = ArEngineRotateType(params.rotation);
-        mDisplayRotation = arRotation;
+        NativeDisplayManager_Rotation displayRotation;
+        if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+            mDisplayRotation = ArEngineRotateType(displayRotation);
+        }
         CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mDisplayWidth, mDisplayHeight));
     });
 }
@@ -101,8 +105,10 @@ void ArSemanticDenseApp::OnUpdate() {
     }
     mTaskQueue.Push([this] {
         HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mSemanticDenseRenderManager.GetPreviewTextureId());
+        CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mDisplayWidth, mDisplayHeight));
         HMS_AREngine_ARSession_Update(mArSession, mArFrame);
-        LOGD("ARWorldApp::OnDrawFrame");
+        glViewport(0, 0, mDisplayWidth, mDisplayHeight);
+        LOGD("ArSemanticApp::OnDrawFrame");
         mSemanticDenseRenderManager.OnDrawFrame(mArSession, mArFrame);
     });
 }
@@ -144,8 +150,10 @@ void ArSemanticDenseApp::OnSurfaceChanged(OH_NativeXComponent *component, void *
         LOGI("ArSemanticDenseApp OnSurfaceChanged isPaused!");
         return;
     }
-    glViewport(0, 0, mDisplayWidth, mDisplayHeight);
-    CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mDisplayWidth, mDisplayHeight));
+    NativeDisplayManager_Rotation displayRotation;
+    if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+        mDisplayRotation = ArEngineRotateType(displayRotation);
+    }
 }
 
 void ArSemanticDenseApp::DispatchTouchEvent(OH_NativeXComponent *component, void *window) {

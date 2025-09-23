@@ -22,6 +22,7 @@
 #include "mesh_background_renderer.h"
 #include "mesh_object_renderer.h"
 #include "scenemesh_display_renderer.h"
+#include <cstdint>
 #include <mutex>
 
 namespace ARMesh {
@@ -52,7 +53,7 @@ public:
      * @param coloredAnchors Color parameters required for drawing virtual objects.
      */
     void OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame,
-                     const std::vector<ColoredAnchor> &coloredAnchors);
+                     const std::vector<ColoredAnchor> &coloredAnchors, uint64_t width, uint64_t height);
 
     /**
      * Implement the Draw function of the virtual object module in the rendering manager.

@@ -13,6 +13,8 @@
  * limitations under the License.
  */
 
+#include <window_manager/oh_display_info.h>
+#include <window_manager/oh_display_manager.h>
 #include "depth_ar_application.h"
 #include "app_util.h"
 
@@ -49,7 +51,10 @@ void ARDepthApp::OnStart(const ConfigParams &params)
         CHECK(HMS_AREngine_ARSession_Configure(mArSession, arConfig));
         HMS_AREngine_ARConfig_Destroy(arConfig);
         CHECK(HMS_AREngine_ARFrame_Create(mArSession, &mArFrame));
-        mDisplayRotation = ArEngineRotateType(params.rotation);
+        NativeDisplayManager_Rotation displayRotation;
+        if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+            mDisplayRotation = ArEngineRotateType(displayRotation);
+        }
         CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
     });
 }
@@ -95,9 +100,9 @@ void ARDepthApp::OnUpdate()
         return;
     }
     mTaskQueue.Push([this] {
+        CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
         if (mIsSurfaceChange) {
             glViewport(0, 0, mWidth, mHeight);
-            ReCreateSession();
             mDetphRenderManager.DrawBlack();
             mIsSurfaceChange = false;
             return;
@@ -122,7 +127,6 @@ void ARDepthApp::OnSurfaceCreated(OH_NativeXComponent *component, void *window)
     mTaskQueue.Push([this, window] {
         LOGD("PoseRenderManager init.");
         mDetphRenderManager.Initialize(window);
-        CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
     });
 }
 
@@ -145,6 +149,10 @@ void ARDepthApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window)
         mWidth = width;
         mHeight = height;
         mIsSurfaceChange = true;
+        NativeDisplayManager_Rotation displayRotation;
+        if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+            mDisplayRotation = ArEngineRotateType(displayRotation);
+        }
     });
 }
 
@@ -160,13 +168,4 @@ void ARDepthApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *window
 }
 
 std::string ARDepthApp::GetDistance() { return mDetphRenderManager.GetDistance(); }
-
-void ARDepthApp::ReCreateSession()
-{
-    OnPause();
-    OnStop();
-    OnStart(mConfigParam);
-    OnResume();
-}
-
 } // namespace ARDepth

@@ -43,8 +43,7 @@ public:
     void DispatchTouchEvent(OH_NativeXComponent *component, void *window) override;
 
 private:
-    void DispatchTouchEvent(float pixelX, float pixelY);
-    void ReCreateSession();
+    void DispatchTouchEvent(float pixeLX, float pixeLY);
 
     static void SetColor(float colorR, float colorG, float colorB, float colorA, ColoredAnchor &coloredAnchor);
     bool GetHitResult(AREngine_ARHitResult *&arHitResult, bool &hasHitFlag, int32_t hitResultListSize,

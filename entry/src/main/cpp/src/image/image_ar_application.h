@@ -38,7 +38,6 @@ public:
     void OnStop() override;
     void SetPath(const std::string rootPath) override;
     int32_t InitImage(size_t bufferLen, uint32_t width, uint32_t height, uint8_t *buffer) override;
-    void ReCreateSession();
     void SaveImageDataBaseToLocal(const std::string rootPath) override;
     uint32_t getImageCount() override;
     // XComponent Callback

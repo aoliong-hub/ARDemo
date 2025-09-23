@@ -67,7 +67,7 @@ void MeshRenderManager::Release()
 }
 
 void MeshRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame,
-                                    const std::vector<ColoredAnchor> &mColoredAnchors)
+                                    const std::vector<ColoredAnchor> &mColoredAnchors, uint64_t width, uint64_t height)
 {
     if (!isInited) {
         LOGE("PoseRenderManager not ready!");
@@ -89,12 +89,11 @@ void MeshRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFr
     CHECK(HMS_AREngine_ARCamera_GetProjectionMatrix(arSession, arCamera, {0.1f, 100.f}, glm::value_ptr(projectionMat),
                                                     16));
     AREngine_ARTrackingState cameraTrackingState = ARENGINE_TRACKING_STATE_STOPPED;
-    CHECK_WITH_REASON(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState), arSession,
-                      arCamera);
+    CHECK(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState));
 
     HMS_AREngine_ARCamera_Release(arCamera);
     glBindTexture(GL_TEXTURE_2D, mBackgroundRenderer.GetTextureId());
-    mBackgroundRenderer.Draw(arSession, arFrame);
+    mBackgroundRenderer.Draw(arSession, arFrame, width, height);
     mSceneMeshDisplayRenderer.onDrawFrame(arSession, arFrame, viewMat, projectionMat, 
                                           mBackgroundRenderer.m_tex);
     RenderObject(arSession, viewMat, projectionMat, mColoredAnchors);

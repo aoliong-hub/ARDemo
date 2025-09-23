@@ -13,8 +13,7 @@
  * limitations under the License.
  */
 
-import { PromptAction } from '@kit.ArkUI';
-import { deviceInfo } from '@kit.BasicServicesKit';
+import { PromptAction,display } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
@@ -26,7 +25,7 @@ export function ARWorldBuilder() {
 
 @Component
 struct ARWorld {
-  pageInfo: NavPathStack = new NavPathStack();
+  pageInfos: NavPathStack = new NavPathStack();
   private currentMillisecond: number = 0;
   private interval: number = -1;
   private isUpdate: boolean = true;
@@ -34,7 +33,7 @@ struct ARWorld {
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
   @State numberOfPlans: number = 0;
-  @State rotation: number = deviceInfo.deviceType === 'tablet' ? 3 : 0;
+  @State rotation: number = display.getDefaultDisplaySync().rotation;
   private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   build(): void {
@@ -78,7 +77,7 @@ struct ARWorld {
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {
-      this.pageInfo = context.pathStack;
+      this.pageInfos = context.pathStack;
     })
     .hideTitleBar(true)
     .hideBackButton(true)

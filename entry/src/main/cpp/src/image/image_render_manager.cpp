@@ -98,8 +98,7 @@ void ImageRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARF
                                                     16));
     AREngine_ARTrackingState cameraTrackingState = ARENGINE_TRACKING_STATE_STOPPED;
     AREngine_ARTrackingStateReason reason = ARENGINE_TRACKING_STATE_REASON_NONE;
-    CHECK_WITH_REASON(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState), arSession,
-                      arCamera);
+    CHECK(HMS_AREngine_ARCamera_GetTrackingState(arSession, arCamera, &cameraTrackingState));
     HMS_AREngine_ARCamera_GetTrackingStateReason(arSession, arCamera, &reason);
 
     HMS_AREngine_ARCamera_Release(arCamera);
@@ -132,11 +131,11 @@ void ImageRenderManager::ImageRender(AREngine_ARSession *arSession, glm::mat4 &v
         CHECK(HMS_AREngine_ARTrackableList_AcquireItem(arSession, augmentList, i, &augment));
         uint32_t index = -1;
         char *name = new char[256];
-        uint32_t length = 0;
+        uint32_t len = 0;
         CHECK(HMS_AREngine_ARAugmentedImage_GetIndex(arSession, reinterpret_cast<AREngine_ARAugmentedImage *>(augment),
                                                      &index));
         CHECK(HMS_AREngine_ARAugmentedImage_AcquireName(
-            arSession, reinterpret_cast<AREngine_ARAugmentedImage *>(augment), name, &length));
+            arSession, reinterpret_cast<AREngine_ARAugmentedImage *>(augment), name, &len));
         LOGI("Get augmented image index and name, index=%{public}d, name:%{public}s.", index, name);
 
         delete[] name;

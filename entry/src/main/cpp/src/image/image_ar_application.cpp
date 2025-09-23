@@ -12,7 +12,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+#include <window_manager/oh_display_info.h>
+#include <window_manager/oh_display_manager.h>
 #include "image_ar_application.h"
 #include "app_util.h"
 #include "napi_manager.h"
@@ -20,14 +21,6 @@
 namespace ARImage {
 
 ARImageApp::ARImageApp(std::string &id) : AppNapi(id) { LOGD("ARImageApp::Constructor"); }
-
-void ARImageApp::ReCreateSession()
-{
-    OnPause();
-    OnStop();
-    OnStart(mConfigParam);
-    OnResume();
-}
 
 void ARImageApp::SaveImageDataBaseToLocal(const std::string rootPath)
 {
@@ -68,7 +61,7 @@ ARImageApp::~ARImageApp()
 void ARImageApp::OnStart(const ConfigParams &params)
 {
     mConfigParam = params;
-    CHECK_WITH_API_STAT(HMS_AREngine_ARSession_Create(nullptr, nullptr, &mArSession));
+    CHECK(HMS_AREngine_ARSession_Create(nullptr, nullptr, &mArSession));
     AREngine_ARConfig *arConfig = nullptr;
     CHECK(HMS_AREngine_ARConfig_Create(mArSession, &arConfig));
     // Set AR type to ARENGINE_TYPE_IMAGE
@@ -80,7 +73,10 @@ void ARImageApp::OnStart(const ConfigParams &params)
     HMS_AREngine_ARConfig_Destroy(arConfig);
 
     CHECK(HMS_AREngine_ARFrame_Create(mArSession, &mArFrame));
-    mDisplayRotation = ArEngineRotateType(params.rotation);
+    NativeDisplayManager_Rotation displayRotation;
+    if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+        mDisplayRotation = ArEngineRotateType(displayRotation);
+    }
     CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
     CHECK(HMS_AREngine_ARAugmentedImageDatabase_Create(&mDataBase));
 }
@@ -125,29 +121,14 @@ int32_t ARImageApp::InitImage(size_t bufferLen, uint32_t width, uint32_t height,
 void ARImageApp::OnUpdate()
 {
     LOGD("ARWorldApp::OnUpdate is going.");
-
     CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
-    CHECK_WITH_API_STAT(HMS_AREngine_ARSession_SetCameraGLTexture(
-        mArSession, mImageRenderManager.GetBackgroundRender().GetTextureId()));
-
-    uint64_t width = 1080;
-    uint64_t height = 1920;
-    bool isSurfaceChange = false;
-    {
-        width = mWidth;
-        height = mHeight;
-        isSurfaceChange = mIsSurfaceChange;
-        mIsSurfaceChange = false;
-    }
-
-    if (isSurfaceChange) { // Folding screen folding, unfolding and switching
-        glViewport(0, 0, width, height);
-        ReCreateSession();
+    CHECK(HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mImageRenderManager.GetBackgroundRender().GetTextureId()));
+    
+    if (mIsSurfaceChange) { // Folding screen folding, unfolding and switching
+        glViewport(0, 0, mWidth, mHeight);
         mImageRenderManager.DrawBlack();
-        CHECK_WITH_API_STAT(HMS_AREngine_ARSession_SetCameraGLTexture(
-            mArSession, mImageRenderManager.GetBackgroundRender().GetTextureId()));
         HMS_AREngine_ARSession_Update(mArSession, mArFrame);
-        mNotifyShowPage = 3;
+        mIsSurfaceChange = false;
         return;
     }
     std::lock_guard<std::mutex> lock(mImageMutex);
@@ -214,9 +195,10 @@ void ARImageApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window)
             LOGE("Failed to get offset.");
         }
     }
-
-    glViewport(0, 0, mWidth, mHeight);
-    CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
+    NativeDisplayManager_Rotation displayRotation;
+    if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+        mDisplayRotation = ArEngineRotateType(displayRotation);
+    }
 
     mIsSurfaceChange = true;
 }

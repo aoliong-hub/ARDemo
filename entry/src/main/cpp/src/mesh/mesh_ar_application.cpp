@@ -13,6 +13,8 @@
  * limitations under the License.
  */
 
+#include <window_manager/oh_display_info.h>
+#include <window_manager/oh_display_manager.h>
 #include "mesh_ar_application.h"
 #include "app_util.h"
 
@@ -46,7 +48,10 @@ void ARMeshApp::OnStart(const ConfigParams &params)
         CHECK(HMS_AREngine_ARSession_Configure(mArSession, arConfig));
         HMS_AREngine_ARConfig_Destroy(arConfig);
         CHECK(HMS_AREngine_ARFrame_Create(mArSession, &mArFrame));
-        mDisplayRotation = ArEngineRotateType(params.rotation);
+        NativeDisplayManager_Rotation displayRotation;
+        if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+            mDisplayRotation = ArEngineRotateType(displayRotation);
+        }
         CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
     });
 }
@@ -99,11 +104,13 @@ void ARMeshApp::OnUpdate()
     }
     mTaskQueue.Push([this] {
         HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mMeshRenderManager.GetPreviewTextureId());
+        CHECK(HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight));
         HMS_AREngine_ARSession_Update(mArSession, mArFrame);
+        
         if (mIsSurfaceChange) {
             glViewport(0, 0, mWidth, mHeight);
-            ReCreateSession();
             mMeshRenderManager.DrawBlack();
+            
             HMS_AREngine_ARSession_SetCameraGLTexture(mArSession, mMeshRenderManager.GetPreviewTextureId());
             HMS_AREngine_ARSession_Update(mArSession, mArFrame);
             mIsSurfaceChange = false;
@@ -115,7 +122,7 @@ void ARMeshApp::OnUpdate()
             DispatchTouchEvent(item.first, item.second);
         }
         LOGD("ARWorldApp::OnDrawFrame");
-        mMeshRenderManager.OnDrawFrame(mArSession, mArFrame, mColoredAnchors);
+        mMeshRenderManager.OnDrawFrame(mArSession, mArFrame, mColoredAnchors, mWidth, mHeight);
     });
 }
 
@@ -158,6 +165,10 @@ void ARMeshApp::OnSurfaceChanged(OH_NativeXComponent *component, void *window)
         mHeight = height;
         mWidth = width;
         mIsSurfaceChange = true;
+        NativeDisplayManager_Rotation displayRotation;
+        if (OH_NativeDisplayManager_GetDefaultDisplayRotation(&displayRotation) == DISPLAY_MANAGER_OK) {
+            mDisplayRotation = ArEngineRotateType(displayRotation);
+        }
     });
 }
 
@@ -283,13 +294,4 @@ void ARMeshApp::SetColor(float colorR, float colorG, float colorB, float colorA,
     *(coloredAnchor.color + 2) = colorB;
     *(coloredAnchor.color + 3) = colorA;
 }
-
-void ARMeshApp::ReCreateSession()
-{
-    OnPause();
-    OnStop();
-    OnStart(mConfigParam);
-    OnResume();
-}
-
 } // namespace ARMesh
