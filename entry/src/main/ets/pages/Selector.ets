@@ -61,7 +61,9 @@ struct Selector {
           }
         }
         this.pageInfos.clear();
-        this.pageInfos.pushDestinationByName(sampleName, null);
+        this.pageInfos.pushDestinationByName(sampleName, null).catch((err: BusinessError) => {
+          Logger.error(`Failed to pushDestinationByName. Code is ${err.code}, message is ${err.message}.`);
+        });
       })
   }
 

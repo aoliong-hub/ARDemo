@@ -16,6 +16,7 @@
 import { window } from '@kit.ArkUI';
 import { UIAbility } from '@kit.AbilityKit';
 import { Logger } from '../utils/Logger';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 export default class EntryAbility extends UIAbility {
   onCreate(): void {
@@ -36,13 +37,18 @@ export default class EntryAbility extends UIAbility {
       }
       Logger.info('Succeeded in loading the content.');
     })
-    windowStage.getMainWindowSync().setWindowKeepScreenOn(true, (err) => {
-      if (err.code) {
-        Logger.error(`Failed to setWindowKeepScreenOn. Code: ${err.code}, message: ${err.message}.`);
-        return;
-      }
-      Logger.info('Succeeded in setting setWindowKeepScreenOn.');
-    })
+    try {
+      windowStage.getMainWindowSync().setWindowKeepScreenOn(true, (err) => {
+        if (err.code) {
+          Logger.error(`Failed to setWindowKeepScreenOn. Code: ${err.code}, message: ${err.message}.`);
+          return;
+        }
+        Logger.info('Succeeded in setting setWindowKeepScreenOn.');
+      })
+    } catch (error) {
+      const err: BusinessError = error as BusinessError;
+      Logger.error(`Failed to getMainWindowSync. Code is ${err.code}, message is ${err.message}`);
+    }
   }
 
   onWindowStageDestroy(): void {

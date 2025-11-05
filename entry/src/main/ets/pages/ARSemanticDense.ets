@@ -14,6 +14,8 @@
  */
 
 import { display } from '@kit.ArkUI';
+import { Logger } from '../utils/Logger';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 @Builder
 export function ARSemanticDenseBuilder() {
@@ -36,7 +38,9 @@ struct ARSemanticDense {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 0);
+            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 0).catch((err: BusinessError) => {
+              Logger.error(`ARSemanticDenseRender failed to pushDestinationByName 0. Code is ${err.code}, message is ${err.message}.`);
+            });
           })
 
         Button($r('app.string.semantic_dense_cube_volume'), { type: ButtonType.Normal, stateEffect: true })
@@ -44,7 +48,9 @@ struct ARSemanticDense {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 1);
+            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 1).catch((err: BusinessError) => {
+              Logger.error(`ARSemanticDenseRender failed to pushDestinationByName 1. Code is ${err.code}, message is ${err.message}.`);
+            });
           })
 
         Button($r('app.string.semantic_dense_cube_space'), { type: ButtonType.Normal, stateEffect: true })
@@ -52,7 +58,9 @@ struct ARSemanticDense {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 2);
+            this.pageInfos.pushDestinationByName('ARSemanticDenseRender', 2).catch((err: BusinessError) => {
+              Logger.error(`ARSemanticDenseRender failed to pushDestinationByName 2. Code is ${err.code}, message is ${err.message}.`);
+            });
           })
       }
       .justifyContent(FlexAlign.SpaceEvenly)

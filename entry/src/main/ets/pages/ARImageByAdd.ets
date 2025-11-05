@@ -176,10 +176,15 @@ struct ARImageByAdd {
         Logger.info(`Succeeded in adding image, image numbers: ${this.imageAddNumbers}.`);
       } else {
         this.imageAddFailedNumbers++;
-        this.addImageLog += this.context.resourceManager.getStringByNameSync('image_name_by_add') +
-          data.data?.imageName + '\n' +
+        try {
+          this.addImageLog += this.context.resourceManager.getStringByNameSync('image_name_by_add') +
+            data.data?.imageName + '\n' +
           this.context.resourceManager.getStringByNameSync('image_add_reason_by_add') +
           errcode.get(data.data?.addImageReason) + '\n';
+        } catch (error) {
+          const err: BusinessError = error as BusinessError;
+          Logger.error(`Failed to set addImageLog. Code is ${err.code}, message is ${err.message}`);
+        }
         Logger.error(`Failed to add image, image numbers: ${this.imageAddFailedNumbers}.`);
       }
       this.imageTotalNumbers++;
@@ -188,7 +193,12 @@ struct ARImageByAdd {
     emitter.on('checkAddImageResult', () => {
       if (this.imageAddNumbers === 0 && this.isUpdate) {
         this.showPage = false;
-        this.ShowDialog(this.context.resourceManager.getStringByNameSync('invalid_image_added'));
+        try {
+          this.ShowDialog(this.context.resourceManager.getStringByNameSync('invalid_image_added'));
+        } catch (error) {
+          const err: BusinessError = error as BusinessError;
+          Logger.error(`Failed to getStringByNameSync. Code is ${err.code}, message is ${err.message}`);
+        }
       }
       emitter.off('addImage');
       this.isImageAddComplete = true;

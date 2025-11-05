@@ -59,7 +59,9 @@ struct ARImage {
           .width('50%')
           .height('5%')
           .onClick(() => {
-            this.pageInfos.pushDestinationByName('ARImageByDatabase', null);
+            this.pageInfos.pushDestinationByName('ARImageByDatabase', null).catch((err: BusinessError) => {
+              Logger.error(`ARImageByDatabase Failed to pushDestinationByName. Code is ${err.code}, message is ${err.message}.`);
+            });
           })
       }
       .justifyContent(FlexAlign.SpaceEvenly)

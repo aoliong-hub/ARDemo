@@ -18,6 +18,7 @@ import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
 import { Logger } from '../utils/Logger';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 @Builder
 export function ARImageByDatabaseBuilder() {
@@ -73,7 +74,12 @@ struct ARImageByDatabase {
       let imageCountInDatabase: number = arEngineDemo.getImageCount(this.idStr);
       Logger.info(`ImageCountInDatabase: ${imageCountInDatabase}.`);
       if (imageCountInDatabase <= 0) {
-        this.ShowDialog(this.context.resourceManager.getStringByNameSync('invalid_image_added'));
+        try {
+          this.ShowDialog(this.context.resourceManager.getStringByNameSync('invalid_image_added'));
+        } catch (error) {
+          const err: BusinessError = error as BusinessError;
+          Logger.error(`Failed to ShowDialog. Code is ${err.code}, message is ${err.message}`);
+        }
       }
     })
     .onWillDisappear(() => {

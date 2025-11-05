@@ -14,6 +14,8 @@
  */
 
 import { PromptAction,display } from '@kit.ArkUI';
+import { Logger } from '../utils/Logger';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import arEngineDemo from 'libentry.so';
@@ -86,10 +88,15 @@ struct ARWorld {
 
   private messageNotification(): void {
     let promptAction: PromptAction = this.getUIContext().getPromptAction();
-    promptAction.showToast({
-      message: $r('app.string.alert_desc'),
-      bottom: 300
-    })
+    try {
+      promptAction.showToast({
+        message: $r('app.string.alert_desc'),
+        bottom: 300
+      })
+    } catch (error) {
+      const err: BusinessError = error as BusinessError;
+      Logger.error(`promptAction Failed. Code is ${err.code}, message is ${err.message}`);
+    }
   }
 
   private planeNum(): void {
