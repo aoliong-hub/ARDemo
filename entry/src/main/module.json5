@@ -50,6 +50,9 @@
       },
       {
         "name": "ohos.permission.GYROSCOPE"
+      },
+      {
+        "name": "ohos.permission.VIBRATE"
       }
     ]
   }

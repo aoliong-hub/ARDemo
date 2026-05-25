@@ -1,0 +1,128 @@
+/*
+ * Copyright (c) 2024-2025 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { display } from '@kit.ArkUI';
+import { resourceManager } from '@kit.LocalizationKit';
+import { systemDateTime } from '@kit.BasicServicesKit';
+import arEngineDemo from 'libentry.so';
+import { Logger } from '../utils/Logger';
+
+@Builder
+export function ARObjectBuilder() {
+  ARObject();
+}
+
+@Component
+struct ARObject {
+  pageInfos: NavPathStack = new NavPathStack();
+  private interval: number = -1;
+  private placeTimer: number = -1; // STAGE 2 debug: one-shot auto-place driver
+  private xComponentId: string = 'ARObject';
+  @State context: Context = this.getUIContext().getHostContext() as Context;
+  private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
+  @State rotation: number = display.getDefaultDisplaySync().rotation;
+  private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
+
+  build(): void {
+    NavDestination() {
+      RelativeContainer() {
+        XComponent({ id: this.idStr, type: XComponentType.SURFACE, libraryname: 'entry' })
+          .width('100%')
+          .height('100%')
+          .alignRules({
+            center: { anchor: '__container__', align: VerticalAlign.Center },
+            middle: { anchor: '__container__', align: HorizontalAlign.Center }
+          })
+          .onLoad(() => {
+            Logger.info(`XComponent onLoad ${this.idStr}.`);
+            this.interval = setInterval(() => {
+              // Call the update Native API to advance AR Engine by one frame.
+              arEngineDemo.update(this.idStr);
+            }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
+
+            // STAGE 2 debug trigger: ~5s after load (so the camera reaches TRACKING), place
+            // exactly one logo 1m in front of the CURRENT camera. placeObjectInFrontOfCamera
+            // returns -1 until tracking is up, so retry every 1s until it succeeds (>=1) or
+            // we give up. Removed in a later stage when the upper layer drives placement.
+            let attempts: number = 0;
+            setTimeout(() => {
+              this.placeTimer = setInterval(() => {
+                attempts++;
+                let objectId: number = arEngineDemo.placeObjectInFrontOfCamera(this.idStr, 1.0, 'AR_logo');
+                Logger.info(`[ARObject] auto-place attempt ${attempts} -> objectId=${objectId}`);
+                if (objectId >= 1 || attempts >= 20) {
+                  clearInterval(this.placeTimer);
+                  this.placeTimer = -1;
+                }
+              }, 1000)
+            }, 5000)
+          })
+          .onDestroy(() => {
+            Logger.info(`XComponent onDestroy ${this.idStr}.`);
+            clearInterval(this.interval);
+            if (this.placeTimer !== -1) {
+              clearInterval(this.placeTimer);
+              this.placeTimer = -1;
+            }
+          })
+
+        // STAGE 3 debug controls: place at 1.0m / 0.5m in front of camera, and clear all.
+        Column({ space: 10 }) {
+          Button('前方 1 米放一个')
+            .onClick(() => {
+              let objectId: number = arEngineDemo.placeObjectInFrontOfCamera(this.idStr, 1.0, 'AR_logo');
+              Logger.info(`[ARObject] btn place 1.0m -> objectId=${objectId}`);
+            })
+          Button('前方 0.5 米放一个')
+            .onClick(() => {
+              let objectId: number = arEngineDemo.placeObjectInFrontOfCamera(this.idStr, 0.5, 'AR_logo');
+              Logger.info(`[ARObject] btn place 0.5m -> objectId=${objectId}`);
+            })
+          Button('清空全部')
+            .onClick(() => {
+              let cleared: number = arEngineDemo.clearAllObjects(this.idStr);
+              Logger.info(`[ARObject] btn clearAll -> cleared=${cleared}`);
+            })
+        }
+        .id('debugControls')
+        .alignRules({
+          bottom: { anchor: '__container__', align: VerticalAlign.Bottom },
+          middle: { anchor: '__container__', align: HorizontalAlign.Center }
+        })
+        .margin({ bottom: 60 })
+      }
+    }
+    .onAppear(() => {
+      arEngineDemo.init(this.resMgr);
+      let config: Int32Array = new Int32Array([1, this.rotation]);
+      arEngineDemo.start(this.idStr, config);
+    })
+    .onWillDisappear(() => {
+      arEngineDemo.stop(this.idStr);
+    })
+    .onShown(() => {
+      arEngineDemo.show(this.idStr);
+    })
+    .onHidden(() => {
+      arEngineDemo.hide(this.idStr);
+    })
+    .onReady((context: NavDestinationContext) => {
+      this.pageInfos = context.pathStack;
+    })
+    .hideTitleBar(true)
+    .hideBackButton(true)
+    .hideToolBar(true)
+  }
+}

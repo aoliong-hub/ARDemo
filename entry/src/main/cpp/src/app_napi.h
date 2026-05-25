@@ -52,6 +52,40 @@ public:
     virtual uint32_t getImageCount() { return 0; };
     virtual std::string GetVolume() {return "";};
 
+    // Interface-style object placement (ARObject scene). Default stubs return failure;
+    // ARObjectApp overrides them in Stage 2/3. (-1 / false / 0 == "not handled".)
+    virtual int32_t PlaceObjectAtWorld(float x, float y, float z, const std::string &modelId) { return -1; }
+    virtual int32_t PlaceObjectInFrontOfCamera(float distance, const std::string &modelId) { return -1; }
+    virtual bool RemoveObject(int32_t objectId) { return false; }
+    virtual int32_t ClearAllObjects() { return 0; }
+
+    // Arrow alignment game (ARArrowAlign scene). Default stubs; ArrowAlignApp overrides.
+    virtual int32_t PlaceTargetArrow() { return -1; }
+    virtual void ResetArrowAlign() {}
+    virtual void GetAlignmentState(float &angleRad, bool &aligned, bool &ready, bool &targetPlaced)
+    {
+        angleRad = 0.0f;
+        aligned = false;
+        ready = false;
+        targetPlaced = false;
+    }
+
+    // Ring hunt game (ARRingHunt scene). Default stubs; RingHuntApp overrides.
+    virtual int32_t PlaceRing() { return -1; }
+    virtual void ResetRing() {}
+    virtual void GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad,
+                              bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec)
+    {
+        distance = 0.0f;
+        angleRad = 0.0f;
+        yawDiffRad = 0.0f;
+        pitchDiffRad = 0.0f;
+        distOnTarget = false;
+        angOnTarget = false;
+        finishState = 0;
+        foundSec = 0.0f;
+    }
+
 public:
     std::string id_;
 };

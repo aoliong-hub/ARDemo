@@ -45,6 +45,22 @@ public:
     static napi_value NapiGetImageCount(napi_env env, napi_callback_info info);
     static napi_value NapiGetVolume(napi_env env, napi_callback_info info);
 
+    // ARObject interface-style placement
+    static napi_value NapiPlaceObjectAtWorld(napi_env env, napi_callback_info info);
+    static napi_value NapiPlaceObjectInFrontOfCamera(napi_env env, napi_callback_info info);
+    static napi_value NapiRemoveObject(napi_env env, napi_callback_info info);
+    static napi_value NapiClearAllObjects(napi_env env, napi_callback_info info);
+
+    // ARArrowAlign alignment game
+    static napi_value NapiPlaceTargetArrow(napi_env env, napi_callback_info info);
+    static napi_value NapiResetArrowAlign(napi_env env, napi_callback_info info);
+    static napi_value NapiGetAlignmentState(napi_env env, napi_callback_info info);
+
+    // ARRingHunt ring game
+    static napi_value NapiPlaceRing(napi_env env, napi_callback_info info);
+    static napi_value NapiResetRing(napi_env env, napi_callback_info info);
+    static napi_value NapiGetRingState(napi_env env, napi_callback_info info);
+
     // Napi export
     bool Export(napi_env env, napi_value exports);
 

@@ -41,7 +41,22 @@ static napi_value Init(napi_env env, napi_value exports)
         {"saveImageDataBaseToLocal", nullptr, NapiManager::NapiSaveImageDataBaseToLocal, nullptr, nullptr, nullptr,
          napi_default, nullptr},
         {"getImageCount", nullptr, NapiManager::NapiGetImageCount, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"getVolume", nullptr, NapiManager::NapiGetVolume, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"getVolume", nullptr, NapiManager::NapiGetVolume, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"placeObjectAtWorld", nullptr, NapiManager::NapiPlaceObjectAtWorld, nullptr, nullptr, nullptr, napi_default,
+         nullptr},
+        {"placeObjectInFrontOfCamera", nullptr, NapiManager::NapiPlaceObjectInFrontOfCamera, nullptr, nullptr, nullptr,
+         napi_default, nullptr},
+        {"removeObject", nullptr, NapiManager::NapiRemoveObject, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"clearAllObjects", nullptr, NapiManager::NapiClearAllObjects, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"placeTargetArrow", nullptr, NapiManager::NapiPlaceTargetArrow, nullptr, nullptr, nullptr, napi_default,
+         nullptr},
+        {"resetArrowAlign", nullptr, NapiManager::NapiResetArrowAlign, nullptr, nullptr, nullptr, napi_default,
+         nullptr},
+        {"getAlignmentState", nullptr, NapiManager::NapiGetAlignmentState, nullptr, nullptr, nullptr, napi_default,
+         nullptr},
+        {"placeRing", nullptr, NapiManager::NapiPlaceRing, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"resetRing", nullptr, NapiManager::NapiResetRing, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getRingState", nullptr, NapiManager::NapiGetRingState, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     NAPI_CALL(env, napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc));
     bool ret = NapiManager::GetInstance()->Export(env, exports);

@@ -33,6 +33,9 @@ struct Selector {
         this.sampleButton('ARDepth');
         this.sampleButton('ARImage');
         this.sampleButton('ARSemanticDense');
+        this.sampleButton('ARObject');
+        this.sampleButton('ARArrowAlign');
+        this.sampleButton('ARRingHunt');
       }
       .justifyContent(FlexAlign.SpaceEvenly)
       .width('100%')

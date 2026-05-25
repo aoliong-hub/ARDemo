@@ -55,6 +55,22 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/world/world_render_manager.cpp
     ${NATIVE_ROOT_PATH}/src/world/world_file_manager.cpp
 
+    # object (interface-style placement; reuses world background/logo renderers)
+    ${NATIVE_ROOT_PATH}/src/object/object_ar_application.cpp
+    ${NATIVE_ROOT_PATH}/src/object/object_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/object/arrow_geometry.cpp
+
+    # ring hunt (ring alignment & hunt game)
+    ${NATIVE_ROOT_PATH}/src/object/ring_geometry.cpp
+    ${NATIVE_ROOT_PATH}/src/object/ring_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/object/ring_hunt_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/object/ring_hunt_ar_application.cpp
+
+    # arrowalign (alignment challenge game)
+    ${NATIVE_ROOT_PATH}/src/arrowalign/arrow_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/arrowalign/arrow_align_render_manager.cpp
+    ${NATIVE_ROOT_PATH}/src/arrowalign/arrow_align_ar_application.cpp
+
     # depth
     ${NATIVE_ROOT_PATH}/src/depth/depth_ar_application.cpp
     ${NATIVE_ROOT_PATH}/src/depth/depth_background_renderer.cpp

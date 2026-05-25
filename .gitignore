@@ -9,3 +9,22 @@
 /.clang-format
 /.clang-tidy
 **/.test
+
+# 签名敏感信息(含明文密码)
+build-profile.json5
+build-profile.local.json5
+
+# Claude Code 工作产物
+screenshots/
+logs/
+build_test/
+# 交叉编译的单测可执行产物(只提交 .cpp 源码)
+entry/src/main/cpp/test/object_math_test
+
+# DevEco / hvigor 缓存(补充)
+.preview/
+**/.hvigor/
+
+# 系统
+.DS_Store
+Thumbs.db

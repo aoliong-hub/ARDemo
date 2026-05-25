@@ -14,9 +14,12 @@
  */
 
 #include "napi_manager.h"
+#include "arrowalign/arrow_align_ar_application.h"
 #include "depth/depth_ar_application.h"
 #include "image/image_ar_application.h"
 #include "mesh/mesh_ar_application.h"
+#include "object/object_ar_application.h"
+#include "object/ring_hunt_ar_application.h"
 #include "semanticdense/semanticdense_ar_application.h"
 #include "utils/log.h"
 #include "world/world_ar_application.h"
@@ -472,6 +475,261 @@ napi_value NapiManager::NapiInitImage(napi_env env, napi_callback_info info)
     return result;
 }
 
+// ---- ARObject interface-style placement ----
+// Helper: read an optional modelId argument (defaults to "AR_logo").
+static std::string ReadModelIdArg(napi_env env, napi_value arg)
+{
+    if (arg == nullptr) {
+        return std::string("AR_logo");
+    }
+    napi_valuetype valueType = napi_undefined;
+    napi_typeof(env, arg, &valueType);
+    if (valueType != napi_string) {
+        return std::string("AR_logo");
+    }
+    char modelId[64] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, arg, modelId, sizeof(modelId), &resultSize);
+    if (resultSize == 0) {
+        return std::string("AR_logo");
+    }
+    return std::string(modelId);
+}
+
+napi_value NapiManager::NapiPlaceObjectAtWorld(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiPlaceObjectAtWorld");
+    size_t argc = 5;
+    napi_value args[5] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+    std::string id(idStr);
+
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    napi_get_value_double(env, args[1], &x);
+    napi_get_value_double(env, args[2], &y);
+    napi_get_value_double(env, args[3], &z);
+    std::string modelId = ReadModelIdArg(env, argc > 4 ? args[4] : nullptr);
+
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    int32_t objectId = app->PlaceObjectAtWorld(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z),
+                                               modelId);
+    napi_value result = nullptr;
+    napi_create_int32(env, objectId, &result);
+    return result;
+}
+
+napi_value NapiManager::NapiPlaceObjectInFrontOfCamera(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiPlaceObjectInFrontOfCamera");
+    size_t argc = 3;
+    napi_value args[3] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+    std::string id(idStr);
+
+    double distance = 0.0;
+    napi_get_value_double(env, args[1], &distance);
+    std::string modelId = ReadModelIdArg(env, argc > 2 ? args[2] : nullptr);
+
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    int32_t objectId = app->PlaceObjectInFrontOfCamera(static_cast<float>(distance), modelId);
+    napi_value result = nullptr;
+    napi_create_int32(env, objectId, &result);
+    return result;
+}
+
+napi_value NapiManager::NapiRemoveObject(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiRemoveObject");
+    size_t argc = 2;
+    napi_value args[2] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+    std::string id(idStr);
+
+    int32_t objectId = -1;
+    napi_get_value_int32(env, args[1], &objectId);
+
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    bool removed = app->RemoveObject(objectId);
+    napi_value result = nullptr;
+    napi_get_boolean(env, removed, &result);
+    return result;
+}
+
+napi_value NapiManager::NapiClearAllObjects(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiClearAllObjects");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, args[0], idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+    std::string id(idStr);
+
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    int32_t cleared = app->ClearAllObjects();
+    napi_value result = nullptr;
+    napi_create_int32(env, cleared, &result);
+    return result;
+}
+
+// ---- ARArrowAlign alignment game ----
+static std::string ReadIdArg(napi_env env, napi_value arg)
+{
+    char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
+    size_t resultSize = 0;
+    napi_get_value_string_utf8(env, arg, idStr, OH_XCOMPONENT_ID_LEN_MAX + 1, &resultSize);
+    return std::string(idStr);
+}
+
+napi_value NapiManager::NapiPlaceTargetArrow(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiPlaceTargetArrow");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    int32_t objectId = app->PlaceTargetArrow();
+    napi_value result = nullptr;
+    napi_create_int32(env, objectId, &result);
+    return result;
+}
+
+napi_value NapiManager::NapiResetArrowAlign(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiResetArrowAlign");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    app->ResetArrowAlign();
+    return nullptr;
+}
+
+napi_value NapiManager::NapiGetAlignmentState(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+
+    float angleRad = 0.0f;
+    bool aligned = false;
+    bool ready = false;
+    bool targetPlaced = false;
+    app->GetAlignmentState(angleRad, aligned, ready, targetPlaced);
+
+    napi_value result = nullptr;
+    napi_create_object(env, &result);
+    napi_value vAngle = nullptr;
+    napi_value vAligned = nullptr;
+    napi_value vReady = nullptr;
+    napi_value vTarget = nullptr;
+    napi_create_double(env, static_cast<double>(angleRad), &vAngle);
+    napi_get_boolean(env, aligned, &vAligned);
+    napi_get_boolean(env, ready, &vReady);
+    napi_get_boolean(env, targetPlaced, &vTarget);
+    napi_set_named_property(env, result, "angleRad", vAngle);
+    napi_set_named_property(env, result, "isAligned", vAligned);
+    napi_set_named_property(env, result, "ready", vReady);
+    napi_set_named_property(env, result, "targetPlaced", vTarget);
+    return result;
+}
+
+// ---- ARRingHunt ----
+napi_value NapiManager::NapiPlaceRing(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiPlaceRing");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    int32_t objectId = app->PlaceRing();
+    napi_value result = nullptr;
+    napi_create_int32(env, objectId, &result);
+    return result;
+}
+
+napi_value NapiManager::NapiResetRing(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiResetRing");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    app->ResetRing();
+    return nullptr;
+}
+
+napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+
+    float distance = 0.0f;
+    float angleRad = 0.0f;
+    float yawDiffRad = 0.0f;
+    float pitchDiffRad = 0.0f;
+    bool distOnTarget = false;
+    bool angOnTarget = false;
+    int32_t finishState = 0;
+    float foundSec = 0.0f;
+    app->GetRingState(distance, angleRad, yawDiffRad, pitchDiffRad, distOnTarget, angOnTarget, finishState, foundSec);
+
+    napi_value result = nullptr;
+    napi_create_object(env, &result);
+    napi_value vDist = nullptr;
+    napi_value vAngle = nullptr;
+    napi_value vYaw = nullptr;
+    napi_value vPitch = nullptr;
+    napi_value vRingColor = nullptr;
+    napi_value vArrowColor = nullptr;
+    napi_value vFinish = nullptr;
+    napi_value vFound = nullptr;
+    const char *ringColor = distOnTarget ? "green" : "red";
+    const char *arrowColor = angOnTarget ? "green" : "red";
+    napi_create_double(env, static_cast<double>(distance), &vDist);
+    napi_create_double(env, static_cast<double>(angleRad), &vAngle);
+    napi_create_double(env, static_cast<double>(yawDiffRad), &vYaw);
+    napi_create_double(env, static_cast<double>(pitchDiffRad), &vPitch);
+    napi_create_string_utf8(env, ringColor, NAPI_AUTO_LENGTH, &vRingColor);
+    napi_create_string_utf8(env, arrowColor, NAPI_AUTO_LENGTH, &vArrowColor);
+    napi_create_int32(env, finishState, &vFinish);
+    napi_create_double(env, static_cast<double>(foundSec), &vFound);
+    napi_set_named_property(env, result, "distance", vDist);
+    napi_set_named_property(env, result, "angleRad", vAngle);
+    napi_set_named_property(env, result, "yawDiffRad", vYaw);
+    napi_set_named_property(env, result, "pitchDiffRad", vPitch);
+    napi_set_named_property(env, result, "ringColor", vRingColor);
+    napi_set_named_property(env, result, "arrowColor", vArrowColor);
+    napi_set_named_property(env, result, "finishState", vFinish);
+    napi_set_named_property(env, result, "foundSec", vFound);
+    return result;
+}
+
 // Create a service implementation class based on the service ID.
 AppNapi *NapiManager::CreateApp(std::string &id)
 {
@@ -500,6 +758,15 @@ AppNapi *NapiManager::CreateApp(std::string &id)
     }
     if (scene == std::string("ARSemanticDense")) {
         return new ARSemanticDense::ArSemanticDenseApp(scene);
+    }
+    if (scene == std::string("ARObject")) {
+        return new ARObject::ARObjectApp(scene);
+    }
+    if (scene == std::string("ARArrowAlign")) {
+        return new ArrowAlign::ArrowAlignApp(scene);
+    }
+    if (scene == std::string("ARRingHunt")) {
+        return new ARObject::RingHuntApp(scene);
     }
     return nullptr;
 }

@@ -71,6 +71,30 @@
       "data": {
         "description": "This is ARWorld."
       }
+    },
+    {
+      "name": "ARObject",
+      "pageSourceFile": "src/main/ets/pages/ARObject.ets",
+      "buildFunction": "ARObjectBuilder",
+      "data": {
+        "description": "This is ARObject."
+      }
+    },
+    {
+      "name": "ARArrowAlign",
+      "pageSourceFile": "src/main/ets/pages/ARArrowAlign.ets",
+      "buildFunction": "ARArrowAlignBuilder",
+      "data": {
+        "description": "This is ARArrowAlign."
+      }
+    },
+    {
+      "name": "ARRingHunt",
+      "pageSourceFile": "src/main/ets/pages/ARRingHunt.ets",
+      "buildFunction": "ARRingHuntBuilder",
+      "data": {
+        "description": "This is ARRingHunt."
+      }
     }
   ]
 }
