@@ -278,8 +278,7 @@ napi_value NapiManager::NapiOnPageHide(napi_env env, napi_callback_info info)
 
 napi_value NapiManager::NapiOnPageUpdate(napi_env env, napi_callback_info info)
 {
-    LOGD("NapiManager::NapiOnPageUpdate");
-
+    // (per-frame; no debug log to avoid flooding hilog)
     size_t argc = 1;
     napi_value args[1] = {nullptr};
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);

@@ -22,8 +22,8 @@
 
 namespace ARObject {
 
-// Emissive (unlit) renderer for the glowing ring + its center indicator arrow. Both share one
-// model matrix and color per Draw call.
+// Fresnel edge-glow renderer for the ring + center arrow. Ring and arrow are drawn separately
+// with independent base/glow colors (Stage 8: ring=distance, arrow=angle; Stage 9: + Fresnel).
 class RingRenderer {
 public:
     RingRenderer() = default;
@@ -32,20 +32,31 @@ public:
     void InitializeGlContent();
     void Release();
 
-    // Ring and arrow drawn with independent rgba colors (Stage 8: 2-axis feedback).
+    // cameraPos3: camera world position (for Fresnel view vector).
+    // *Base3 / *Glow3: rgb base color and glow color for ring and arrow respectively.
     void Draw(const glm::mat4 &projectionMat, const glm::mat4 &viewMat, const glm::mat4 &modelMat,
-              const float *ringColor4, const float *arrowColor4) const;
+              const float *cameraPos3, const float *ringBase3, const float *ringGlow3, const float *arrowBase3,
+              const float *arrowGlow3) const;
 
 private:
     std::vector<GLfloat> mRingVertices = {};
+    std::vector<GLfloat> mRingNormals = {};
     std::vector<GLushort> mRingIndices = {};
     std::vector<GLfloat> mArrowVertices = {};
+    std::vector<GLfloat> mArrowNormals = {};
     std::vector<GLushort> mArrowIndices = {};
 
     GLuint mShaderProgram = 0;
     GLint mUniformMvp = 0;
-    GLint mUniformColor = 0;
+    GLint mUniformModel = 0;
+    GLint mUniformCameraPos = 0;
+    GLint mUniformBaseColor = 0;
+    GLint mUniformGlowColor = 0;
+    GLint mUniformGlowPower = 0;
+    GLint mUniformGlowIntensity = 0;
+    GLint mUniformBaseBoost = 0;
     GLint mAttribPosition = 0;
+    GLint mAttribNormal = 0;
 };
 
 } // namespace ARObject

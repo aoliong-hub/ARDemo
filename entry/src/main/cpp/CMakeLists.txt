@@ -63,6 +63,8 @@ add_library(entry SHARED
     # ring hunt (ring alignment & hunt game)
     ${NATIVE_ROOT_PATH}/src/object/ring_geometry.cpp
     ${NATIVE_ROOT_PATH}/src/object/ring_renderer.cpp
+    ${NATIVE_ROOT_PATH}/src/object/disk_geometry.cpp
+    ${NATIVE_ROOT_PATH}/src/object/disk_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/object/ring_hunt_render_manager.cpp
     ${NATIVE_ROOT_PATH}/src/object/ring_hunt_ar_application.cpp
 

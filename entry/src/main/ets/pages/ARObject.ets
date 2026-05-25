@@ -28,7 +28,6 @@ export function ARObjectBuilder() {
 struct ARObject {
   pageInfos: NavPathStack = new NavPathStack();
   private interval: number = -1;
-  private placeTimer: number = -1; // STAGE 2 debug: one-shot auto-place driver
   private xComponentId: string = 'ARObject';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
@@ -51,31 +50,10 @@ struct ARObject {
               // Call the update Native API to advance AR Engine by one frame.
               arEngineDemo.update(this.idStr);
             }, 33) // Set the frame rate to 30 fps (with the frame refreshed every 33 ms).
-
-            // STAGE 2 debug trigger: ~5s after load (so the camera reaches TRACKING), place
-            // exactly one logo 1m in front of the CURRENT camera. placeObjectInFrontOfCamera
-            // returns -1 until tracking is up, so retry every 1s until it succeeds (>=1) or
-            // we give up. Removed in a later stage when the upper layer drives placement.
-            let attempts: number = 0;
-            setTimeout(() => {
-              this.placeTimer = setInterval(() => {
-                attempts++;
-                let objectId: number = arEngineDemo.placeObjectInFrontOfCamera(this.idStr, 1.0, 'AR_logo');
-                Logger.info(`[ARObject] auto-place attempt ${attempts} -> objectId=${objectId}`);
-                if (objectId >= 1 || attempts >= 20) {
-                  clearInterval(this.placeTimer);
-                  this.placeTimer = -1;
-                }
-              }, 1000)
-            }, 5000)
           })
           .onDestroy(() => {
             Logger.info(`XComponent onDestroy ${this.idStr}.`);
             clearInterval(this.interval);
-            if (this.placeTimer !== -1) {
-              clearInterval(this.placeTimer);
-              this.placeTimer = -1;
-            }
           })
 
         // STAGE 3 debug controls: place at 1.0m / 0.5m in front of camera, and clear all.

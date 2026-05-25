@@ -110,7 +110,7 @@ void RingHuntApp::OnUpdate()
         // Render with last frame's on-target flags (1-frame lag is imperceptible at 30fps).
         RingCameraInfo cam;
         mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mRingQuatXYZW,
-                                   mDistOnTarget.load(), mAngOnTarget.load(), &cam);
+                                   mDistOnTarget.load(), mAngOnTarget.load(), mDistance.load(), &cam);
 
         mCameraTracking.store(cam.tracking);
         if (!cam.tracking) {

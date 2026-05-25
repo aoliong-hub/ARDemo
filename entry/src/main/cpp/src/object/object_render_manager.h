@@ -67,9 +67,6 @@ private:
     RenderContext mRenderContext;
     RenderSurface mRenderSurface;
     bool isInited = false;
-
-    // Throttle for the Stage 3 face-camera verification log (Gate 1: sampled per ~2s).
-    int mFaceFrameCounter = 0;
 };
 
 } // namespace ARObject

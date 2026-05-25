@@ -32,11 +32,19 @@
 - 设置 `DEVECO_SDK_HOME` 指向 DevEco SDK 路径(如 `...\DevEco Studio\sdk`)
 - 把 DevEco 自带的 `jbr\bin` 加进 PATH(签名步骤需其内置 Java)
 
+**签名隔离**:`build-profile.json5` 入库为**占位版**(无密码)。命令行构建需真实签名:
+1. 一次性:把 DevEco 自动生成的真实 `build-profile.json5` 另存为 `build-profile.local.json5`(已 .gitignore,永不入库)
+2. 构建前 `scripts\sign-real.ps1`(local→build-profile.json5),提交前 `scripts\sign-placeholder.ps1`(占位→build-profile.json5)
+
 ```
+powershell -File scripts\sign-real.ps1                 # 构建前:还原真实签名
 hvigorw.bat assembleHap --mode debug
 hdc install -r entry\build\default\outputs\default\entry-default-signed.hap
 hdc shell aa start -a EntryAbility -b com.huawei.ARSample
+powershell -File scripts\sign-placeholder.ps1          # 提交前:还原占位
 ```
+
+> DevEco Studio GUI 用户无需上述脚本:勾选自动签名会在本地 `build-profile.json5` 回填真实签名(该本地修改不要提交)。
 
 ## 项目结构
 - `entry/src/main/ets/pages/` — ArkTS UI(官方 5 场景 + 新增 ARObject / ARArrowAlign / ARRingHunt)

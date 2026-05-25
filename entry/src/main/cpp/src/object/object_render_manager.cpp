@@ -25,7 +25,6 @@ namespace ARObject {
 
 void ObjectRenderManager::Initialize(void *window, AREngine_ARSession *arSession)
 {
-    LOGI("ObjectRenderManager-----Initialize start.");
     if (!isInited) {
         mRenderContext.Init();
         mRenderSurface.Create(window);
@@ -38,12 +37,10 @@ void ObjectRenderManager::Initialize(void *window, AREngine_ARSession *arSession
         isInited = true;
         RenderRef::GetInstance().Increment();
     }
-    LOGI("ObjectRenderManager-----Initialize end.");
 }
 
 void ObjectRenderManager::Release()
 {
-    LOGD("ObjectRenderManager-----Release start.");
     if (isInited && RenderRef::GetInstance().IsOne()) {
         mRenderContext.ReleaseCurrent();
         mRenderSurface.Release();
@@ -51,7 +48,6 @@ void ObjectRenderManager::Release()
         isInited = false;
     }
     RenderRef::GetInstance().Decrement();
-    LOGD("ObjectRenderManager-----Release end.");
 }
 
 bool ObjectRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame,
@@ -127,7 +123,6 @@ void ObjectRenderManager::RenderObject(AREngine_ARSession *arSession, const glm:
                                        const glm::vec3 &cameraPos)
 {
     float lightIntensity = 0.8f;
-    bool logThisFrame = (mFaceFrameCounter++ % 60 == 0); // ~1 log / 2s for Gate 1 sampling
     glm::mat4 anchorMat(1.0f);
     for (const auto &object : objects) {
         if (object.anchor == nullptr) {
@@ -152,13 +147,6 @@ void ObjectRenderManager::RenderObject(AREngine_ARSession *arSession, const glm:
             glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), anchorPos) *
                                  glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f)) *
                                  glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.2f, 0.2f));
-
-            if (logThisFrame) {
-                LOGI("[ARObject][Face] id=%{public}d objPos=(%{public}f,%{public}f,%{public}f) "
-                     "camPos=(%{public}f,%{public}f,%{public}f) yaw=%{public}f",
-                     object.objectId, anchorPos.x, anchorPos.y, anchorPos.z, cameraPos.x, cameraPos.y, cameraPos.z,
-                     yaw);
-            }
             mObjectRenderer.Draw(projectionMat, viewMat, modelMat, lightIntensity, object.color);
         }
     }

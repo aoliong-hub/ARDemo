@@ -38,7 +38,6 @@ glm::mat4 QuatXYZWToMat(const float q[4])
 
 void ArrowAlignRenderManager::Initialize(void *window, AREngine_ARSession *arSession)
 {
-    LOGI("ArrowAlignRenderManager-----Initialize start.");
     if (!isInited) {
         mRenderContext.Init();
         mRenderSurface.Create(window);
@@ -50,12 +49,10 @@ void ArrowAlignRenderManager::Initialize(void *window, AREngine_ARSession *arSes
         isInited = true;
         RenderRef::GetInstance().Increment();
     }
-    LOGI("ArrowAlignRenderManager-----Initialize end.");
 }
 
 void ArrowAlignRenderManager::Release()
 {
-    LOGD("ArrowAlignRenderManager-----Release start.");
     if (isInited && RenderRef::GetInstance().IsOne()) {
         mArrowRenderer.Release();
         mRenderContext.ReleaseCurrent();
@@ -64,7 +61,6 @@ void ArrowAlignRenderManager::Release()
         isInited = false;
     }
     RenderRef::GetInstance().Decrement();
-    LOGD("ArrowAlignRenderManager-----Release end.");
 }
 
 void ArrowAlignRenderManager::DrawBlack()

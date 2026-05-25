@@ -17,6 +17,7 @@
 #define RING_HUNT_RENDER_MANAGER_H
 
 #include "ar/ar_engine_core.h"
+#include "disk_renderer.h"
 #include "graphic/RenderContext.h"
 #include "graphic/RenderSurface.h"
 #include "ring_renderer.h"
@@ -39,11 +40,12 @@ public:
     void Initialize(void *window, AREngine_ARSession *arSession);
     void Release();
 
-    // Draws background + (if present) the ring. Stage 8: ring colored by distance (green/red),
-    // center arrow colored by angle (green/red), independently. Fills *outCam.
+    // Draws background + (if present) the ring (Fresnel glow; ring=distance, arrow=angle), plus a
+    // near-proximity billboard glow disk (distance < 0.30, color = green when double-aligned).
+    // Fills *outCam.
     bool OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
                      AREngine_ARAnchor *ringAnchor, const float *ringQuatXYZW, bool distOnTarget, bool angOnTarget,
-                     RingCameraInfo *outCam);
+                     float distance, RingCameraInfo *outCam);
     void DrawBlack();
 
     GLuint GetPreviewTextureId() { return mBackgroundRenderer.GetTextureId(); }
@@ -51,6 +53,7 @@ public:
 private:
     ARWorld::WorldBackgroundRenderer mBackgroundRenderer = ARWorld::WorldBackgroundRenderer();
     RingRenderer mRingRenderer;
+    DiskRenderer mDiskRenderer;
 
     RenderContext mRenderContext;
     RenderSurface mRenderSurface;

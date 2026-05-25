@@ -24,9 +24,12 @@
 
 namespace ARObject {
 namespace {
-// rgba colors: ring = distance feedback, arrow = angle feedback (each independently red/green).
-const float kColorRed[4] = {0.902f, 0.224f, 0.275f, 1.0f};   // #E63946
-const float kColorGreen[4] = {0.000f, 0.902f, 0.463f, 1.0f}; // #00E676
+// rgb base colors: ring = distance feedback, arrow = angle feedback (each independently red/green).
+const float kColorRed[3] = {0.902f, 0.224f, 0.275f};   // #E63946
+const float kColorGreen[3] = {0.000f, 0.902f, 0.463f}; // #00E676
+// Fresnel glow colors keyed to the base color.
+const float kGlowRed[3] = {1.0f, 0.3f, 0.35f};
+const float kGlowGreen[3] = {0.0f, 1.0f, 0.4f};
 
 glm::mat4 QuatXYZWToMat(const float q[4])
 {
@@ -36,32 +39,30 @@ glm::mat4 QuatXYZWToMat(const float q[4])
 
 void RingHuntRenderManager::Initialize(void *window, AREngine_ARSession *arSession)
 {
-    LOGI("RingHuntRenderManager-----Initialize start.");
     if (!isInited) {
         mRenderContext.Init();
         mRenderSurface.Create(window);
         mRenderContext.MakeCurrent(&mRenderSurface);
         mBackgroundRenderer.InitializeBackGroundGlContent();
         mRingRenderer.InitializeGlContent();
+        mDiskRenderer.InitializeGlContent();
         CHECK(HMS_AREngine_ARSession_SetCameraGLTexture(arSession, mBackgroundRenderer.GetTextureId()));
         isInited = true;
         RenderRef::GetInstance().Increment();
     }
-    LOGI("RingHuntRenderManager-----Initialize end.");
 }
 
 void RingHuntRenderManager::Release()
 {
-    LOGD("RingHuntRenderManager-----Release start.");
     if (isInited && RenderRef::GetInstance().IsOne()) {
         mRingRenderer.Release();
+        mDiskRenderer.Release();
         mRenderContext.ReleaseCurrent();
         mRenderSurface.Release();
         mRenderContext.Release();
         isInited = false;
     }
     RenderRef::GetInstance().Decrement();
-    LOGD("RingHuntRenderManager-----Release end.");
 }
 
 void RingHuntRenderManager::DrawBlack()
@@ -74,7 +75,7 @@ void RingHuntRenderManager::DrawBlack()
 
 bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
                                         AREngine_ARAnchor *ringAnchor, const float *ringQuatXYZW, bool distOnTarget,
-                                        bool angOnTarget, RingCameraInfo *outCam)
+                                        bool angOnTarget, float distance, RingCameraInfo *outCam)
 {
     if (!isInited) {
         LOGE("RingHuntRenderManager not ready!");
@@ -145,9 +146,38 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
             // you are BOTH close (distance on target) AND aligned -- so a distant lucky angle
             // does not light it up. (Per user feedback.)
             glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), ringPos) * QuatXYZWToMat(ringQuatXYZW);
-            const float *ringColor = distOnTarget ? kColorGreen : kColorRed;
-            const float *arrowColor = (distOnTarget && angOnTarget) ? kColorGreen : kColorRed;
-            mRingRenderer.Draw(projectionMat, viewMat, modelMat, ringColor, arrowColor);
+            bool arrowOn = distOnTarget && angOnTarget;
+            const float *ringBase = distOnTarget ? kColorGreen : kColorRed;
+            const float *ringGlow = distOnTarget ? kGlowGreen : kGlowRed;
+            const float *arrowBase = arrowOn ? kColorGreen : kColorRed;
+            const float *arrowGlow = arrowOn ? kGlowGreen : kGlowRed;
+            mRingRenderer.Draw(projectionMat, viewMat, modelMat, glm::value_ptr(cameraPos), ringBase, ringGlow,
+                               arrowBase, arrowGlow);
+
+            // Near-proximity billboard glow disk: keeps a visible anchor marker as the ring
+            // grows huge / starts to clip near the camera. Color mirrors the ring (distance).
+            if (distance < 0.30f) {
+                glm::vec3 fwd = cameraPos - ringPos;
+                float fwdLen = glm::length(fwd);
+                if (fwdLen > 1e-5f) {
+                    fwd /= fwdLen;
+                    glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
+                    glm::vec3 right = glm::cross(worldUp, fwd);
+                    if (glm::length(right) < 1e-4f) {
+                        right = glm::vec3(1.0f, 0.0f, 0.0f); // camera directly above/below
+                    } else {
+                        right = glm::normalize(right);
+                    }
+                    glm::vec3 up = glm::cross(fwd, right);
+                    glm::mat4 billboard(1.0f);
+                    billboard[0] = glm::vec4(right, 0.0f);
+                    billboard[1] = glm::vec4(up, 0.0f);
+                    billboard[2] = glm::vec4(fwd, 0.0f);
+                    glm::mat4 diskModel = glm::translate(glm::mat4(1.0f), ringPos) * billboard;
+                    const float *diskColor = distOnTarget ? kColorGreen : kColorRed; // same as ring
+                    mDiskRenderer.Draw(projectionMat, viewMat, diskModel, diskColor);
+                }
+            }
         }
     }
 
