@@ -74,7 +74,9 @@ public:
     virtual int32_t PlaceRing() { return -1; }
     virtual void ResetRing() {}
     virtual void GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad,
-                              bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec)
+                              bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec,
+                              bool &isTargetInView, float &screenEdgeX, float &screenEdgeY, bool &isBehind,
+                              float &indicatorAngleDeg)
     {
         distance = 0.0f;
         angleRad = 0.0f;
@@ -84,6 +86,11 @@ public:
         angOnTarget = false;
         finishState = 0;
         foundSec = 0.0f;
+        isTargetInView = true;
+        screenEdgeX = 0.5f;
+        screenEdgeY = 0.5f;
+        isBehind = false;
+        indicatorAngleDeg = 0.0f;
     }
 
 public:

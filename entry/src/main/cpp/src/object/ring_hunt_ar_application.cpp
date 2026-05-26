@@ -141,6 +141,8 @@ void RingHuntApp::OnUpdate()
             mAngleRad.store(3.14159265358979323846f);
             mDistOnTarget.store(false);
             mAngOnTarget.store(false);
+            mIsTargetInView.store(true); // no ring -> keep guidance hidden
+            mIsBehind.store(false);
             return;
         }
 
@@ -194,6 +196,16 @@ void RingHuntApp::OnUpdate()
             mFoundSec.store(elapsed);
             LOGI("[RingHunt] FOUND in %{public}f s", elapsed);
         }
+
+        // Stage 10: project the ring to screen space (using the matrices the renderer just used)
+        // to drive the off-screen guidance UI: in/out of view, which edge, behind, arrow angle.
+        OffscreenGuidance guide;
+        ComputeOffscreenGuidance(cam.viewMat, cam.projMat, ringPos3, guide);
+        mIsTargetInView.store(guide.isInView);
+        mScreenEdgeX.store(guide.screenEdgeX);
+        mScreenEdgeY.store(guide.screenEdgeY);
+        mIsBehind.store(guide.isBehind);
+        mIndicatorAngleDeg.store(guide.indicatorAngleDeg);
 
         mDistance.store(dist);
         mAngleRad.store(angle);
@@ -331,12 +343,19 @@ void RingHuntApp::ResetRing()
         mAngOnTarget.store(false);
         mFinishStateInt.store(0);
         mFoundSec.store(0.0f);
+        mIsTargetInView.store(true);
+        mScreenEdgeX.store(0.5f);
+        mScreenEdgeY.store(0.5f);
+        mIsBehind.store(false);
+        mIndicatorAngleDeg.store(0.0f);
         LOGI("[RingHunt] reset.");
     });
 }
 
 void RingHuntApp::GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad,
-                               bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec)
+                               bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec,
+                               bool &isTargetInView, float &screenEdgeX, float &screenEdgeY, bool &isBehind,
+                               float &indicatorAngleDeg)
 {
     distance = mDistance.load();
     angleRad = mAngleRad.load();
@@ -346,6 +365,11 @@ void RingHuntApp::GetRingState(float &distance, float &angleRad, float &yawDiffR
     angOnTarget = mAngOnTarget.load();
     finishState = mFinishStateInt.load();
     foundSec = mFoundSec.load();
+    isTargetInView = mIsTargetInView.load();
+    screenEdgeX = mScreenEdgeX.load();
+    screenEdgeY = mScreenEdgeY.load();
+    isBehind = mIsBehind.load();
+    indicatorAngleDeg = mIndicatorAngleDeg.load();
 }
 
 } // namespace ARObject

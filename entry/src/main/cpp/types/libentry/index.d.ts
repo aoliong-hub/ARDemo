@@ -56,6 +56,12 @@ export interface RingState {
   arrowColor: string;  // "red" | "green" (angle)
   finishState: number; // 0=NOT 1=FINISHING 2=FINISHED
   foundSec: number;
+  // Stage 10: off-screen target guidance.
+  isTargetInView: boolean;    // ring projects inside the visible screen (10% margin)
+  screenEdgeX: number;        // 0..1 left..right ratio to pin the edge thumbnail
+  screenEdgeY: number;        // 0..1 top..bottom ratio (screen coords, y down)
+  isBehind: boolean;          // ring is directly behind the player (|yaw| > 135deg)
+  indicatorAngleDeg: number;  // arrow rotation, clockwise from 12 o'clock, toward the target
 }
 export const placeRing: (id: string) => number;
 export const resetRing: (id: string) => void;

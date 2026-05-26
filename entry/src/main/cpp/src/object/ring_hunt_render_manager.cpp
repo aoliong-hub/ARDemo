@@ -18,6 +18,7 @@
 #include "object_math.h"
 #include "renderer_ref.h"
 #include "utils/log.h"
+#include <cstring>
 #include <gtc/matrix_transform.hpp>
 #include <gtc/quaternion.hpp>
 #include <gtc/type_ptr.hpp>
@@ -121,6 +122,10 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
         outCam->pos[0] = cameraPos.x;
         outCam->pos[1] = cameraPos.y;
         outCam->pos[2] = cameraPos.z;
+        // Stage 10: hand the view/projection matrices to the app thread for screen-space
+        // projection of the off-screen guidance UI. These are the same matrices used to render.
+        std::memcpy(outCam->viewMat, glm::value_ptr(viewMat), sizeof(float) * 16);
+        std::memcpy(outCam->projMat, glm::value_ptr(projectionMat), sizeof(float) * 16);
     }
 
     mBackgroundRenderer.Draw(arSession, arFrame);

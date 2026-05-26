@@ -30,6 +30,10 @@ struct RingCameraInfo {
     bool tracking = false;
     float quatXYZW[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     float pos[3] = {0.0f, 0.0f, 0.0f};
+    // Stage 10: column-major view/projection matrices, so the app thread can project the ring
+    // world position to screen space for the off-screen guidance UI. Filled every drawn frame.
+    float viewMat[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    float projMat[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
 class RingHuntRenderManager {

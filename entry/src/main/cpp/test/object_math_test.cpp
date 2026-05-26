@@ -507,6 +507,89 @@ static void TestComputeYawPitchDiff()
     }
 }
 
+// Column-major OpenGL perspective matrix (same convention as glm::perspective / the renderer).
+static void MakePerspective(float fovyRad, float aspect, float nearZ, float farZ, float m[16])
+{
+    for (int i = 0; i < 16; ++i) {
+        m[i] = 0.0f;
+    }
+    float f = 1.0f / std::tan(fovyRad * 0.5f);
+    m[0] = f / aspect;                              // col0,row0
+    m[5] = f;                                       // col1,row1
+    m[10] = (farZ + nearZ) / (nearZ - farZ);        // col2,row2
+    m[11] = -1.0f;                                  // col2,row3
+    m[14] = (2.0f * farZ * nearZ) / (nearZ - farZ); // col3,row2
+}
+
+static void TestComputeOffscreenGuidance()
+{
+    std::printf("[TEST] ComputeOffscreenGuidance\n");
+    // Portrait phone framing: vertical fov 60deg, aspect 1080/1920, near 0.1, far 100.
+    float proj[16];
+    MakePerspective(60.0f * static_cast<float>(M_PI) / 180.0f, 1080.0f / 1920.0f, 0.1f, 100.0f, proj);
+    // Camera at origin, identity orientation -> view = identity (eye space == world space).
+    float view[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+
+    // (1) dead ahead, 1m in front -> in view; edge values irrelevant.
+    {
+        float ring[3] = {0.0f, 0.0f, -1.0f};
+        OffscreenGuidance g;
+        ComputeOffscreenGuidance(view, proj, ring, g);
+        ExpectTrue("1.in_view (dead ahead)", g.isInView);
+        ExpectTrue("1.not_behind", !g.isBehind);
+    }
+    // (2) far to the right & 1m forward -> off the RIGHT edge, vertically centered, arrow points right.
+    {
+        float ring[3] = {2.0f, 0.0f, -1.0f};
+        OffscreenGuidance g;
+        ComputeOffscreenGuidance(view, proj, ring, g);
+        ExpectTrue("2.not_in_view", !g.isInView);
+        ExpectTrue("2.pinned_right_edge (x>0.9)", g.screenEdgeX > 0.9f);
+        ExpectTrue("2.vertically_centered (0.4<y<0.6)", g.screenEdgeY > 0.4f && g.screenEdgeY < 0.6f);
+        ExpectTrue("2.not_behind", !g.isBehind);
+        ExpectTrue("2.arrow_points_right (45<deg<135)", g.indicatorAngleDeg > 45.0f && g.indicatorAngleDeg < 135.0f);
+    }
+    // (3) up & to the left -> off the TOP-LEFT, arrow points up-left (negative deg).
+    {
+        float ring[3] = {-2.0f, 2.0f, -1.0f};
+        OffscreenGuidance g;
+        ComputeOffscreenGuidance(view, proj, ring, g);
+        ExpectTrue("3.not_in_view", !g.isInView);
+        ExpectTrue("3.pinned_left_side (x<0.2)", g.screenEdgeX < 0.2f);
+        ExpectTrue("3.upper_half (y<0.5)", g.screenEdgeY < 0.5f);
+        ExpectTrue("3.arrow_up_left (-90<deg<0)", g.indicatorAngleDeg < 0.0f && g.indicatorAngleDeg > -90.0f);
+    }
+    // (4) directly behind the camera -> isBehind, never in view.
+    {
+        float ring[3] = {0.0f, 0.0f, 1.0f};
+        OffscreenGuidance g;
+        ComputeOffscreenGuidance(view, proj, ring, g);
+        ExpectTrue("4.is_behind", g.isBehind);
+        ExpectTrue("4.not_in_view", !g.isInView);
+        ExpectTrue("4.not_in_front_so_x_irrelevant_but_defined", g.screenEdgeX >= 0.0f && g.screenEdgeX <= 1.0f);
+    }
+    // (5) inside the screen but close to the right edge (ndc.x ~ 0.85 < 0.9) -> STILL in view.
+    {
+        float zf = -1.0f;
+        float wx = 0.85f * (-zf) / proj[0]; // worldX giving ndc.x = 0.85 at this depth
+        float ring[3] = {wx, 0.0f, zf};
+        OffscreenGuidance g;
+        ComputeOffscreenGuidance(view, proj, ring, g);
+        ExpectTrue("5.still_in_view (ndc.x=0.85)", g.isInView);
+        ExpectTrue("5.not_behind", !g.isBehind);
+    }
+    // (6) just outside the right edge (ndc.x ~ 0.95 > 0.9) -> off-screen, pinned right.
+    {
+        float zf = -1.0f;
+        float wx = 0.95f * (-zf) / proj[0];
+        float ring[3] = {wx, 0.0f, zf};
+        OffscreenGuidance g;
+        ComputeOffscreenGuidance(view, proj, ring, g);
+        ExpectTrue("6.not_in_view (ndc.x=0.95)", !g.isInView);
+        ExpectTrue("6.pinned_right_edge (x>0.9)", g.screenEdgeX > 0.9f);
+    }
+}
+
 int main()
 {
     std::printf("==== object_math unit tests ====\n");
@@ -523,6 +606,7 @@ int main()
     TestComputeAlignmentLevel();
     TestUpdateFinishState();
     TestComputeYawPitchDiff();
+    TestComputeOffscreenGuidance();
     std::printf("==== %d checks, %d failures ====\n", g_checks, g_failures);
     if (g_failures == 0) {
         std::printf("RESULT: ALL PASS\n");

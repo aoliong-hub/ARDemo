@@ -47,7 +47,8 @@ public:
     int32_t PlaceRing() override;
     void ResetRing() override;
     void GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad, bool &distOnTarget,
-                      bool &angOnTarget, int32_t &finishState, float &foundSec) override;
+                      bool &angOnTarget, int32_t &finishState, float &foundSec, bool &isTargetInView,
+                      float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg) override;
 
 private:
     AREngine_ARSession *mArSession = nullptr;
@@ -77,6 +78,14 @@ private:
     std::atomic<bool> mAngOnTarget{false};
     std::atomic<int32_t> mFinishStateInt{0};
     std::atomic<float> mFoundSec{0.0f};
+
+    // Stage 10: off-screen target guidance (computed each tracked frame from the view/proj
+    // matrices). Default "in view" so guidance stays hidden until a ring is placed.
+    std::atomic<bool> mIsTargetInView{true};
+    std::atomic<float> mScreenEdgeX{0.5f};
+    std::atomic<float> mScreenEdgeY{0.5f};
+    std::atomic<bool> mIsBehind{false};
+    std::atomic<float> mIndicatorAngleDeg{0.0f};
 
     uint64_t mWidth = 1080;
     uint64_t mHeight = 1920;

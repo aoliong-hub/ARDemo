@@ -696,7 +696,13 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     bool angOnTarget = false;
     int32_t finishState = 0;
     float foundSec = 0.0f;
-    app->GetRingState(distance, angleRad, yawDiffRad, pitchDiffRad, distOnTarget, angOnTarget, finishState, foundSec);
+    bool isTargetInView = true;
+    float screenEdgeX = 0.5f;
+    float screenEdgeY = 0.5f;
+    bool isBehind = false;
+    float indicatorAngleDeg = 0.0f;
+    app->GetRingState(distance, angleRad, yawDiffRad, pitchDiffRad, distOnTarget, angOnTarget, finishState, foundSec,
+                      isTargetInView, screenEdgeX, screenEdgeY, isBehind, indicatorAngleDeg);
 
     napi_value result = nullptr;
     napi_create_object(env, &result);
@@ -708,6 +714,11 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_value vArrowColor = nullptr;
     napi_value vFinish = nullptr;
     napi_value vFound = nullptr;
+    napi_value vInView = nullptr;
+    napi_value vEdgeX = nullptr;
+    napi_value vEdgeY = nullptr;
+    napi_value vBehind = nullptr;
+    napi_value vIndicator = nullptr;
     const char *ringColor = distOnTarget ? "green" : "red";
     const char *arrowColor = angOnTarget ? "green" : "red";
     napi_create_double(env, static_cast<double>(distance), &vDist);
@@ -718,6 +729,11 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_create_string_utf8(env, arrowColor, NAPI_AUTO_LENGTH, &vArrowColor);
     napi_create_int32(env, finishState, &vFinish);
     napi_create_double(env, static_cast<double>(foundSec), &vFound);
+    napi_get_boolean(env, isTargetInView, &vInView);
+    napi_create_double(env, static_cast<double>(screenEdgeX), &vEdgeX);
+    napi_create_double(env, static_cast<double>(screenEdgeY), &vEdgeY);
+    napi_get_boolean(env, isBehind, &vBehind);
+    napi_create_double(env, static_cast<double>(indicatorAngleDeg), &vIndicator);
     napi_set_named_property(env, result, "distance", vDist);
     napi_set_named_property(env, result, "angleRad", vAngle);
     napi_set_named_property(env, result, "yawDiffRad", vYaw);
@@ -726,6 +742,11 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_set_named_property(env, result, "arrowColor", vArrowColor);
     napi_set_named_property(env, result, "finishState", vFinish);
     napi_set_named_property(env, result, "foundSec", vFound);
+    napi_set_named_property(env, result, "isTargetInView", vInView);
+    napi_set_named_property(env, result, "screenEdgeX", vEdgeX);
+    napi_set_named_property(env, result, "screenEdgeY", vEdgeY);
+    napi_set_named_property(env, result, "isBehind", vBehind);
+    napi_set_named_property(env, result, "indicatorAngleDeg", vIndicator);
     return result;
 }
 

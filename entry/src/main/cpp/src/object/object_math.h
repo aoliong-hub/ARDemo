@@ -383,6 +383,85 @@ inline FinishState UpdateFinishState(FinishState prev, float &timerSec, float di
     return FinishState::FINISHING;
 }
 
+// ---- ARRingHunt Stage 10: off-screen target guidance ----
+//
+// Decide whether the ring projects inside the visible screen (with a 10% margin) and, when it
+// does not, where on the screen edge a guidance thumbnail should sit and which way its arrow
+// should point. Everything is derived from the camera view & projection matrices + the ring's
+// world position, so it is pure and host-testable (no AR/GL).
+//
+// view / proj: 16 floats, column-major (the glm::value_ptr / OpenGL convention used by the
+// renderer). Eye space looks down local -Z, +X right, +Y up.
+struct OffscreenGuidance {
+    bool isInView;           // projects inside |ndc.x|<0.9 && |ndc.y|<0.9 AND in front (w>0)
+    bool isBehind;           // ring is (nearly) directly behind the player (|horizontal yaw|>135deg)
+    float screenEdgeX;       // 0..1 left..right ratio to pin the thumbnail
+    float screenEdgeY;       // 0..1 top..bottom ratio (screen coords, y grows downward)
+    float indicatorAngleDeg; // arrow rotation, clockwise from 12 o'clock, pointing at the target
+};
+
+// Multiply column-major 4x4 m by vec4 v -> r.
+inline void Mat4MulVec4ColMajor(const float m[16], const float v[4], float r[4])
+{
+    for (int i = 0; i < 4; ++i) {
+        r[i] = m[i] * v[0] + m[i + 4] * v[1] + m[i + 8] * v[2] + m[i + 12] * v[3];
+    }
+}
+
+inline void ComputeOffscreenGuidance(const float view[16], const float proj[16], const float ringPos[3],
+                                     OffscreenGuidance &out)
+{
+    constexpr float kPi = 3.14159265358979323846f;
+    constexpr float kMargin = 0.9f; // 10% screen-edge buffer
+    constexpr float kEps = 1e-6f;
+
+    float world[4] = {ringPos[0], ringPos[1], ringPos[2], 1.0f};
+    float eye[4];
+    Mat4MulVec4ColMajor(view, world, eye); // world -> eye
+    float clip[4];
+    Mat4MulVec4ColMajor(proj, eye, clip); // eye -> clip
+
+    float w = clip[3];
+    bool inFront = (w > kEps);
+
+    // Perspective divide. When the target is behind the camera (w<0) the ndc is mirrored.
+    float ndcx = 0.0f;
+    float ndcy = 0.0f;
+    if (std::fabs(w) > kEps) {
+        ndcx = clip[0] / w;
+        ndcy = clip[1] / w;
+    }
+
+    out.isInView = inFront && std::fabs(ndcx) < kMargin && std::fabs(ndcy) < kMargin;
+
+    // Horizontal yaw toward the ring in eye space: 0 dead ahead, +-180 directly behind.
+    float yawToRing = std::atan2(eye[0], -eye[2]);
+    out.isBehind = std::fabs(yawToRing) > (135.0f * kPi / 180.0f);
+
+    // 2D screen direction toward the target (ndc space: x right, y up). Mirror when behind so the
+    // thumbnail wraps to the correct side instead of the geometrically-flipped one.
+    float dirX = inFront ? ndcx : -ndcx;
+    float dirY = inFront ? ndcy : -ndcy;
+
+    // Push the direction onto the [-1,1] screen box edge.
+    float ax = std::fabs(dirX);
+    float ay = std::fabs(dirY);
+    float scale = (ax > ay) ? ax : ay;
+    float edgeX = 0.0f;
+    float edgeY = -1.0f; // degenerate (dead center but offscreen/behind) -> point straight down
+    if (scale > kEps) {
+        edgeX = dirX / scale;
+        edgeY = dirY / scale;
+    }
+
+    // ndc edge -> screen ratio. Flip Y because ndc +1 is the top but screen Y grows downward.
+    out.screenEdgeX = (edgeX + 1.0f) * 0.5f;
+    out.screenEdgeY = (1.0f - edgeY) * 0.5f;
+
+    // Arrow rotation: clockwise from 12 o'clock. Straight up (edgeY=+1) -> 0deg, right -> +90deg.
+    out.indicatorAngleDeg = std::atan2(edgeX, edgeY) * (180.0f / kPi);
+}
+
 // Yaw (radians, about world +Y) so that the model's front (local -Z) points at the camera.
 // Rendering applies RotY(yaw) (right-handed), so world front = RotY(yaw)*(0,0,-1) = (-sin,0,-cos).
 // Requiring that to equal the horizontal object->camera direction (dx,dz) gives
