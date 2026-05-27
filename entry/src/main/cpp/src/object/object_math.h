@@ -501,6 +501,19 @@ inline void ComputeFrameAlignDiff(const float frameNormal[3], const float camera
     pitchDiffRad = std::asin(ny) - std::asin(fy);
 }
 
+// Stage 11D interface extension: clamp an externally-supplied 6DoF target orientation (degrees) to
+// valid ranges (yaw +/-180, pitch +/-90, roll +/-180) and convert to radians. Silent correction.
+inline void ClampOrientationDegToRad(float yawDeg, float pitchDeg, float rollDeg, float &yawRad, float &pitchRad,
+                                     float &rollRad)
+{
+    const float kPi = 3.14159265358979323846f;
+    const float kDegToRad = kPi / 180.0f;
+    auto clampf = [](float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    yawRad = clampf(yawDeg, -180.0f, 180.0f) * kDegToRad;
+    pitchRad = clampf(pitchDeg, -90.0f, 90.0f) * kDegToRad;
+    rollRad = clampf(rollDeg, -180.0f, 180.0f) * kDegToRad;
+}
+
 } // namespace ARObject
 
 #endif // OBJECT_MATH_H

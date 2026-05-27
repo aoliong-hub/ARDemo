@@ -47,13 +47,18 @@ public:
     void OnSurfaceDestroyed(OH_NativeXComponent *component, void *window) override;
 
     int32_t PlaceRing() override;
+    int32_t PlaceRingWithOrientation(float yawDeg, float pitchDeg, float rollDeg) override;
     void ResetRing() override;
     void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
                       float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad, bool &isAligned,
-                      bool &isLocked) override;
+                      bool &isLocked, float &targetYawDeg, float &targetPitchDeg, float &targetRollDeg) override;
 
 private:
+    // Shared placement: anchor 1m ahead on the floor + set the 6DoF target orientation. useGiven
+    // false = random (PlaceRing); true = the supplied radians (PlaceRingWithOrientation).
+    int32_t PlaceBeaconInternal(bool useGivenOrientation, float yawRad, float pitchRad, float rollRad);
+
     AREngine_ARSession *mArSession = nullptr;
     AREngine_ARFrame *mArFrame = nullptr;
 
@@ -91,6 +96,10 @@ private:
     std::atomic<float> mPitchDiffRad{0.0f};
     std::atomic<bool> mIsAligned{false};
     std::atomic<bool> mIsLocked{false};
+    // Degree mirrors of the target orientation, set at placement so the ArkTS poll can read them.
+    std::atomic<float> mTargetYawDeg{0.0f};
+    std::atomic<float> mTargetPitchDeg{0.0f};
+    std::atomic<float> mTargetRollDeg{0.0f};
 
     // Off-screen target guidance (computed each tracked frame from the view/proj matrices, targeting
     // the beacon top). Default "in view" so guidance stays hidden until a beacon is placed.

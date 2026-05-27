@@ -14,8 +14,19 @@
 ### ARArrowAlign — 箭头朝向对齐挑战
 随机生成目标朝向(yaw ±90° + pitch ±45°),玩家转手机让镜头朝向对齐目标。角度差 < 2° 触发绿色十字 + 80ms 震动;采用 2°/4° 滞后阈值防抖。
 
-### ARRingHunt — 圆环 3D 精瞄寻找
-随机放置发光圆环,双维度**独立**反馈:圆环颜色=距离、中央箭头颜色=角度。距离进入 15cm 自动启用屏幕中央 2D 双圈精瞄 HUD(对准圈按 yaw/pitch 偏移)。距离 < 15cm 且角度 < 5° 持续 0.5 秒触发 FOUND + 计时显示。
+### ARRingHunt — Wayfinder 信标 + 6DoF 对齐挑战
+信标视觉:地面光圈 + 光柱(volumetric noise 雾气 + bloom 辉光)+ 面向相机的旋转奖章 + 屏幕外水滴引导;整体颜色按距离 warm red → soft mint 渐变。走近 30cm(300ms 防抖)进入 **ALIGNING**:光柱/奖章隐藏,出现 6DoF **流彩框**(粉紫蓝色相旋转)+ 框中心凸出的**炫彩 3D 旋转箭头** + 屏幕中央十字/圆点 HUD。转动手机让朝向对齐(yaw/pitch,5°/7° 滞后防抖):箭头 0.3s 平滑变绿并停转;持续对齐 1 秒 → **LOCKED**「对齐成功」+ 80ms 震动。
+
+**6DoF 目标朝向外部传参**:除内部随机的 `placeRing` 外,新增 `placeRingWithOrientation`,供外部模块(物体识别 SDK / 远程任务推送 / AR 教学)指定信标对齐目标:
+
+```ts
+// 在相机前方 1m 地面放置信标;目标朝向 = 放置时刻相机视线方向 + 给定偏移
+placeRingWithOrientation(id: string, yawDeg: number, pitchDeg: number, rollDeg: number): number
+```
+- **坐标系**:相对**放置时刻的相机视线**。`(0,0,0)` = 框正面朝向你视线的远方(你看到框背面,箭头朝远方延伸)。
+- `yawDeg` 正 = 向右偏(clamp ±180),`pitchDeg` 正 = 向上仰(clamp ±90),`rollDeg` 正 = 顺时针(clamp ±180);超范围静默截断。
+- 返回 `objectId`(≥0 成功 / -1 失败:未就绪或参数非法)。原 `placeRing`(随机朝向)接口保留,完全兼容。
+- 查询当前目标:`getRingState(id)` 返回 `targetYawDeg / targetPitchDeg / targetRollDeg`(相对值,度)+ `huntPhase`(0=APPROACHING / 1=ALIGNING / 2=LOCKED)/ `isAligned` / `isLocked` / `distance`。
 
 ## 快速运行
 1. 用 DevEco Studio 5.0.3+ 打开项目根目录
@@ -48,7 +59,7 @@ powershell -File scripts\sign-placeholder.ps1          # 提交前:还原占位
 
 ## 项目结构
 - `entry/src/main/ets/pages/` — ArkTS UI(官方 5 场景 + 新增 ARObject / ARArrowAlign / ARRingHunt)
-- `entry/src/main/cpp/src/object/` — ARObject 与 ARRingHunt 的 native + 共享数学(`object_math.h`)/几何(arrow、ring)
+- `entry/src/main/cpp/src/object/` — ARObject 与 ARRingHunt(Wayfinder)的 native + 共享数学(`object_math.h`)/几何(arrow、wayfinder)
 - `entry/src/main/cpp/src/arrowalign/` — ARArrowAlign 场景 native
 - `entry/src/main/cpp/test/` — 纯数学单元测试(交叉编译 aarch64 推真机运行)
 - `reports/` — 8 个 Stage 的设计与验收报告(完整开发流程档案)

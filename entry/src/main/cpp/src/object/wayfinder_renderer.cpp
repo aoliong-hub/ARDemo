@@ -419,13 +419,12 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot;
         DrawFrame(vp * frameModel, mAlignFrame, frameHueTime);
 
-        // 3D twin-wing arrow protruding from the frame center along its facing normal (frameRot * +Z).
-        // It points the same way regardless of the spin; the spin only rotates the wings about the
-        // shaft. Iridescent + spinning when unaligned; eases to solid green + still as you align.
+        // 3D arrow protruding from the frame center along its facing normal (frameRot * -Z, baked
+        // into the geometry). It points the same way regardless of the spin; the spin only rotates
+        // the wings about the shaft (its own ±Z axis). Iridescent + spinning when unaligned; eases to
+        // solid green + still as you align.
         glm::mat4 spinMat = glm::rotate(glm::mat4(1.0f), mSpinAngle, glm::vec3(0.0f, 0.0f, 1.0f));
-        // Flip 180deg so the arrow points toward the viewer's correct side (out of the frame).
-        glm::mat4 flip = glm::rotate(glm::mat4(1.0f), 3.14159265f, glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::mat4 arrowMvp = vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * flip * spinMat;
+        glm::mat4 arrowMvp = vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * spinMat;
         DrawArrow(arrowMvp, animTime, mAlignedTransition);
 
         glDepthMask(GL_TRUE);

@@ -65,8 +65,16 @@ export interface RingState {
   yawDiffRad: number;         // yaw difference to the alignment frame normal
   pitchDiffRad: number;       // pitch difference to the alignment frame normal
   isAligned: boolean;         // instantaneous: within 5deg yaw+pitch and <30cm
-  isLocked: boolean;          // alignment held 0.5s -> LOCKED
+  isLocked: boolean;          // alignment held 1s -> LOCKED
+  // Stage 11D interface extension: current 6DoF target orientation (degrees), for either placement path.
+  targetYawDeg: number;
+  targetPitchDeg: number;
+  targetRollDeg: number;
 }
 export const placeRing: (id: string) => number;
+// Place a beacon with an externally-supplied 6DoF target orientation (degrees, relative to the
+// camera forward at placement). Clamped to yaw +/-180, pitch +/-90, roll +/-180. Returns objectId
+// (>=0) or -1 on failure (not ready / bad args).
+export const placeRingWithOrientation: (id: string, yawDeg: number, pitchDeg: number, rollDeg: number) => number;
 export const resetRing: (id: string) => void;
 export const getRingState: (id: string) => RingState;

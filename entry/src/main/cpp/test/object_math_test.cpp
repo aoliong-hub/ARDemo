@@ -635,6 +635,51 @@ static void TestComputeFrameAlignDiff()
     }
 }
 
+static void TestClampOrientationDegToRad()
+{
+    std::printf("[TEST] ClampOrientationDegToRad\n");
+    const float d2r = 3.14159265358979323846f / 180.0f;
+    {
+        // In-range: pass through, deg -> rad.
+        float y = 0.0f;
+        float p = 0.0f;
+        float r = 0.0f;
+        ClampOrientationDegToRad(30.0f, -15.0f, 10.0f, y, p, r);
+        ExpectNear("a.yaw", y, 30.0f * d2r);
+        ExpectNear("a.pitch", p, -15.0f * d2r);
+        ExpectNear("a.roll", r, 10.0f * d2r);
+    }
+    {
+        // Out-of-range: clamp to (180, -90, 180) then -> rad.
+        float y = 0.0f;
+        float p = 0.0f;
+        float r = 0.0f;
+        ClampOrientationDegToRad(200.0f, -100.0f, 250.0f, y, p, r);
+        ExpectNear("b.yaw=180", y, 180.0f * d2r);
+        ExpectNear("b.pitch=-90", p, -90.0f * d2r);
+        ExpectNear("b.roll=180", r, 180.0f * d2r);
+    }
+    {
+        // Zero stays zero.
+        float y = 9.0f;
+        float p = 9.0f;
+        float r = 9.0f;
+        ClampOrientationDegToRad(0.0f, 0.0f, 0.0f, y, p, r);
+        ExpectNear("c.yaw=0", y, 0.0f);
+        ExpectNear("c.pitch=0", p, 0.0f);
+        ExpectNear("c.roll=0", r, 0.0f);
+    }
+    {
+        // Round-trip back to degrees (what getRingState reports).
+        float y = 0.0f;
+        float p = 0.0f;
+        float r = 0.0f;
+        ClampOrientationDegToRad(45.0f, 20.0f, 0.0f, y, p, r);
+        ExpectNear("d.yawDeg", y / d2r, 45.0f, 1e-2f);
+        ExpectNear("d.pitchDeg", p / d2r, 20.0f, 1e-2f);
+    }
+}
+
 int main()
 {
     std::printf("==== object_math unit tests ====\n");
@@ -653,6 +698,7 @@ int main()
     TestComputeYawPitchDiff();
     TestComputeOffscreenGuidance();
     TestComputeFrameAlignDiff();
+    TestClampOrientationDegToRad();
     std::printf("==== %d checks, %d failures ====\n", g_checks, g_failures);
     if (g_failures == 0) {
         std::printf("RESULT: ALL PASS\n");

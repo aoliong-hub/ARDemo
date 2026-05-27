@@ -72,6 +72,15 @@ public:
 
     // Ring hunt game (ARRingHunt scene). Default stubs; RingHuntApp overrides.
     virtual int32_t PlaceRing() { return -1; }
+    // Stage 11D interface extension: place a beacon with an externally-supplied 6DoF target (degrees,
+    // relative to the camera forward at placement). Default unimplemented.
+    virtual int32_t PlaceRingWithOrientation(float yawDeg, float pitchDeg, float rollDeg)
+    {
+        (void)yawDeg;
+        (void)pitchDeg;
+        (void)rollDeg;
+        return -1;
+    }
     virtual void ResetRing() {}
     // The Wayfinder beacon exposes its distance, placement, the off-screen guidance fields, and
     // (Stage 11D) the 6DoF alignment challenge: huntPhase (0=APPROACHING 1=ALIGNING 2=LOCKED),
@@ -79,7 +88,8 @@ public:
     virtual void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                               float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
                               float &ndcX, float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad,
-                              bool &isAligned, bool &isLocked)
+                              bool &isAligned, bool &isLocked, float &targetYawDeg, float &targetPitchDeg,
+                              float &targetRollDeg)
     {
         distance = 0.0f;
         ringPlaced = false;
@@ -96,6 +106,9 @@ public:
         pitchDiffRad = 0.0f;
         isAligned = false;
         isLocked = false;
+        targetYawDeg = 0.0f;
+        targetPitchDeg = 0.0f;
+        targetRollDeg = 0.0f;
     }
 
 public:

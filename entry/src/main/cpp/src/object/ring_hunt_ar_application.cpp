@@ -152,9 +152,14 @@ void RingHuntApp::OnUpdate()
         float t = glm::clamp((kColorRedDist - lastDist) / (kColorRedDist - kColorGreenDist), 0.0f, 1.0f);
         glm::vec3 color = glm::mix(kColorRed, kColorGreen, t);
 
-        // 6DoF alignment-frame orientation (from the per-placement random Euler angles). Built here
-        // so the same quaternion drives both the render and the alignment math below.
-        glm::quat targetQ = glm::quat(glm::vec3(mTargetPitch, mTargetYaw, mTargetRoll));
+        // 6DoF alignment-frame orientation, built with an EXPLICIT yaw->pitch->roll order (instead of
+        // glm::quat(vec3)'s non-intuitive Y*X*Z) so external 6DoF inputs match expectations:
+        //   yaw>0 -> frame faces the camera's right (+X), pitch>0 -> up, roll>0 -> clockwise (camera POV).
+        // The same quaternion drives both the render and the alignment math below.
+        glm::mat4 yawMat = glm::rotate(glm::mat4(1.0f), -mTargetYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 pitchMat = glm::rotate(glm::mat4(1.0f), mTargetPitch, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 rollMat = glm::rotate(glm::mat4(1.0f), mTargetRoll, glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::quat targetQ = glm::quat_cast(yawMat * pitchMat * rollMat);
 
         RingCameraInfo cam;
         mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mAnimTime, color, lastDist,
@@ -320,6 +325,23 @@ void RingHuntApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *windo
 
 int32_t RingHuntApp::PlaceRing()
 {
+    // Demo path: random orientation (useGiven=false).
+    return PlaceBeaconInternal(false, 0.0f, 0.0f, 0.0f);
+}
+
+int32_t RingHuntApp::PlaceRingWithOrientation(float yawDeg, float pitchDeg, float rollDeg)
+{
+    // External path: caller supplies the 6DoF target (relative to the camera forward at placement).
+    // Silent clamp to valid ranges, then convert deg -> rad and place with that fixed orientation.
+    float yawRad = 0.0f;
+    float pitchRad = 0.0f;
+    float rollRad = 0.0f;
+    ClampOrientationDegToRad(yawDeg, pitchDeg, rollDeg, yawRad, pitchRad, rollRad);
+    return PlaceBeaconInternal(true, yawRad, pitchRad, rollRad);
+}
+
+int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad, float pitchRad, float rollRad)
+{
     if (mArSession == nullptr || isPaused.load() || !mReady.load()) {
         LOGW("[RingHunt] placeRing: not ready.");
         return -1;
@@ -331,16 +353,9 @@ int32_t RingHuntApp::PlaceRing()
     int32_t objectId = mNextId;
     uint32_t seed = std::random_device{}();
 
-    mTaskQueue.Push([this, objectId, seed] {
-        // Fresh random 6DoF orientation for the alignment frame each placement. Tuned so the frame
-        // generally faces the user, always tilts downward, with a small roll — moderate difficulty.
-        std::mt19937 rng(seed);
-        std::uniform_real_distribution<float> u11(-1.0f, 1.0f);
-        std::uniform_real_distribution<float> u01(0.0f, 1.0f);
-        mTargetYaw = u11(rng) * kRandYawRad;                          // +/-20 deg
-        mTargetPitch = -(kPitchDownMinRad + u01(rng) * kPitchDownSpan); // -30..-10 deg (always down)
-        mTargetRoll = u11(rng) * kRandRollRad;                        // +/-15 deg
-
+    mTaskQueue.Push([this, objectId, seed, useGivenOrientation, yawRad, pitchRad, rollRad] {
+        // Acquire the camera pose first: it gives both the placement position AND the heading
+        // (world yaw) that the target orientation is measured relative to.
         AREngine_ARCamera *cam = nullptr;
         CHECK(HMS_AREngine_ARFrame_AcquireCamera(mArSession, mArFrame, &cam));
         AREngine_ARPose *camPose = nullptr;
@@ -355,9 +370,41 @@ int32_t RingHuntApp::PlaceRing()
         float camQuat[4];
         ARObject::UnpackQuatXYZW(raw, ARObject::QuatFormat::XYZW, camQuat);
 
-        // Drop the beacon 1m ahead of the camera, then lower it ~1m to approximate the floor so the
-        // ground ring lies flat and the pillar rises to roughly eye level. Identity rotation: the
-        // renderer translates only (world +Y up), so the beacon's orientation is irrelevant.
+        // Camera heading from its FORWARD vector (robust to the raw-pose quaternion convention, which
+        // doesn't encode heading as a simple yaw-about-Y). yaw=0 -> world -Z, +yaw -> +X (right). With
+        // this, mTargetYaw=relYaw+camYaw makes yaw=0 face along your gaze into the distance (you see
+        // the frame's back). No +pi needed — the forward vector already points "away".
+        float camForward[3];
+        ARObject::ComputeArrowDirection(camQuat, camForward);
+        float camYaw = std::atan2(camForward[0], -camForward[2]);
+
+        float relYaw = 0.0f;
+        float relPitch = 0.0f;
+        float relRoll = 0.0f;
+        if (useGivenOrientation) {
+            relYaw = yawRad;
+            relPitch = pitchRad;
+            relRoll = rollRad;
+        } else {
+            // Fresh random 6DoF orientation: frame generally faces the user, always tilts down,
+            // with a small roll — moderate difficulty.
+            std::mt19937 rng(seed);
+            std::uniform_real_distribution<float> u11(-1.0f, 1.0f);
+            std::uniform_real_distribution<float> u01(0.0f, 1.0f);
+            relYaw = u11(rng) * kRandYawRad;                            // +/-20 deg
+            relPitch = -(kPitchDownMinRad + u01(rng) * kPitchDownSpan); // -30..-10 deg (always down)
+            relRoll = u11(rng) * kRandRollRad;                          // +/-15 deg
+        }
+        // mTargetYaw is ABSOLUTE world yaw (relative + camYaw); pitch/roll are camera-independent.
+        mTargetYaw = relYaw + camYaw;
+        mTargetPitch = relPitch;
+        mTargetRoll = relRoll;
+        // getRingState reports the RELATIVE target (what the caller requested / the random range).
+        mTargetYawDeg.store(glm::degrees(relYaw));
+        mTargetPitchDeg.store(glm::degrees(relPitch));
+        mTargetRollDeg.store(glm::degrees(relRoll));
+
+        // Drop the beacon 1m ahead of the camera, then lower it ~1m to approximate the floor.
         float targetPos[3];
         ComputeForwardPoint(camPos, camQuat, kPlaceDistance, targetPos);
         targetPos[1] = camPos[1] - kGroundDrop;
@@ -430,7 +477,8 @@ void RingHuntApp::ResetRing()
 void RingHuntApp::GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                                float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
                                float &ndcX, float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad,
-                               bool &isAligned, bool &isLocked)
+                               bool &isAligned, bool &isLocked, float &targetYawDeg, float &targetPitchDeg,
+                               float &targetRollDeg)
 {
     distance = mDistance.load();
     ringPlaced = mHasRing.load();
@@ -447,6 +495,9 @@ void RingHuntApp::GetRingState(float &distance, bool &ringPlaced, int32_t &finis
     pitchDiffRad = mPitchDiffRad.load();
     isAligned = mIsAligned.load();
     isLocked = mIsLocked.load();
+    targetYawDeg = mTargetYawDeg.load();
+    targetPitchDeg = mTargetPitchDeg.load();
+    targetRollDeg = mTargetRollDeg.load();
 }
 
 } // namespace ARObject

@@ -688,6 +688,40 @@ napi_value NapiManager::NapiPlaceRing(napi_env env, napi_callback_info info)
     return result;
 }
 
+napi_value NapiManager::NapiPlaceRingWithOrientation(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiPlaceRingWithOrientation");
+    size_t argc = 4;
+    napi_value args[4] = {nullptr, nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    napi_value result = nullptr;
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    // Validate: need the id + three numeric angle args, else fail with -1 (silent, no throw).
+    napi_valuetype t1 = napi_undefined;
+    napi_valuetype t2 = napi_undefined;
+    napi_valuetype t3 = napi_undefined;
+    if (argc >= 4) {
+        napi_typeof(env, args[1], &t1);
+        napi_typeof(env, args[2], &t2);
+        napi_typeof(env, args[3], &t3);
+    }
+    if (app == nullptr || argc < 4 || t1 != napi_number || t2 != napi_number || t3 != napi_number) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+    double yawDeg = 0.0;
+    double pitchDeg = 0.0;
+    double rollDeg = 0.0;
+    napi_get_value_double(env, args[1], &yawDeg);
+    napi_get_value_double(env, args[2], &pitchDeg);
+    napi_get_value_double(env, args[3], &rollDeg);
+    int32_t objectId = app->PlaceRingWithOrientation(static_cast<float>(yawDeg), static_cast<float>(pitchDeg),
+                                                     static_cast<float>(rollDeg));
+    napi_create_int32(env, objectId, &result);
+    return result;
+}
+
 napi_value NapiManager::NapiResetRing(napi_env env, napi_callback_info info)
 {
     LOGD("NapiManager::NapiResetRing");
@@ -723,8 +757,12 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     float pitchDiffRad = 0.0f;
     bool isAligned = false;
     bool isLocked = false;
+    float targetYawDeg = 0.0f;
+    float targetPitchDeg = 0.0f;
+    float targetRollDeg = 0.0f;
     app->GetRingState(distance, ringPlaced, finishState, isTargetInView, screenEdgeX, screenEdgeY, isBehind,
-                      indicatorAngleDeg, ndcX, ndcY, huntPhase, yawDiffRad, pitchDiffRad, isAligned, isLocked);
+                      indicatorAngleDeg, ndcX, ndcY, huntPhase, yawDiffRad, pitchDiffRad, isAligned, isLocked,
+                      targetYawDeg, targetPitchDeg, targetRollDeg);
 
     napi_value result = nullptr;
     napi_create_object(env, &result);
@@ -743,6 +781,9 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_value vPitch = nullptr;
     napi_value vAligned = nullptr;
     napi_value vLocked = nullptr;
+    napi_value vTYaw = nullptr;
+    napi_value vTPitch = nullptr;
+    napi_value vTRoll = nullptr;
     napi_create_double(env, static_cast<double>(distance), &vDist);
     napi_get_boolean(env, ringPlaced, &vPlaced);
     napi_create_int32(env, finishState, &vFinish);
@@ -758,6 +799,9 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_create_double(env, static_cast<double>(pitchDiffRad), &vPitch);
     napi_get_boolean(env, isAligned, &vAligned);
     napi_get_boolean(env, isLocked, &vLocked);
+    napi_create_double(env, static_cast<double>(targetYawDeg), &vTYaw);
+    napi_create_double(env, static_cast<double>(targetPitchDeg), &vTPitch);
+    napi_create_double(env, static_cast<double>(targetRollDeg), &vTRoll);
     napi_set_named_property(env, result, "distance", vDist);
     napi_set_named_property(env, result, "ringPlaced", vPlaced);
     napi_set_named_property(env, result, "finishState", vFinish);
@@ -773,6 +817,9 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_set_named_property(env, result, "pitchDiffRad", vPitch);
     napi_set_named_property(env, result, "isAligned", vAligned);
     napi_set_named_property(env, result, "isLocked", vLocked);
+    napi_set_named_property(env, result, "targetYawDeg", vTYaw);
+    napi_set_named_property(env, result, "targetPitchDeg", vTPitch);
+    napi_set_named_property(env, result, "targetRollDeg", vTRoll);
     return result;
 }
 

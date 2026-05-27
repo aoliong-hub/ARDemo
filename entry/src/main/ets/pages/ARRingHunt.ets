@@ -138,6 +138,23 @@ struct ARRingHunt {
     return `rgb(${r},${g},${b})`;
   }
 
+  // Stage 11D interface demo: place a beacon with a fixed 6DoF target (degrees, relative to the
+  // camera forward at placement) via the placeRingWithOrientation NAPI.
+  private placeWithOrientation(yawDeg: number, pitchDeg: number, rollDeg: number): void {
+    let id: number = arEngineDemo.placeRingWithOrientation(this.idStr, yawDeg, pitchDeg, rollDeg);
+    Logger.info(`[RingHunt] placeRingWithOrientation(${yawDeg},${pitchDeg},${rollDeg}) -> ${id}`);
+    if (id < 0) {
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: '请稳住手机等待跟踪稳定', duration: 1500 });
+      } catch (e) {
+        let err: BusinessError = e as BusinessError;
+        Logger.warn(`toast failed: ${err.message}`);
+      }
+    } else {
+      this.ringPlaced = true;
+    }
+  }
+
   private triggerLockVibration(): void {
     try {
       vibrator.startVibration({ type: 'time', duration: 80 }, { usage: 'notification' })
@@ -733,6 +750,16 @@ struct ARRingHunt {
               })
           }
           .width('100%')
+          // Stage 11D demo: place with a fixed 6DoF target (placeRingWithOrientation). APPROACHING only.
+          if (this.huntPhase === 0) {
+            Row({ space: 8 }) {
+              Button('正前').fontSize(13).layoutWeight(1).onClick(() => this.placeWithOrientation(0, 0, 0))
+              Button('右30°').fontSize(13).layoutWeight(1).onClick(() => this.placeWithOrientation(30, 0, 0))
+              Button('下30°').fontSize(13).layoutWeight(1).onClick(() => this.placeWithOrientation(0, -30, 0))
+              Button('斜45°').fontSize(13).layoutWeight(1).onClick(() => this.placeWithOrientation(0, 0, 45))
+            }
+            .width('100%')
+          }
         }
         .id('hud')
         .width('92%')

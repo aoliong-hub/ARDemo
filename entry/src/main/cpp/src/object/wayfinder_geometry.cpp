@@ -329,13 +329,15 @@ WayfinderMesh WayfinderGeometry::CreateArrow3D(float shaftRadius, float shaftLen
         shaftSegments = 6;
     }
     const float total = shaftLength + headLength;
-    // Shaft: a cylinder side along +Z, z in [0, shaftLength]. uv.y = z / total (lengthwise gradient).
+    // Shaft: a cylinder side along -Z, z in [0, -shaftLength]. The arrow points down -Z so its
+    // facing normal matches the alignment frame's normal (frameRot * -Z) — no flip needed at render.
+    // uv.y = |z| / total (lengthwise gradient: 0 at the base, 1 at the tip).
     for (int i = 0; i < shaftSegments; ++i) {
         float a = kTwoPi * i / shaftSegments;
         float c = std::cos(a);
         float s = std::sin(a);
-        PushVtx(m, shaftRadius * c, shaftRadius * s, 0.0f, c, s, 0.0f, 0.0f, 0.0f);                  // base = 2i
-        PushVtx(m, shaftRadius * c, shaftRadius * s, shaftLength, c, s, 0.0f, 0.0f, shaftLength / total); // top = 2i+1
+        PushVtx(m, shaftRadius * c, shaftRadius * s, 0.0f, c, s, 0.0f, 0.0f, 0.0f);                    // base = 2i
+        PushVtx(m, shaftRadius * c, shaftRadius * s, -shaftLength, c, s, 0.0f, 0.0f, shaftLength / total); // top = 2i+1
     }
     for (int i = 0; i < shaftSegments; ++i) {
         uint16_t b0 = static_cast<uint16_t>(2 * i);
@@ -349,13 +351,13 @@ WayfinderMesh WayfinderGeometry::CreateArrow3D(float shaftRadius, float shaftLen
         m.indices.push_back(t1);
         m.indices.push_back(b1);
     }
-    // A single flat 2-barb arrowhead in the XZ plane (normal +Y). Spans -wingSpan..+wingSpan at the
-    // base (the two barbs) and converges to the tip on the axis. Double-sided (culling off).
+    // A single flat 2-barb arrowhead in the XZ plane (normal +Y), at the shaft top (z=-shaftLength)
+    // converging to the tip on the -Z axis. Double-sided (culling off).
     const float baseV = shaftLength / total;
     uint16_t base = static_cast<uint16_t>(m.positions.size() / 3);
-    PushVtx(m, wingSpan, 0.0f, shaftLength, 0.0f, 1.0f, 0.0f, 0.0f, baseV);  // +span barb
-    PushVtx(m, -wingSpan, 0.0f, shaftLength, 0.0f, 1.0f, 0.0f, 1.0f, baseV); // -span barb
-    PushVtx(m, 0.0f, 0.0f, total, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f);            // tip
+    PushVtx(m, wingSpan, 0.0f, -shaftLength, 0.0f, 1.0f, 0.0f, 0.0f, baseV);  // +span barb
+    PushVtx(m, -wingSpan, 0.0f, -shaftLength, 0.0f, 1.0f, 0.0f, 1.0f, baseV); // -span barb
+    PushVtx(m, 0.0f, 0.0f, -total, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f);            // tip
     m.indices.push_back(base);
     m.indices.push_back(static_cast<uint16_t>(base + 1));
     m.indices.push_back(static_cast<uint16_t>(base + 2));
