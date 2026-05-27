@@ -45,6 +45,8 @@ private:
     void DrawSolid(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase,
                    float alphaTop, bool depthWrite);
     void DrawLines(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alpha);
+    // Volumetric-noise fog: alphaBase is the fog's base alpha; time scrolls the noise upward.
+    void DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase, float time);
 
     GLuint mSolidProgram = 0;
     GLint mSolidMvp = -1;
@@ -60,10 +62,20 @@ private:
     GLint mLineAlpha = -1;
     GLint mLinePos = -1;
 
+    GLuint mFogProgram = 0;
+    GLint mFogMvp = -1;
+    GLint mFogColor = -1;
+    GLint mFogAlpha = -1;
+    GLint mFogTime = -1;
+    GLint mFogPos = -1;
+    GLint mFogUv = -1;
+
     WayfinderMesh mGround;
     WayfinderMesh mCore;
     WayfinderMesh mFog;
+    WayfinderMesh mPillarBloom;
     WayfinderMesh mBadgeRing;
+    WayfinderMesh mBadgeRingBloom;
     WayfinderMesh mBadgeDisk;
     WayfinderMesh mPhone;
 };

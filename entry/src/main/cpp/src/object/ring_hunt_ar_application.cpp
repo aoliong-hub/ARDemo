@@ -23,11 +23,12 @@
 
 namespace ARObject {
 namespace {
-// Stage 11A: the beacon tints red->green by distance to its top badge.
-const glm::vec3 kColorRed(1.0f, 0.3f, 0.3f);
-const glm::vec3 kColorGreen(0.3f, 1.0f, 0.4f);
-constexpr float kColorRedDist = 0.50f;   // >= this metres: fully red
-constexpr float kColorGreenDist = 0.40f; // <= this metres: fully green (10cm smooth band between)
+// Stage 11C (style C "clean modern"): the beacon tints warm-red -> soft-mint by distance to its
+// top badge, softer than the 11A primaries.
+const glm::vec3 kColorRed(0.95f, 0.4f, 0.4f);  // warm red (far)
+const glm::vec3 kColorGreen(0.5f, 0.9f, 0.7f); // soft mint (near)
+constexpr float kColorRedDist = 0.50f;   // >= this metres: fully warm-red
+constexpr float kColorGreenDist = 0.40f; // <= this metres: fully soft-mint (10cm smooth band between)
 constexpr float kPlaceDistance = 1.0f;   // beacon dropped 1m ahead of the camera
 constexpr float kGroundDrop = 1.0f;      // lower it ~1m to approximate the floor
 } // namespace

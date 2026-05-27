@@ -32,6 +32,8 @@ constexpr char SOLID_VS[] = R"(
         gl_Position = u_mvp * a_pos;
     }
 )";
+// Stage 11C: final alpha x0.85 for an overall softer/translucent look (the phone wireframe keeps
+// full alpha via the separate line program).
 constexpr char SOLID_FS[] = R"(
     precision mediump float;
     varying float v_h;
@@ -40,11 +42,11 @@ constexpr char SOLID_FS[] = R"(
     uniform float u_alphaTop;
     void main() {
         float a = mix(u_alphaBase, u_alphaTop, v_h);
-        gl_FragColor = vec4(u_color, a);
+        gl_FragColor = vec4(u_color, a * 0.85);
     }
 )";
 
-// Line program: flat color for the phone wireframe.
+// Line program: flat color for the phone wireframe (kept crisp at full alpha).
 constexpr char LINE_VS[] = R"(
     uniform mat4 u_mvp;
     attribute vec4 a_pos;
@@ -61,11 +63,53 @@ constexpr char LINE_FS[] = R"(
     }
 )";
 
+// Fog program: volumetric-looking pillar fog. uv.x = circumferential, uv.y = height. Two octaves of
+// value noise scroll upward over time; alpha also fades toward the top. No texture needed.
+constexpr char FOG_VS[] = R"(
+    uniform mat4 u_mvp;
+    attribute vec4 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 v_uv;
+    void main() {
+        v_uv = a_uv;
+        gl_Position = u_mvp * a_pos;
+    }
+)";
+constexpr char FOG_FS[] = R"(
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform vec3 u_color;
+    uniform float u_alphaBase;
+    uniform float u_time;
+    float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), f.x),
+                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+    }
+    void main() {
+        float verticalFade = v_uv.y; // 0 bottom -> 1 top (top more transparent)
+        vec2 nuv = vec2(v_uv.x * 4.0, v_uv.y * 2.0 - u_time * 0.3);
+        float n = noise(nuv) * 0.7 + 0.3;
+        vec2 nuv2 = vec2(v_uv.x * 8.0, v_uv.y * 4.0 - u_time * 0.15);
+        float n2 = noise(nuv2);
+        n = mix(n, n2, 0.4);
+        float alpha = u_alphaBase * (1.0 - verticalFade) * n;
+        gl_FragColor = vec4(u_color, alpha * 0.85);
+    }
+)";
+
 const glm::vec3 kBadgeRingColor(0.70f, 0.70f, 0.74f); // gray rim
 const glm::vec3 kBadgeDiskColor(0.45f, 0.45f, 0.48f); // darker semi-transparent medallion
 const glm::vec3 kPhoneColor(1.0f, 1.0f, 1.0f);        // white wireframe
 constexpr float kBadgeSpinDegPerSec = 90.0f;          // badge rotation: 4s per revolution
 constexpr int kRippleCount = 3;                       // staggered expanding ground waves
+constexpr float kTwoPi = 6.28318530717958647692f;
+constexpr float kHalfPi = 1.57079632679489661923f;
 } // namespace
 
 void WayfinderRenderer::Init()
@@ -88,12 +132,27 @@ void WayfinderRenderer::Init()
     mLineAlpha = glGetUniformLocation(mLineProgram, "u_alpha");
     mLinePos = glGetAttribLocation(mLineProgram, "a_pos");
 
+    // Fog program is non-fatal: if it fails to compile, DrawFog is skipped and the rest still draws.
+    mFogProgram = GLUtils::CreateProgram(FOG_VS, FOG_FS);
+    if (mFogProgram) {
+        mFogMvp = glGetUniformLocation(mFogProgram, "u_mvp");
+        mFogColor = glGetUniformLocation(mFogProgram, "u_color");
+        mFogAlpha = glGetUniformLocation(mFogProgram, "u_alphaBase");
+        mFogTime = glGetUniformLocation(mFogProgram, "u_time");
+        mFogPos = glGetAttribLocation(mFogProgram, "a_pos");
+        mFogUv = glGetAttribLocation(mFogProgram, "a_uv");
+    } else {
+        LOGE("WayfinderRenderer: fog program failed; falling back to plain fog.");
+    }
+
     mGround = WayfinderGeometry::CreateGroundRing();
     mCore = WayfinderGeometry::CreatePillarCore();
     mFog = WayfinderGeometry::CreatePillarFog();
+    mPillarBloom = WayfinderGeometry::CreatePillarBloom();
     mBadgeRing = WayfinderGeometry::CreateTopBadgeRing();
+    mBadgeRingBloom = WayfinderGeometry::CreateBadgeRingBloom();
     mBadgeDisk = WayfinderGeometry::CreateTopBadgeDisk();
-    mPhone = WayfinderGeometry::CreatePhoneIcon();
+    mPhone = WayfinderGeometry::CreatePhoneIconRounded();
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
 
@@ -106,6 +165,10 @@ void WayfinderRenderer::Release()
     if (mLineProgram) {
         GLUtils::ReleaseProgram(mLineProgram);
         mLineProgram = 0;
+    }
+    if (mFogProgram) {
+        GLUtils::ReleaseProgram(mFogProgram);
+        mFogProgram = 0;
     }
 }
 
@@ -147,6 +210,32 @@ void WayfinderRenderer::DrawLines(const glm::mat4 &mvp, const WayfinderMesh &mes
     glDisableVertexAttribArray(mLinePos);
 }
 
+void WayfinderRenderer::DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color,
+                                float alphaBase, float time)
+{
+    if (mesh.indices.empty()) {
+        return;
+    }
+    if (!mFogProgram) {
+        // Fallback: plain solid fog (no noise) if the fog program failed to compile.
+        DrawSolid(mvp, mesh, color, alphaBase, 0.0f, false);
+        return;
+    }
+    glDepthMask(GL_FALSE);
+    glUseProgram(mFogProgram);
+    glUniformMatrix4fv(mFogMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniform3fv(mFogColor, 1, glm::value_ptr(color));
+    glUniform1f(mFogAlpha, alphaBase);
+    glUniform1f(mFogTime, time);
+    glEnableVertexAttribArray(mFogPos);
+    glEnableVertexAttribArray(mFogUv);
+    glVertexAttribPointer(mFogPos, 3, GL_FLOAT, GL_FALSE, 0, mesh.positions.data());
+    glVertexAttribPointer(mFogUv, 2, GL_FLOAT, GL_FALSE, 0, mesh.uvs.data());
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.indices.size()), GL_UNSIGNED_SHORT, mesh.indices.data());
+    glDisableVertexAttribArray(mFogPos);
+    glDisableVertexAttribArray(mFogUv);
+}
+
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance)
 {
@@ -162,8 +251,10 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     const glm::mat4 vp = proj * view;
     const glm::mat4 mvp = vp * wayfinderToWorld;
 
-    // 1. ground ring (opaque-ish, writes depth)
-    DrawSolid(mvp, mGround, color, 0.85f, 0.85f, true);
+    // 1. ground ring (writes depth) — breathes alpha 0.7<->1.0 over 1.3s.
+    float breathPhase = std::fmod(animTime, 1.3f) / 1.3f;
+    float breathAlpha = 0.7f + 0.3f * (0.5f + 0.5f * std::sin(breathPhase * kTwoPi - kHalfPi));
+    DrawSolid(mvp, mGround, color, 0.85f * breathAlpha, 0.85f * breathAlpha, true);
 
     // 2. ground ripple: expanding "water waves" on the floor that draw the eye from a DISTANCE.
     // Three phase-staggered rings (50->100cm radius over 1.5s), fading as they expand. No depth
@@ -181,12 +272,18 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         }
     }
 
-    // 3. pillar core (bright at base, vaporizes toward the top; writes depth)
+    // 3. pillar bloom: wide, faint smooth glow halo OUTSIDE the fog (no noise, no depth write).
+    DrawSolid(mvp, mPillarBloom, color, 0.05f, 0.0f, false);
+
+    // 4. pillar fog: volumetric noise scrolling upward (no depth write).
+    DrawFog(mvp, mFog, color, 0.16f, animTime);
+
+    // 5. pillar core: thin "laser line" (bright at base, vaporizes toward the top; writes depth).
     DrawSolid(mvp, mCore, color, 0.60f, 0.08f, true);
 
-    // 4. top badge: a camera-facing medallion at the pillar top (disk + rim + phone icon) that
-    // revolves about the vertical pillar axis like a carousel. The billboard frame (local +Z toward
-    // the camera) is built first, then the world-Y spin is applied in WORLD space (before the
+    // 6. top badge: a camera-facing medallion at the pillar top (bloom + disk + rim + phone icon)
+    // that revolves about the vertical pillar axis like a carousel. The billboard frame (local +Z
+    // toward the camera) is built first, then the world-Y spin is applied in WORLD space (before the
     // billboard, after the translate) so the badge orbits the vertical axis rather than flipping.
     glm::vec3 badgeWorldPos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, kWayfinderTopHeight, 0.0f);
     glm::vec3 toCamera = cameraPos - badgeWorldPos;
@@ -206,15 +303,14 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     const glm::mat4 badgeModel = translate * spin * billboard; // orbit the vertical (world Y) axis
     const glm::mat4 badgeMvp = vp * badgeModel;
 
+    // badge ring bloom (faint colored halo around the rim; no depth write)
+    DrawSolid(badgeMvp, mBadgeRingBloom, color, 0.22f, 0.0f, false);
     // disk background (semi-transparent gray, writes depth so the rim/phone sit cleanly on it)
     DrawSolid(badgeMvp, mBadgeDisk, kBadgeDiskColor, 0.55f, 0.55f, true);
     // rim (gray) — rotates together with the disk + phone via the shared badgeMvp
     DrawSolid(badgeMvp, mBadgeRing, kBadgeRingColor, 0.90f, 0.90f, true);
     // phone wireframe (white lines), co-planar with the badge
     DrawLines(badgeMvp, mPhone, kPhoneColor, 1.0f);
-
-    // 5. fog beam last (very soft, does NOT write depth so it never occludes the core)
-    DrawSolid(mvp, mFog, color, 0.16f, 0.0f, false);
 
     glDepthMask(GL_TRUE); // restore for the next frame's clear / other renderers
     glUseProgram(0);

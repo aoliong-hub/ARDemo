@@ -48,23 +48,36 @@ public:
     // alphaBase/alphaTop fade the wave radially (strong inner -> faint outer). Radii animate per frame.
     static WayfinderMesh CreateRippleRing(float innerRadius, float outerRadius, int segments = 64);
 
-    // Main beam: thin cylinder side, y in [0, height], radius ~0.008m. uv.y = y/height (bottom 0).
-    static WayfinderMesh CreatePillarCore(float radius = 0.008f, float height = kWayfinderTopHeight, int segments = 24);
+    // Main beam: thin "laser line" cylinder side, y in [0, height], 4mm dia. uv.y = y/height.
+    static WayfinderMesh CreatePillarCore(float radius = 0.002f, float height = kWayfinderTopHeight, int segments = 24);
 
-    // Fog beam: wide cylinder side around the core, soft alpha falloff via uv.y.
+    // Fog beam: wide cylinder side around the core. uv.x = circumferential (0..1), uv.y = height
+    // (bottom 0 -> top 1). The volumetric-noise fog shader scrolls noise up uv.y.
     static WayfinderMesh CreatePillarFog(float radius = 0.04f, float height = kWayfinderTopHeight, int segments = 24);
 
+    // Pillar bloom: a wide, faint cylinder side OUTSIDE the fog — a smooth (no-noise) glow halo.
+    static WayfinderMesh CreatePillarBloom(float radius = 0.07f, float height = kWayfinderTopHeight, int segments = 24);
+
     // Top badge ring: a flat annulus in the XY plane (z=0) centered at the origin, normal +Z.
-    // 12cm outer dia / 10cm inner (1cm ring width). The gray medallion rim; the renderer spins it.
-    static WayfinderMesh CreateTopBadgeRing(float outerRadius = 0.06f, float innerRadius = 0.05f, int segments = 48);
+    // 24cm outer dia / 21cm inner (1.5cm ring width). The gray medallion rim.
+    static WayfinderMesh CreateTopBadgeRing(float outerRadius = 0.12f, float innerRadius = 0.105f, int segments = 48);
+
+    // Badge ring bloom: a faint annulus ~20% larger than the badge ring (uv.y radial: inner bright,
+    // outer faint), drawn co-planar with the badge to fake an edge glow around the medallion rim.
+    static WayfinderMesh CreateBadgeRingBloom(float innerRadius = 0.124f, float outerRadius = 0.144f, int segments = 48);
 
     // Top badge disk: a solid disk (triangle fan) in the XY plane (z=0) centered at the origin,
-    // normal +Z. 8cm dia. The semi-transparent gray medallion background behind ring + phone icon.
-    static WayfinderMesh CreateTopBadgeDisk(float radius = 0.04f, int segments = 48);
+    // normal +Z. 16cm dia. The semi-transparent gray medallion background behind ring + phone icon.
+    static WayfinderMesh CreateTopBadgeDisk(float radius = 0.08f, int segments = 48);
 
     // Phone icon: white wireframe (outer body + inner screen) as a LINE list, in the XY plane
     // (z=0) centered at the origin, co-planar with the badge.
-    static WayfinderMesh CreatePhoneIcon(float width = 0.025f, float height = 0.045f);
+    static WayfinderMesh CreatePhoneIcon(float width = 0.05f, float height = 0.09f);
+
+    // Rounded phone icon: like CreatePhoneIcon but the body + inner screen corners are rounded
+    // (short line segments approximate the arcs) and it adds an earpiece slit + home-button line.
+    // 5cm x 9cm body, 6mm body corner radius, 4mm screen corner radius. GL_LINES list.
+    static WayfinderMesh CreatePhoneIconRounded(float width = 0.05f, float height = 0.09f);
 };
 
 } // namespace ARObject
