@@ -66,9 +66,16 @@ struct ARRingHunt {
   @State screenEdgeY: number = 0.5;
   @State isBehind: boolean = false;
   @State indicatorAngleDeg: number = 0;
+  @State ndcX: number = 0;
+  @State ndcY: number = 0;
   @State guidanceMounted: boolean = false; // controls Visibility (kept true during fade-out)
   @State guidanceOpacity: number = 0;       // animated 0..1 for the 0.3s fade
   private guidanceShown: boolean = false;   // logical desired-visible state
+
+  // The guidance overlay Stack's own size in vp (from its onAreaChange). This is the coordinate
+  // frame .position() uses, so all guidance positioning scales by it.
+  @State guidanceStackW: number = 0;
+  @State guidanceStackH: number = 0;
 
   // Stage 10 UX upgrade: breathing halo (scale-pulsed) + a particle trail flowing center->droplet.
   @State breathScale: number = 1.0;
@@ -150,12 +157,14 @@ struct ARRingHunt {
 
   // ---- Stage 10: off-screen guidance ----
 
-  private dispWidthVp(): number {
-    return this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+  // The guidance overlay Stack's own size in vp (measured via its onAreaChange). Fallback values
+  // cover the first frame before layout. This is the coordinate frame .offset() resolves in.
+  private getStackWidth(): number {
+    return this.guidanceStackW > 0 ? this.guidanceStackW : 360;
   }
 
-  private dispHeightVp(): number {
-    return this.getUIContext().px2vp(display.getDefaultDisplaySync().height);
+  private getStackHeight(): number {
+    return this.guidanceStackH > 0 ? this.guidanceStackH : 800;
   }
 
   // Guidance follows the RING color (distance feedback): green when on target, else red.
@@ -253,10 +262,10 @@ struct ARRingHunt {
       id: this.nextParticleId,
       birthMs: Date.now(),
       lifeMs: 1000,
-      startX: this.dispWidthVp() / 2,
-      startY: this.dispHeightVp() / 2,
-      targetX: this.guidanceCenterX(),
-      targetY: this.guidanceCenterY(),
+      startX: this.getStackWidth() / 2, // stack center = the crosshair
+      startY: this.getStackHeight() / 2,
+      targetX: this.dropletCenterX(),
+      targetY: this.dropletCenterY(),
       color: this.particleRgb()
     };
     this.nextParticleId = this.nextParticleId + 1;
@@ -270,8 +279,8 @@ struct ARRingHunt {
       return;
     }
     let ctx: CanvasRenderingContext2D = this.canvasCtx;
-    let w: number = this.dispWidthVp();
-    let h: number = this.dispHeightVp();
+    let w: number = this.getStackWidth();
+    let h: number = this.getStackHeight();
     ctx.clearRect(0, 0, w, h);
     let now: number = Date.now();
     let alive: Particle[] = [];
@@ -327,38 +336,118 @@ struct ARRingHunt {
     }
   }
 
-  // Center of the droplet (the 95vp halo cluster shares it). This is also the particle target.
-  // Directly-behind -> bottom center, raised enough to fit the ↻ + caption below; otherwise the
-  // screen-edge point nearest the target, clamped so the 95vp halo stays on screen (47.5 margin).
-  private guidanceCenterX(): number {
-    let w: number = this.dispWidthVp();
+  // ---- Droplet position: screen-space ray from center -> projected target ----
+  // Native NDC is square-normalized, while the phone screen is usually tall. Convert the projected
+  // target into this overlay's real screen coordinates before deriving the ray angle; otherwise a
+  // diagonal target on a portrait screen appears 10-20 degrees off.
+  private shouldFlipProjectedNdc(): boolean {
+    let edgeX: number = this.screenEdgeX - 0.5;
+    let edgeY: number = 0.5 - this.screenEdgeY;
+    return edgeX * this.ndcX + edgeY * this.ndcY < 0;
+  }
+
+  private projectedNdcX(): number {
+    return this.shouldFlipProjectedNdc() ? -this.ndcX : this.ndcX;
+  }
+
+  private projectedNdcY(): number {
+    return this.shouldFlipProjectedNdc() ? -this.ndcY : this.ndcY;
+  }
+
+  private targetVectorX(): number {
+    return this.projectedNdcX() * this.getStackWidth() * 0.5;
+  }
+
+  private targetVectorY(): number {
+    return -this.projectedNdcY() * this.getStackHeight() * 0.5;
+  }
+
+  private rayDirX(): number {
     if (this.isBehind) {
-      return w / 2;
+      return 0;
     }
-    return this.clamp(this.screenEdgeX * w, 80, w - 80);
+    let vx: number = this.targetVectorX();
+    let vy: number = this.targetVectorY();
+    let len: number = Math.sqrt(vx * vx + vy * vy);
+    if (len < 0.001) {
+      return this.screenEdgeX >= 0.5 ? 1 : -1;
+    }
+    return vx / len;
   }
 
-  private guidanceCenterY(): number {
-    let h: number = this.dispHeightVp();
+  private rayDirY(): number {
     if (this.isBehind) {
-      return h - 240; // cluster top-left at h-320, +80 to its center
+      return 1;
     }
-    return this.clamp(this.screenEdgeY * h, 80, h - 80);
+    let vx: number = this.targetVectorX();
+    let vy: number = this.targetVectorY();
+    let len: number = Math.sqrt(vx * vx + vy * vy);
+    if (len < 0.001) {
+      return this.screenEdgeY >= 0.5 ? 1 : -1;
+    }
+    return vy / len;
   }
 
-  // Top-left of the 160vp cluster (and, when behind, of the wrapping Column).
-  private clusterX(): number {
-    return this.guidanceCenterX() - 80;
+  // Smallest positive t at which center + t*dir hits the 80vp inset rectangle.
+  private rayTMin(): number {
+    let cx: number = this.getStackWidth() / 2;
+    let cy: number = this.getStackHeight() / 2;
+    let dx: number = this.rayDirX();
+    let dy: number = this.rayDirY();
+    let t: number = Infinity;
+    if (dx > 0.001) {
+      t = Math.min(t, (this.getStackWidth() - 80 - cx) / dx);
+    }
+    if (dx < -0.001) {
+      t = Math.min(t, (80 - cx) / dx);
+    }
+    if (dy > 0.001) {
+      t = Math.min(t, (this.getStackHeight() - 80 - cy) / dy);
+    }
+    if (dy < -0.001) {
+      t = Math.min(t, (80 - cy) / dy);
+    }
+    if (t === Infinity || t < 0) {
+      t = 0;
+    }
+    return t;
   }
 
-  private clusterY(): number {
-    return this.guidanceCenterY() - 80;
+  private rayCenterX(): number {
+    if (this.isBehind) {
+      return this.getStackWidth() / 2;
+    }
+    return this.getStackWidth() / 2 + this.rayTMin() * this.rayDirX();
   }
 
-  // Droplet tip points up at 0deg; rotate to the target bearing (12 o'clock = 0, clockwise).
-  // Directly-behind -> point straight down (180), paired with the turn-around cue below it.
+  private rayCenterY(): number {
+    if (this.isBehind) {
+      return this.getStackHeight() - 220; // cluster top-left at h-300, +80 to its center
+    }
+    return this.getStackHeight() / 2 + this.rayTMin() * this.rayDirY();
+  }
+
+  private getDropletX(): number {
+    return this.clamp(this.rayCenterX() - 80, 0, this.getStackWidth() - 160);
+  }
+
+  private getDropletY(): number {
+    return this.clamp(this.rayCenterY() - 80, 0, this.getStackHeight() - 160);
+  }
+
+  private dropletCenterX(): number {
+    return this.getDropletX() + 80;
+  }
+
+  private dropletCenterY(): number {
+    return this.getDropletY() + 80;
+  }
+
   private dropletRotationDeg(): number {
-    return this.isBehind ? 180 : this.indicatorAngleDeg;
+    if (this.isBehind) {
+      return 180;
+    }
+    return Math.atan2(this.rayDirX(), -this.rayDirY()) * 180 / Math.PI;
   }
 
   // Reconcile guidance visibility with a 0.3s opacity transition. FOUND hides immediately;
@@ -464,6 +553,8 @@ struct ARRingHunt {
               this.screenEdgeY = s.screenEdgeY;
               this.isBehind = s.isBehind;
               this.indicatorAngleDeg = s.indicatorAngleDeg;
+              this.ndcX = s.ndcX;
+              this.ndcY = s.ndcY;
               if (s.finishState === 2 && this.prevFinishState !== 2) {
                 this.triggerVibration();
               }
@@ -505,15 +596,15 @@ struct ARRingHunt {
         // that pins a ring-colored DROPLET arrow (with a breathing halo + distance-feel glow) to
         // the screen edge nearest the off-screen ring. Placed under the HUD so the buttons stay
         // clickable. Mounted only while guiding; opacity is animated for the 0.3s fade.
-        if (this.guidanceMounted) {
-          Stack() {
-            // A single Column holds the droplet cluster and (when behind) the turn-around cue, so
-            // the whole group is positioned/centered as one. The cluster's 4 elements are centered
-            // on each other by the inner Stack(Center) — droplet is the main body, halos surround.
+        // Off-screen target guidance (Stage 10 + UX). Always-present full-screen, non-interactive
+        // overlay with an explicit TopStart anchor, so the cluster Column's .offset() places its
+        // top-left at exactly (getDropletX, getDropletY) in this Stack's own coordinate frame.
+        Stack() {
+          if (this.guidanceMounted) {
+            // One Column: the droplet cluster, plus (when behind) the turn-around cue beneath it.
             Column({ space: 8 }) {
               Stack({ alignContent: Alignment.Center }) {
-                // Bottom: distance-feel glow halo (strokeWidth/opacity by distance). Thin accent
-                // just outside the breathing ring; the ~92vp droplet always sits inside it.
+                // Bottom: distance-feel glow halo (strokeWidth/opacity by distance).
                 Circle()
                   .width(124)
                   .height(124)
@@ -521,8 +612,7 @@ struct ARRingHunt {
                   .stroke(this.guidanceColor())
                   .strokeWidth(this.glowThickness())
                   .opacity(this.glowOpacity())
-                // Middle: breathing halo — ring-colored stroke pulsing 0.95<->1.10 (103<->119vp),
-                // always larger than the droplet so the tip never pokes out.
+                // Middle: breathing halo — pulses 0.95<->1.10, always larger than the droplet.
                 Circle()
                   .width(108)
                   .height(108)
@@ -531,15 +621,18 @@ struct ARRingHunt {
                   .strokeWidth(3)
                   .opacity(0.5)
                   .scale({ x: this.breathScale, y: this.breathScale })
-                // Top: the droplet (main body, ~120vp). Wrapped in a Shape so its viewPort (0..120)
-                // scales SVG-style to a true 120vp box on any density (Path.commands are px, NOT
-                // scaled by width/height). Geometric center (60,60); tip up at 0deg, rotated to bearing.
+                // Top: the droplet (Shape+viewPort = density-independent 120vp), rotated to bearing.
                 Shape() {
                   Path()
-                    .commands('M 60 14 C 38 14 21 38 21 55 C 21 82 38 99 60 106 C 82 99 99 82 99 55 C 99 38 82 14 60 14 Z')
+                    .commands('M 60 10 C 86 35 100 54 100 74 C 100 97 82 112 60 112 C 38 112 20 97 20 74 C 20 54 34 35 60 10 Z')
                     .fill(this.guidanceColor())
                     .stroke('#FFFFFF')
                     .strokeWidth(2.5)
+                  Path()
+                    .commands('M 45 50 C 38 62 39 76 47 88')
+                    .fill('#00FFFFFF')
+                    .stroke('#66FFFFFF')
+                    .strokeWidth(5)
                 }
                 .viewPort({ x: 0, y: 0, width: 120, height: 120 })
                 .width(120)
@@ -548,7 +641,7 @@ struct ARRingHunt {
               }
               .width(160)
               .height(160)
-              // Behind: rotate glyph + caption, stacked under the bottom-center droplet.
+              // Behind: rotate glyph + caption under the bottom-center droplet.
               if (this.isBehind) {
                 Text('↻')
                   .fontColor('#FFFFFF')
@@ -563,18 +656,23 @@ struct ARRingHunt {
             }
             .width(160)
             .alignItems(HorizontalAlign.Center)
-            .position({ x: this.clusterX(), y: this.clusterY() })
+            .opacity(this.guidanceOpacity)
+            .position({ x: this.getDropletX(), y: this.getDropletY() })
           }
-          .id('guidance')
-          .width('100%')
-          .height('100%')
-          .opacity(this.guidanceOpacity)
-          .hitTestBehavior(HitTestMode.Transparent)
-          .alignRules({
-            top: { anchor: '__container__', align: VerticalAlign.Top },
-            left: { anchor: '__container__', align: HorizontalAlign.Start }
-          })
         }
+        .id('guidance')
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.None)
+        .alignContent(Alignment.TopStart)
+        .alignRules({
+          top: { anchor: '__container__', align: VerticalAlign.Top },
+          left: { anchor: '__container__', align: HorizontalAlign.Start }
+        })
+        .onAreaChange((_o: Area, n: Area) => {
+          this.guidanceStackW = n.width as number;
+          this.guidanceStackH = n.height as number;
+        })
 
         // Center crosshair (always shown). White / green by angle.
         Stack() {

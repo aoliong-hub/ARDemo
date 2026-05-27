@@ -393,11 +393,13 @@ inline FinishState UpdateFinishState(FinishState prev, float &timerSec, float di
 // view / proj: 16 floats, column-major (the glm::value_ptr / OpenGL convention used by the
 // renderer). Eye space looks down local -Z, +X right, +Y up.
 struct OffscreenGuidance {
-    bool isInView;           // projects inside |ndc.x|<0.9 && |ndc.y|<0.9 AND in front (w>0)
+    bool isInView;           // projects inside |ndc.x|<1.3 && |ndc.y|<1.3 AND in front (w>0)
     bool isBehind;           // ring is (nearly) directly behind the player (|horizontal yaw|>135deg)
     float screenEdgeX;       // 0..1 left..right ratio to pin the thumbnail
     float screenEdgeY;       // 0..1 top..bottom ratio (screen coords, y grows downward)
     float indicatorAngleDeg; // arrow rotation, clockwise from 12 o'clock, pointing at the target
+    float ndcX;              // raw projected ndc.x (ArkTS derives the screen-space guidance ray from it)
+    float ndcY;              // raw projected ndc.y
 };
 
 // Multiply column-major 4x4 m by vec4 v -> r.
@@ -412,7 +414,10 @@ inline void ComputeOffscreenGuidance(const float view[16], const float proj[16],
                                      OffscreenGuidance &out)
 {
     constexpr float kPi = 3.14159265358979323846f;
-    constexpr float kMargin = 0.9f; // 10% screen-edge buffer
+    // The ring is a ~0.2m object: when its projected CENTER just leaves the screen (ndc=1.0) its
+    // body is often still partly visible. Allow the center to travel 30% past the edge before we
+    // call it off-screen, so guidance only appears once the ring itself is essentially gone.
+    constexpr float kMargin = 1.3f;
     constexpr float kEps = 1e-6f;
 
     float world[4] = {ringPos[0], ringPos[1], ringPos[2], 1.0f};
@@ -433,6 +438,8 @@ inline void ComputeOffscreenGuidance(const float view[16], const float proj[16],
     }
 
     out.isInView = inFront && std::fabs(ndcx) < kMargin && std::fabs(ndcy) < kMargin;
+    out.ndcX = ndcx; // projected ndc, consumed by the ArkTS guidance ray
+    out.ndcY = ndcy;
 
     // Horizontal yaw toward the ring in eye space: 0 dead ahead, +-180 directly behind.
     float yawToRing = std::atan2(eye[0], -eye[2]);

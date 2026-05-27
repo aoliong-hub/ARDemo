@@ -568,24 +568,26 @@ static void TestComputeOffscreenGuidance()
         ExpectTrue("4.not_in_view", !g.isInView);
         ExpectTrue("4.not_in_front_so_x_irrelevant_but_defined", g.screenEdgeX >= 0.0f && g.screenEdgeX <= 1.0f);
     }
-    // (5) inside the screen but close to the right edge (ndc.x ~ 0.85 < 0.9) -> STILL in view.
+    // (5) center past the old 0.9 edge but still within the 1.3 margin (ndc.x ~ 1.2) -> the ring
+    //     body is still partly on screen, so guidance must NOT show yet: STILL "in view".
     {
         float zf = -1.0f;
-        float wx = 0.85f * (-zf) / proj[0]; // worldX giving ndc.x = 0.85 at this depth
+        float wx = 1.2f * (-zf) / proj[0]; // worldX giving ndc.x = 1.2 at this depth
         float ring[3] = {wx, 0.0f, zf};
         OffscreenGuidance g;
         ComputeOffscreenGuidance(view, proj, ring, g);
-        ExpectTrue("5.still_in_view (ndc.x=0.85)", g.isInView);
+        ExpectTrue("5.still_in_view (ndc.x=1.2 < 1.3)", g.isInView);
         ExpectTrue("5.not_behind", !g.isBehind);
     }
-    // (6) just outside the right edge (ndc.x ~ 0.95 > 0.9) -> off-screen, pinned right.
+    // (6) center well past the 1.3 margin (ndc.x ~ 1.4) -> ring essentially gone -> off-screen,
+    //     pinned right.
     {
         float zf = -1.0f;
-        float wx = 0.95f * (-zf) / proj[0];
+        float wx = 1.4f * (-zf) / proj[0];
         float ring[3] = {wx, 0.0f, zf};
         OffscreenGuidance g;
         ComputeOffscreenGuidance(view, proj, ring, g);
-        ExpectTrue("6.not_in_view (ndc.x=0.95)", !g.isInView);
+        ExpectTrue("6.not_in_view (ndc.x=1.4 > 1.3)", !g.isInView);
         ExpectTrue("6.pinned_right_edge (x>0.9)", g.screenEdgeX > 0.9f);
     }
 }

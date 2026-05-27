@@ -76,7 +76,7 @@ public:
     virtual void GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad,
                               bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec,
                               bool &isTargetInView, float &screenEdgeX, float &screenEdgeY, bool &isBehind,
-                              float &indicatorAngleDeg)
+                              float &indicatorAngleDeg, float &ndcX, float &ndcY)
     {
         distance = 0.0f;
         angleRad = 0.0f;
@@ -91,6 +91,8 @@ public:
         screenEdgeY = 0.5f;
         isBehind = false;
         indicatorAngleDeg = 0.0f;
+        ndcX = 0.0f;
+        ndcY = 0.0f;
     }
 
 public:

@@ -204,8 +204,11 @@ void RingHuntApp::OnUpdate()
         mIsTargetInView.store(guide.isInView);
         mScreenEdgeX.store(guide.screenEdgeX);
         mScreenEdgeY.store(guide.screenEdgeY);
+        // Guidance points to the ring's position, not the ring-normal alignment target.
         mIsBehind.store(guide.isBehind);
         mIndicatorAngleDeg.store(guide.indicatorAngleDeg);
+        mNdcX.store(guide.ndcX); // projected ndc -> ArkTS screen-space guidance ray
+        mNdcY.store(guide.ndcY);
 
         mDistance.store(dist);
         mAngleRad.store(angle);
@@ -355,7 +358,7 @@ void RingHuntApp::ResetRing()
 void RingHuntApp::GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad,
                                bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec,
                                bool &isTargetInView, float &screenEdgeX, float &screenEdgeY, bool &isBehind,
-                               float &indicatorAngleDeg)
+                               float &indicatorAngleDeg, float &ndcX, float &ndcY)
 {
     distance = mDistance.load();
     angleRad = mAngleRad.load();
@@ -370,6 +373,8 @@ void RingHuntApp::GetRingState(float &distance, float &angleRad, float &yawDiffR
     screenEdgeY = mScreenEdgeY.load();
     isBehind = mIsBehind.load();
     indicatorAngleDeg = mIndicatorAngleDeg.load();
+    ndcX = mNdcX.load();
+    ndcY = mNdcY.load();
 }
 
 } // namespace ARObject

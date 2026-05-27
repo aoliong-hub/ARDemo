@@ -48,7 +48,8 @@ public:
     void ResetRing() override;
     void GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad, bool &distOnTarget,
                       bool &angOnTarget, int32_t &finishState, float &foundSec, bool &isTargetInView,
-                      float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg) override;
+                      float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
+                      float &ndcY) override;
 
 private:
     AREngine_ARSession *mArSession = nullptr;
@@ -86,6 +87,8 @@ private:
     std::atomic<float> mScreenEdgeY{0.5f};
     std::atomic<bool> mIsBehind{false};
     std::atomic<float> mIndicatorAngleDeg{0.0f};
+    std::atomic<float> mNdcX{0.0f}; // projected ndc -> ArkTS screen-space guidance ray
+    std::atomic<float> mNdcY{0.0f};
 
     uint64_t mWidth = 1080;
     uint64_t mHeight = 1920;

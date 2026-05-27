@@ -62,6 +62,8 @@ export interface RingState {
   screenEdgeY: number;        // 0..1 top..bottom ratio (screen coords, y down)
   isBehind: boolean;          // ring is directly behind the player (|yaw| > 135deg)
   indicatorAngleDeg: number;  // arrow rotation, clockwise from 12 o'clock, toward the target
+  ndcX: number;               // raw projected ndc.x (ArkTS derives the screen-space guidance ray)
+  ndcY: number;               // raw projected ndc.y
 }
 export const placeRing: (id: string) => number;
 export const resetRing: (id: string) => void;

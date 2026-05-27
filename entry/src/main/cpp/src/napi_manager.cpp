@@ -36,6 +36,17 @@ enum class ContextType {
 
 NapiManager NapiManager::manager_;
 
+namespace {
+void ClearPendingException(napi_env env)
+{
+    bool isPending = false;
+    if (napi_is_exception_pending(env, &isPending) == napi_ok && isPending) {
+        napi_value ignored = nullptr;
+        napi_get_and_clear_last_exception(env, &ignored);
+    }
+}
+} // namespace
+
 void NapiManager::OnSurfaceCreatedCB(OH_NativeXComponent *component, void *window)
 {
     LOGD("OnSurfaceCreatedCB");
@@ -131,29 +142,38 @@ bool NapiManager::Export(napi_env env, napi_value exports)
     char idStr[OH_XCOMPONENT_ID_LEN_MAX + 1] = {};
     uint64_t idSize = OH_XCOMPONENT_ID_LEN_MAX + 1;
 
+    bool hasXComponent = false;
+    status = napi_has_named_property(env, exports, OH_NATIVE_XCOMPONENT_OBJ, &hasXComponent);
+    if (status != napi_ok || !hasXComponent) {
+        ClearPendingException(env);
+        return true;
+    }
+
     status = napi_get_named_property(env, exports, OH_NATIVE_XCOMPONENT_OBJ, &exportInstance);
-    if (status != napi_ok) {
+    if (status != napi_ok || exportInstance == nullptr) {
+        ClearPendingException(env);
         LOGE("NapiManager::Export fail 0.");
-        return false;
+        return true;
     }
 
     status = napi_unwrap(env, exportInstance, reinterpret_cast<void **>(&nativeXComponent));
-    if (status != napi_ok) {
+    if (status != napi_ok || nativeXComponent == nullptr) {
+        ClearPendingException(env);
         LOGE("NapiManager::Export fail 1: %{public}d.", status);
-        return false;
+        return true;
     }
 
     ret = OH_NativeXComponent_GetXComponentId(nativeXComponent, idStr, &idSize);
     if (ret != OH_NATIVEXCOMPONENT_RESULT_SUCCESS) {
         LOGE("NapiManager::Export fail 2.");
-        return false;
+        return true;
     }
 
     std::string id(idStr);
     NapiManager *context = NapiManager::GetInstance();
     if (context == nullptr) {
         LOGE("NapiManager::Export fail 3.");
-        return false;
+        return true;
     }
 
     context->SetNativeXComponent(id, nativeXComponent);
@@ -701,8 +721,10 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     float screenEdgeY = 0.5f;
     bool isBehind = false;
     float indicatorAngleDeg = 0.0f;
+    float ndcX = 0.0f;
+    float ndcY = 0.0f;
     app->GetRingState(distance, angleRad, yawDiffRad, pitchDiffRad, distOnTarget, angOnTarget, finishState, foundSec,
-                      isTargetInView, screenEdgeX, screenEdgeY, isBehind, indicatorAngleDeg);
+                      isTargetInView, screenEdgeX, screenEdgeY, isBehind, indicatorAngleDeg, ndcX, ndcY);
 
     napi_value result = nullptr;
     napi_create_object(env, &result);
@@ -719,6 +741,8 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_value vEdgeY = nullptr;
     napi_value vBehind = nullptr;
     napi_value vIndicator = nullptr;
+    napi_value vNdcX = nullptr;
+    napi_value vNdcY = nullptr;
     const char *ringColor = distOnTarget ? "green" : "red";
     const char *arrowColor = angOnTarget ? "green" : "red";
     napi_create_double(env, static_cast<double>(distance), &vDist);
@@ -734,6 +758,8 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_create_double(env, static_cast<double>(screenEdgeY), &vEdgeY);
     napi_get_boolean(env, isBehind, &vBehind);
     napi_create_double(env, static_cast<double>(indicatorAngleDeg), &vIndicator);
+    napi_create_double(env, static_cast<double>(ndcX), &vNdcX);
+    napi_create_double(env, static_cast<double>(ndcY), &vNdcY);
     napi_set_named_property(env, result, "distance", vDist);
     napi_set_named_property(env, result, "angleRad", vAngle);
     napi_set_named_property(env, result, "yawDiffRad", vYaw);
@@ -747,6 +773,8 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_set_named_property(env, result, "screenEdgeY", vEdgeY);
     napi_set_named_property(env, result, "isBehind", vBehind);
     napi_set_named_property(env, result, "indicatorAngleDeg", vIndicator);
+    napi_set_named_property(env, result, "ndcX", vNdcX);
+    napi_set_named_property(env, result, "ndcY", vNdcY);
     return result;
 }
 
