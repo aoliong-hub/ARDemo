@@ -23,6 +23,7 @@
 #include "graphic/GLUtils.h"
 #include "wayfinder_geometry.h"
 #include <glm.hpp>
+#include <gtc/quaternion.hpp>
 
 namespace ARObject {
 
@@ -34,12 +35,13 @@ public:
     void Init();
     void Release();
 
-    // Render the whole beacon. wayfinderToWorld = translate(anchorPos) with world +Y up. cameraPos
-    // (world) orients the top badge to face the camera. color drives ground ring + pillar (distance
-    // red->green); animTime (seconds) revolves the whole badge + drives the ripple. distance
-    // (camera->beacon top, m) sets the ground ripple strength (off within 0.5m, stronger farther).
+    // Render the beacon. huntPhase 0 = APPROACHING (full wayfinder); 1/2 = ALIGNING/LOCKED (ground
+    // ring with stronger breathing + the 6DoF alignment frame at the beacon top, oriented by
+    // frameOrientation). frameHueTime drives the frame's hue rotation (frozen by the caller when
+    // LOCKED). Other params as before: color (distance red->mint), animTime (s), distance (m).
     void Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
-                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance);
+                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance, int huntPhase,
+                const glm::quat &frameOrientation, float frameHueTime);
 
 private:
     void DrawSolid(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase,
@@ -47,6 +49,8 @@ private:
     void DrawLines(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alpha);
     // Volumetric-noise fog: alphaBase is the fog's base alpha; time scrolls the noise upward.
     void DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase, float time);
+    // Alignment frame: pink->purple->blue gradient along uv.x, hue-rotated by hueTime.
+    void DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime);
 
     GLuint mSolidProgram = 0;
     GLint mSolidMvp = -1;
@@ -70,6 +74,12 @@ private:
     GLint mFogPos = -1;
     GLint mFogUv = -1;
 
+    GLuint mFrameProgram = 0;
+    GLint mFrameMvp = -1;
+    GLint mFrameTime = -1;
+    GLint mFramePos = -1;
+    GLint mFrameUv = -1;
+
     WayfinderMesh mGround;
     WayfinderMesh mCore;
     WayfinderMesh mFog;
@@ -78,6 +88,7 @@ private:
     WayfinderMesh mBadgeRingBloom;
     WayfinderMesh mBadgeDisk;
     WayfinderMesh mPhone;
+    WayfinderMesh mAlignFrame;
 };
 
 } // namespace ARObject

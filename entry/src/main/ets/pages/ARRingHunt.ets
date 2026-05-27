@@ -17,6 +17,7 @@ import { display } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { vibrator } from '@kit.SensorServiceKit';
 import arEngineDemo from 'libentry.so';
 import { RingState } from 'libentry.so';
 import { Logger } from '../utils/Logger';
@@ -56,6 +57,15 @@ struct ARRingHunt {
 
   @State distance: number = 99;
   @State ringPlaced: boolean = false;
+
+  // Stage 11D: 6DoF alignment challenge.
+  @State huntPhase: number = 0; // 0=APPROACHING 1=ALIGNING 2=LOCKED
+  @State yawDiffRad: number = 0;
+  @State pitchDiffRad: number = 0;
+  @State isAligned: boolean = false;
+  @State isLocked: boolean = false;
+  @State isViewingFromBack: boolean = false; // ALIGNING: on the wrong side -> show droplet
+  private prevLocked: boolean = false;
 
   // Off-screen target guidance.
   @State isTargetInView: boolean = true;
@@ -101,6 +111,45 @@ struct ARRingHunt {
 
   private distText(): string {
     return this.distance.toFixed(2);
+  }
+
+  // ---- Stage 11D alignment HUD: dot offset driven by yaw/pitch diff (max at 30deg) ----
+  private readonly kMaxOffset: number = 200;
+
+  // Dot position = the frame's direction relative to you: frame to your right -> dot right; frame
+  // pointing down -> dot down. (Stage 11D micro-tune: both signs flipped from the initial mapping.)
+  private dotOffsetX(): number {
+    let yawDeg: number = this.clamp(this.yawDiffRad * 180 / Math.PI, -30, 30);
+    return -(yawDeg / 30) * this.kMaxOffset;
+  }
+
+  private dotOffsetY(): number {
+    let pitchDeg: number = this.clamp(this.pitchDiffRad * 180 / Math.PI, -30, 30);
+    return (pitchDeg / 30) * this.kMaxOffset;
+  }
+
+  // Dot color: far from center = red, near center = green.
+  private dotColor(): string {
+    let ox: number = this.dotOffsetX();
+    let oy: number = this.dotOffsetY();
+    let d: number = Math.sqrt(ox * ox + oy * oy);
+    let t: number = this.clamp(1 - d / this.kMaxOffset, 0, 1);
+    let r: number = Math.round(255 + (76 - 255) * t);
+    let g: number = Math.round(76 + (255 - 76) * t);
+    let b: number = Math.round(76 + (102 - 76) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  private triggerLockVibration(): void {
+    try {
+      vibrator.startVibration({ type: 'time', duration: 80 }, { usage: 'notification' })
+        .catch((err: BusinessError) => {
+          Logger.warn(`vibrate failed: code=${err.code} msg=${err.message}`);
+        });
+    } catch (e) {
+      let err: BusinessError = e as BusinessError;
+      Logger.warn(`vibrate exception: ${err.message}`);
+    }
   }
 
   // ---- Off-screen guidance ----
@@ -403,8 +452,13 @@ struct ARRingHunt {
   // Reconcile guidance visibility with a 0.3s opacity transition. Very close (< 0.30m, the beacon
   // is in your face) is suppressed to avoid near-clip projection jitter.
   private reconcileGuidance(): void {
-    let shouldShow: boolean =
-      this.ringPlaced && !this.isTargetInView && this.distance >= 0.30;
+    // Droplet shows: (a) APPROACHING with the beacon off-screen (>=0.30m, avoids near-clip jitter),
+    // or (b) ALIGNING while viewing the frame from the wrong side (guide the user around to the
+    // front). ALIGNING-front and LOCKED use the HUD / banner instead.
+    let approaching: boolean =
+      this.huntPhase === 0 && this.ringPlaced && !this.isTargetInView && this.distance >= 0.30;
+    let aligningBack: boolean = this.huntPhase === 1 && this.isViewingFromBack;
+    let shouldShow: boolean = approaching || aligningBack;
     if (shouldShow === this.guidanceShown) {
       // Already in the right state: keep breathing/particle speed in sync with distance.
       if (shouldShow) {
@@ -489,6 +543,16 @@ struct ARRingHunt {
               this.indicatorAngleDeg = s.indicatorAngleDeg;
               this.ndcX = s.ndcX;
               this.ndcY = s.ndcY;
+              this.huntPhase = s.huntPhase;
+              this.yawDiffRad = s.yawDiffRad;
+              this.pitchDiffRad = s.pitchDiffRad;
+              this.isAligned = s.isAligned;
+              this.isLocked = s.isLocked;
+              this.isViewingFromBack = s.isViewingFromBack;
+              if (this.isLocked && !this.prevLocked) {
+                this.triggerLockVibration(); // rising edge: LOCKED reached
+              }
+              this.prevLocked = this.isLocked;
               this.reconcileGuidance();
             }, 62)
           })
@@ -585,9 +649,55 @@ struct ARRingHunt {
           this.guidanceStackH = n.height as number;
         })
 
-        // Bottom HUD: live distance + place/reset buttons.
+        // Stage 11D ALIGNING HUD: a fixed white crosshair at screen center + a red/green dot that
+        // tracks the yaw/pitch diff to the 6DoF frame normal (centered = aligned). Only when viewing
+        // the frame's front side; from the back the droplet (above) leads you around instead.
+        if (this.huntPhase === 1 && !this.isViewingFromBack) {
+          Stack({ alignContent: Alignment.Center }) {
+            // Crosshair (two thin white bars).
+            Row().width(56).height(3).backgroundColor('#E6FFFFFF')
+            Column().width(3).height(56).backgroundColor('#E6FFFFFF')
+            // Reference ring at the max-offset radius.
+            Circle()
+              .width(this.kMaxOffset * 2)
+              .height(this.kMaxOffset * 2)
+              .fillOpacity(0)
+              .stroke('#66FFFFFF')
+              .strokeWidth(2)
+            // The aiming dot.
+            Circle()
+              .width(28)
+              .height(28)
+              .fill(this.dotColor())
+              .translate({ x: this.dotOffsetX(), y: this.dotOffsetY() })
+          }
+          .id('alignHud')
+          .hitTestBehavior(HitTestMode.None)
+          .alignRules({
+            center: { anchor: '__container__', align: VerticalAlign.Center },
+            middle: { anchor: '__container__', align: HorizontalAlign.Center }
+          })
+        }
+
+        // Stage 11D LOCKED banner.
+        if (this.huntPhase === 2) {
+          Text('对齐成功!')
+            .fontSize(48)
+            .fontColor('#FF00E676')
+            .fontWeight(FontWeight.Bold)
+            .backgroundColor('#A0000000')
+            .padding({ left: 28, right: 28, top: 16, bottom: 16 })
+            .borderRadius(14)
+            .id('lockedBanner')
+            .alignRules({
+              center: { anchor: '__container__', align: VerticalAlign.Center },
+              middle: { anchor: '__container__', align: HorizontalAlign.Center }
+            })
+        }
+
+        // Bottom HUD: live distance + place/reset buttons (place only in APPROACHING).
         Column({ space: 8 }) {
-          if (this.ringPlaced) {
+          if (this.ringPlaced && this.huntPhase !== 2) {
             Text(`距离 ${this.distText()}m`)
               .fontSize(18)
               .fontColor(Color.White)
@@ -596,28 +706,35 @@ struct ARRingHunt {
               .borderRadius(6)
           }
           Row({ space: 10 }) {
-            Button('放置信标')
-              .layoutWeight(1)
-              .onClick(() => {
-                let id: number = arEngineDemo.placeRing(this.idStr);
-                Logger.info(`[RingHunt] placeRing -> ${id}`);
-                if (id < 0) {
-                  try {
-                    this.getUIContext().getPromptAction().showToast({ message: '请稳住手机等待跟踪稳定', duration: 1500 });
-                  } catch (e) {
-                    let err: BusinessError = e as BusinessError;
-                    Logger.warn(`toast failed: ${err.message}`);
+            if (this.huntPhase === 0) {
+              Button('放置信标')
+                .layoutWeight(1)
+                .onClick(() => {
+                  let id: number = arEngineDemo.placeRing(this.idStr);
+                  Logger.info(`[RingHunt] placeRing -> ${id}`);
+                  if (id < 0) {
+                    try {
+                      this.getUIContext().getPromptAction().showToast({ message: '请稳住手机等待跟踪稳定', duration: 1500 });
+                    } catch (e) {
+                      let err: BusinessError = e as BusinessError;
+                      Logger.warn(`toast failed: ${err.message}`);
+                    }
+                  } else {
+                    this.ringPlaced = true;
                   }
-                } else {
-                  this.ringPlaced = true;
-                }
-              })
+                })
+            }
             Button('重置')
               .layoutWeight(1)
               .onClick(() => {
                 arEngineDemo.resetRing(this.idStr);
                 this.distance = 99;
                 this.ringPlaced = false;
+                this.huntPhase = 0;
+                this.isAligned = false;
+                this.isLocked = false;
+                this.isViewingFromBack = false;
+                this.prevLocked = false;
                 this.resetGuidance();
                 Logger.info(`[RingHunt] resetRing`);
               })

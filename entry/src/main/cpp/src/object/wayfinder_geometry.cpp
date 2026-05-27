@@ -69,6 +69,29 @@ void AppendLineSeg(WayfinderMesh &m, float x0, float y0, float x1, float y1)
     m.indices.push_back(base);
     m.indices.push_back(static_cast<uint16_t>(base + 1));
 }
+
+// Fill `pts` (x,y pairs) with the perimeter points of a rounded rect (XY plane), 4 corner arcs of
+// (segPerCorner+1) points each in order BR, TR, TL, BL. Returns the point count. Straight edges fall
+// out of connecting consecutive corner-arc endpoints.
+int RoundedRectPerimeter(std::vector<float> &pts, float hw, float hh, float r, int segPerCorner)
+{
+    if (segPerCorner < 1) {
+        segPerCorner = 1;
+    }
+    const float ccx[4] = {hw - r, hw - r, -(hw - r), -(hw - r)};
+    const float ccy[4] = {-(hh - r), hh - r, hh - r, -(hh - r)};
+    const float a0[4] = {-kHalfPi, 0.0f, kHalfPi, kPi};
+    int count = 0;
+    for (int c = 0; c < 4; ++c) {
+        for (int s = 0; s <= segPerCorner; ++s) {
+            float a = a0[c] + kHalfPi * static_cast<float>(s) / segPerCorner;
+            pts.push_back(ccx[c] + r * std::cos(a));
+            pts.push_back(ccy[c] + r * std::sin(a));
+            ++count;
+        }
+    }
+    return count;
+}
 } // namespace
 
 WayfinderMesh WayfinderGeometry::CreateGroundRing(float outerRadius, float innerRadius, int segments)
@@ -294,6 +317,42 @@ WayfinderMesh WayfinderGeometry::CreatePhoneIconRounded(float width, float heigh
     AppendLineSeg(m, -hw * 0.32f, -hh * 0.82f, hw * 0.32f, -hh * 0.82f);
     // Inner screen: smaller rounded rectangle (4mm corner radius), inset to leave room top/bottom.
     AppendRoundedRectLoop(m, 0.0f, 0.0f, hw * 0.72f, hh * 0.60f, 0.004f, 4);
+    return m;
+}
+
+WayfinderMesh WayfinderGeometry::CreateAlignmentFrame(float width, float height, float thickness, float cornerRadius,
+                                                      int segPerCorner)
+{
+    WayfinderMesh m;
+    const float hw = width * 0.5f;
+    const float hh = height * 0.5f;
+    float rInner = cornerRadius - thickness;
+    if (rInner < 0.001f) {
+        rInner = 0.001f;
+    }
+    std::vector<float> outer;
+    std::vector<float> inner;
+    int count = RoundedRectPerimeter(outer, hw, hh, cornerRadius, segPerCorner);
+    RoundedRectPerimeter(inner, hw - thickness, hh - thickness, rInner, segPerCorner);
+    // Pair outer[i] / inner[i] (same perimeter index) into a band. uv.x = perimeter param for the
+    // hue gradient; uv.y = 1 outer / 0 inner.
+    for (int i = 0; i < count; ++i) {
+        float u = static_cast<float>(i) / count;
+        PushVtx(m, outer[2 * i], outer[2 * i + 1], 0.0f, 0.0f, 0.0f, 1.0f, u, 1.0f); // outer = 2i
+        PushVtx(m, inner[2 * i], inner[2 * i + 1], 0.0f, 0.0f, 0.0f, 1.0f, u, 0.0f); // inner = 2i+1
+    }
+    for (int i = 0; i < count; ++i) {
+        uint16_t o0 = static_cast<uint16_t>(2 * i);
+        uint16_t i0 = static_cast<uint16_t>(2 * i + 1);
+        uint16_t o1 = static_cast<uint16_t>(2 * ((i + 1) % count));
+        uint16_t i1 = static_cast<uint16_t>(2 * ((i + 1) % count) + 1);
+        m.indices.push_back(o0);
+        m.indices.push_back(i0);
+        m.indices.push_back(i1);
+        m.indices.push_back(o0);
+        m.indices.push_back(i1);
+        m.indices.push_back(o1);
+    }
     return m;
 }
 

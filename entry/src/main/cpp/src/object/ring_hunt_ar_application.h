@@ -50,7 +50,8 @@ public:
     void ResetRing() override;
     void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
-                      float &ndcY) override;
+                      float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad, bool &isAligned,
+                      bool &isLocked, bool &isViewingFromBack) override;
 
 private:
     AREngine_ARSession *mArSession = nullptr;
@@ -60,16 +61,36 @@ private:
     AREngine_ARAnchor *mRingAnchor = nullptr;
     int32_t mNextId = 1;
 
-    // Animation clock (task thread only): drives the top spinner.
+    // Animation clock (task thread only): drives the spinner/ripple/breathing. mFrameHueTime tracks
+    // mAnimTime but freezes once LOCKED so the alignment frame's hue stops cycling.
     float mAnimTime = 0.0f;
+    float mFrameHueTime = 0.0f;
     std::chrono::steady_clock::time_point mLastFrameTime;
     bool mHasLastFrame = false;
+
+    // 6DoF alignment target (task thread only): a random orientation generated at placeRing.
+    float mTargetYaw = 0.0f;   // about world +Y
+    float mTargetPitch = 0.0f; // about world +X
+    float mTargetRoll = 0.0f;  // about world +Z (forward axis)
+
+    // State-machine debounce timers (task thread only), seconds.
+    float mToAligningTimer = 0.0f;
+    float mToApproachingTimer = 0.0f;
+    float mLockTimer = 0.0f;
 
     // Shared with the ArkTS poll (getRingState).
     std::atomic<bool> mReady{false};
     std::atomic<bool> mHasRing{false};
     std::atomic<bool> mCameraTracking{false};
     std::atomic<float> mDistance{99.0f};
+
+    // Stage 11D 6DoF alignment challenge state.
+    std::atomic<int32_t> mHuntPhase{0}; // 0=APPROACHING 1=ALIGNING 2=LOCKED
+    std::atomic<float> mYawDiffRad{0.0f};
+    std::atomic<float> mPitchDiffRad{0.0f};
+    std::atomic<bool> mIsAligned{false};
+    std::atomic<bool> mIsLocked{false};
+    std::atomic<bool> mIsViewingFromBack{false}; // ALIGNING: camera is on the wrong side of the frame
 
     // Off-screen target guidance (computed each tracked frame from the view/proj matrices, targeting
     // the beacon top). Default "in view" so guidance stays hidden until a beacon is placed.

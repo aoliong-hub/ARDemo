@@ -481,6 +481,26 @@ inline float ComputeYawToFaceCamera(const float objPos[3], const float camPos[3]
     return std::atan2(-dx, -dz) + frontYawOffset;
 }
 
+// Stage 11D: yaw/pitch difference between an alignment-frame normal and the camera forward (both
+// world-space unit vectors), driving the 6DoF alignment HUD. yawDiff is wrapped to [-pi, pi];
+// pitchDiff = asin(normal.y) - asin(forward.y). Zero on both means the camera faces the frame.
+inline void ComputeFrameAlignDiff(const float frameNormal[3], const float cameraForward[3], float &yawDiffRad,
+                                  float &pitchDiffRad)
+{
+    const float kPi = 3.14159265358979323846f;
+    float yaw = std::atan2(frameNormal[0], frameNormal[2]) - std::atan2(cameraForward[0], cameraForward[2]);
+    while (yaw > kPi) {
+        yaw -= 2.0f * kPi;
+    }
+    while (yaw < -kPi) {
+        yaw += 2.0f * kPi;
+    }
+    float ny = frameNormal[1] > 1.0f ? 1.0f : (frameNormal[1] < -1.0f ? -1.0f : frameNormal[1]);
+    float fy = cameraForward[1] > 1.0f ? 1.0f : (cameraForward[1] < -1.0f ? -1.0f : cameraForward[1]);
+    yawDiffRad = yaw;
+    pitchDiffRad = std::asin(ny) - std::asin(fy);
+}
+
 } // namespace ARObject
 
 #endif // OBJECT_MATH_H

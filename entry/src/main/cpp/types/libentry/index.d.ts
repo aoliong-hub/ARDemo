@@ -60,6 +60,13 @@ export interface RingState {
   indicatorAngleDeg: number;  // arrow rotation, clockwise from 12 o'clock, toward the target
   ndcX: number;               // raw projected ndc.x (ArkTS derives the screen-space guidance ray)
   ndcY: number;               // raw projected ndc.y
+  // Stage 11D: 6DoF alignment challenge.
+  huntPhase: number;          // 0=APPROACHING 1=ALIGNING 2=LOCKED
+  yawDiffRad: number;         // yaw difference to the alignment frame normal
+  pitchDiffRad: number;       // pitch difference to the alignment frame normal
+  isAligned: boolean;         // instantaneous: within 5deg yaw+pitch and <30cm
+  isLocked: boolean;          // alignment held 0.5s -> LOCKED
+  isViewingFromBack: boolean; // ALIGNING: camera is on the wrong side of the frame (show droplet)
 }
 export const placeRing: (id: string) => number;
 export const resetRing: (id: string) => void;

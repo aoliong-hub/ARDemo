@@ -59,7 +59,8 @@ void RingHuntRenderManager::DrawBlack()
 
 bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
                                         AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color,
-                                        float distance, RingCameraInfo *outCam)
+                                        float distance, int huntPhase, const glm::quat &frameOrientation,
+                                        float frameHueTime, RingCameraInfo *outCam)
 {
     if (!isInited) {
         LOGE("RingHuntRenderManager not ready!");
@@ -126,7 +127,8 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
             // Translate the whole beacon to the anchor with world +Y preserved (no anchor
             // rotation), so the ground ring lies flat on the floor and the pillar rises straight up.
             glm::mat4 wayfinderToWorld = glm::translate(glm::mat4(1.0f), ringPos);
-            mWayfinderRenderer.Render(viewMat, projectionMat, wayfinderToWorld, cameraPos, color, animTime, distance);
+            mWayfinderRenderer.Render(viewMat, projectionMat, wayfinderToWorld, cameraPos, color, animTime, distance,
+                                      huntPhase, frameOrientation, frameHueTime);
         }
     }
 

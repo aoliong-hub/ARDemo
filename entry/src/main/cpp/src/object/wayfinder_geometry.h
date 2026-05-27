@@ -78,6 +78,13 @@ public:
     // (short line segments approximate the arcs) and it adds an earpiece slit + home-button line.
     // 5cm x 9cm body, 6mm body corner radius, 4mm screen corner radius. GL_LINES list.
     static WayfinderMesh CreatePhoneIconRounded(float width = 0.05f, float height = 0.09f);
+
+    // Alignment frame (Stage 11D): a rounded-rectangle BORDER (a filled band of `thickness`) in the
+    // XY plane (z=0), normal +Z, centered at the origin. Rendered as a triangle list. uv.x runs
+    // 0..1 around the perimeter (drives the hue gradient); uv.y = 0 inner edge / 1 outer edge.
+    // 15x30cm outer, 1.0cm band, 1.0cm outer corner radius. Oriented in 6DoF by the renderer.
+    static WayfinderMesh CreateAlignmentFrame(float width = 0.15f, float height = 0.30f, float thickness = 0.010f,
+                                              float cornerRadius = 0.010f, int segPerCorner = 8);
 };
 
 } // namespace ARObject

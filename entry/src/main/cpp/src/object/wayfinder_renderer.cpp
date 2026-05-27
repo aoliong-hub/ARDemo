@@ -17,6 +17,7 @@
 #include "utils/log.h"
 #include <cmath>
 #include <gtc/matrix_transform.hpp>
+#include <gtc/quaternion.hpp>
 #include <gtc/type_ptr.hpp>
 
 namespace ARObject {
@@ -103,6 +104,41 @@ constexpr char FOG_FS[] = R"(
     }
 )";
 
+// Alignment frame program (Stage 11D): pink->purple->blue gradient along uv.x (the perimeter), with
+// a YIQ-style RGB hue rotation by u_time so the whole frame cycles colors. alpha 0.85.
+constexpr char FRAME_VS[] = R"(
+    uniform mat4 u_mvp;
+    attribute vec4 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 v_uv;
+    void main() {
+        v_uv = a_uv;
+        gl_Position = u_mvp * a_pos;
+    }
+)";
+constexpr char FRAME_FS[] = R"(
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform float u_time;
+    vec3 hueRotate(vec3 col, float angle) {
+        float c = cos(angle);
+        float s = sin(angle);
+        vec3 r = vec3(0.299 + 0.701 * c + 0.168 * s, 0.587 - 0.587 * c + 0.330 * s, 0.114 - 0.114 * c - 0.497 * s);
+        vec3 g = vec3(0.299 - 0.299 * c - 0.328 * s, 0.587 + 0.413 * c + 0.035 * s, 0.114 - 0.114 * c + 0.292 * s);
+        vec3 b = vec3(0.299 - 0.300 * c + 1.250 * s, 0.587 - 0.588 * c - 1.050 * s, 0.114 + 0.886 * c - 0.203 * s);
+        return vec3(dot(r, col), dot(g, col), dot(b, col));
+    }
+    void main() {
+        vec3 pink = vec3(0.95, 0.3, 0.7);
+        vec3 purple = vec3(0.5, 0.3, 0.95);
+        vec3 blue = vec3(0.3, 0.6, 0.95);
+        float x = v_uv.x;
+        vec3 base = (x < 0.5) ? mix(pink, purple, x * 2.0) : mix(purple, blue, (x - 0.5) * 2.0);
+        vec3 col = clamp(hueRotate(base, u_time * 0.7853982), 0.0, 1.0); // 8s per full hue cycle
+        gl_FragColor = vec4(col, 0.85);
+    }
+)";
+
 const glm::vec3 kBadgeRingColor(0.70f, 0.70f, 0.74f); // gray rim
 const glm::vec3 kBadgeDiskColor(0.45f, 0.45f, 0.48f); // darker semi-transparent medallion
 const glm::vec3 kPhoneColor(1.0f, 1.0f, 1.0f);        // white wireframe
@@ -145,6 +181,16 @@ void WayfinderRenderer::Init()
         LOGE("WayfinderRenderer: fog program failed; falling back to plain fog.");
     }
 
+    mFrameProgram = GLUtils::CreateProgram(FRAME_VS, FRAME_FS);
+    if (mFrameProgram) {
+        mFrameMvp = glGetUniformLocation(mFrameProgram, "u_mvp");
+        mFrameTime = glGetUniformLocation(mFrameProgram, "u_time");
+        mFramePos = glGetAttribLocation(mFrameProgram, "a_pos");
+        mFrameUv = glGetAttribLocation(mFrameProgram, "a_uv");
+    } else {
+        LOGE("WayfinderRenderer: alignment-frame program failed to compile.");
+    }
+
     mGround = WayfinderGeometry::CreateGroundRing();
     mCore = WayfinderGeometry::CreatePillarCore();
     mFog = WayfinderGeometry::CreatePillarFog();
@@ -153,6 +199,7 @@ void WayfinderRenderer::Init()
     mBadgeRingBloom = WayfinderGeometry::CreateBadgeRingBloom();
     mBadgeDisk = WayfinderGeometry::CreateTopBadgeDisk();
     mPhone = WayfinderGeometry::CreatePhoneIconRounded();
+    mAlignFrame = WayfinderGeometry::CreateAlignmentFrame();
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
 
@@ -169,6 +216,10 @@ void WayfinderRenderer::Release()
     if (mFogProgram) {
         GLUtils::ReleaseProgram(mFogProgram);
         mFogProgram = 0;
+    }
+    if (mFrameProgram) {
+        GLUtils::ReleaseProgram(mFrameProgram);
+        mFrameProgram = 0;
     }
 }
 
@@ -236,8 +287,27 @@ void WayfinderRenderer::DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh,
     glDisableVertexAttribArray(mFogUv);
 }
 
+void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime)
+{
+    if (mesh.indices.empty() || !mFrameProgram) {
+        return;
+    }
+    glDepthMask(GL_FALSE);
+    glUseProgram(mFrameProgram);
+    glUniformMatrix4fv(mFrameMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniform1f(mFrameTime, hueTime);
+    glEnableVertexAttribArray(mFramePos);
+    glEnableVertexAttribArray(mFrameUv);
+    glVertexAttribPointer(mFramePos, 3, GL_FLOAT, GL_FALSE, 0, mesh.positions.data());
+    glVertexAttribPointer(mFrameUv, 2, GL_FLOAT, GL_FALSE, 0, mesh.uvs.data());
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.indices.size()), GL_UNSIGNED_SHORT, mesh.indices.data());
+    glDisableVertexAttribArray(mFramePos);
+    glDisableVertexAttribArray(mFrameUv);
+}
+
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
-                               const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance)
+                               const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance,
+                               int huntPhase, const glm::quat &frameOrientation, float frameHueTime)
 {
     if (!mSolidProgram || !mLineProgram) {
         return;
@@ -250,6 +320,22 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
 
     const glm::mat4 vp = proj * view;
     const glm::mat4 mvp = vp * wayfinderToWorld;
+
+    // ALIGNING (1) / LOCKED (2): hide the pillar/badge/ripple; show only the ground ring (with a
+    // stronger, faster breath) + the 6DoF alignment frame at the beacon top. The frame's hue is
+    // driven by frameHueTime, which the caller freezes once LOCKED.
+    if (huntPhase != 0) {
+        float bPhase = std::fmod(animTime, 0.8f) / 0.8f;
+        float bAlpha = 0.5f + 0.5f * (0.5f + 0.5f * std::sin(bPhase * kTwoPi - kHalfPi)); // 0.5..1.0
+        DrawSolid(mvp, mGround, color, 0.85f * bAlpha, 0.85f * bAlpha, true);
+        glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, kWayfinderTopHeight, 0.0f);
+        glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * glm::mat4_cast(frameOrientation);
+        DrawFrame(vp * frameModel, mAlignFrame, frameHueTime);
+        glDepthMask(GL_TRUE);
+        glUseProgram(0);
+        GLUtils::CheckError(__FILE_NAME__, __LINE__);
+        return;
+    }
 
     // 1. ground ring (writes depth) — breathes alpha 0.7<->1.0 over 1.3s.
     float breathPhase = std::fmod(animTime, 1.3f) / 1.3f;

@@ -592,6 +592,49 @@ static void TestComputeOffscreenGuidance()
     }
 }
 
+static void TestComputeFrameAlignDiff()
+{
+    std::printf("[TEST] ComputeFrameAlignDiff\n");
+    {
+        // Same direction -> zero diff.
+        float n[3] = {0.0f, 0.0f, -1.0f};
+        float f[3] = {0.0f, 0.0f, -1.0f};
+        float yaw = 9.0f;
+        float pitch = 9.0f;
+        ComputeFrameAlignDiff(n, f, yaw, pitch);
+        ExpectNear("a.yaw=0", yaw, 0.0f);
+        ExpectNear("a.pitch=0", pitch, 0.0f);
+    }
+    {
+        // Frame normal +X (atan2(1,0)=+pi/2), forward -Z (atan2(0,-1)=pi): yaw = -pi/2.
+        float n[3] = {1.0f, 0.0f, 0.0f};
+        float f[3] = {0.0f, 0.0f, -1.0f};
+        float yaw = 0.0f;
+        float pitch = 0.0f;
+        ComputeFrameAlignDiff(n, f, yaw, pitch);
+        ExpectNear("b.yaw=-pi/2", yaw, -1.5707963f);
+        ExpectNear("b.pitch=0", pitch, 0.0f);
+    }
+    {
+        // Frame tilted 30deg up vs level forward -> pitch ~ +30deg.
+        float n[3] = {0.0f, 0.5f, -0.8660254f};
+        float f[3] = {0.0f, 0.0f, -1.0f};
+        float yaw = 0.0f;
+        float pitch = 0.0f;
+        ComputeFrameAlignDiff(n, f, yaw, pitch);
+        ExpectNear("c.pitch=30deg", pitch, 0.5235988f, 1e-3f);
+    }
+    {
+        // Wrap check: frame atan2 near +pi, forward near -pi -> wrapped to small, not ~2pi.
+        float n[3] = {0.01f, 0.0f, 1.0f};   // atan2(0.01,1) ~ +0.01
+        float f[3] = {-0.01f, 0.0f, 1.0f};  // atan2(-0.01,1) ~ -0.01
+        float yaw = 0.0f;
+        float pitch = 0.0f;
+        ComputeFrameAlignDiff(n, f, yaw, pitch);
+        ExpectNear("d.yaw_small", yaw, 0.02f, 1e-2f);
+    }
+}
+
 int main()
 {
     std::printf("==== object_math unit tests ====\n");
@@ -609,6 +652,7 @@ int main()
     TestUpdateFinishState();
     TestComputeYawPitchDiff();
     TestComputeOffscreenGuidance();
+    TestComputeFrameAlignDiff();
     std::printf("==== %d checks, %d failures ====\n", g_checks, g_failures);
     if (g_failures == 0) {
         std::printf("RESULT: ALL PASS\n");

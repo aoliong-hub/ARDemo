@@ -718,8 +718,15 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     float indicatorAngleDeg = 0.0f;
     float ndcX = 0.0f;
     float ndcY = 0.0f;
+    int32_t huntPhase = 0;
+    float yawDiffRad = 0.0f;
+    float pitchDiffRad = 0.0f;
+    bool isAligned = false;
+    bool isLocked = false;
+    bool isViewingFromBack = false;
     app->GetRingState(distance, ringPlaced, finishState, isTargetInView, screenEdgeX, screenEdgeY, isBehind,
-                      indicatorAngleDeg, ndcX, ndcY);
+                      indicatorAngleDeg, ndcX, ndcY, huntPhase, yawDiffRad, pitchDiffRad, isAligned, isLocked,
+                      isViewingFromBack);
 
     napi_value result = nullptr;
     napi_create_object(env, &result);
@@ -733,6 +740,12 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_value vIndicator = nullptr;
     napi_value vNdcX = nullptr;
     napi_value vNdcY = nullptr;
+    napi_value vHuntPhase = nullptr;
+    napi_value vYaw = nullptr;
+    napi_value vPitch = nullptr;
+    napi_value vAligned = nullptr;
+    napi_value vLocked = nullptr;
+    napi_value vViewBack = nullptr;
     napi_create_double(env, static_cast<double>(distance), &vDist);
     napi_get_boolean(env, ringPlaced, &vPlaced);
     napi_create_int32(env, finishState, &vFinish);
@@ -743,6 +756,12 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_create_double(env, static_cast<double>(indicatorAngleDeg), &vIndicator);
     napi_create_double(env, static_cast<double>(ndcX), &vNdcX);
     napi_create_double(env, static_cast<double>(ndcY), &vNdcY);
+    napi_create_int32(env, huntPhase, &vHuntPhase);
+    napi_create_double(env, static_cast<double>(yawDiffRad), &vYaw);
+    napi_create_double(env, static_cast<double>(pitchDiffRad), &vPitch);
+    napi_get_boolean(env, isAligned, &vAligned);
+    napi_get_boolean(env, isLocked, &vLocked);
+    napi_get_boolean(env, isViewingFromBack, &vViewBack);
     napi_set_named_property(env, result, "distance", vDist);
     napi_set_named_property(env, result, "ringPlaced", vPlaced);
     napi_set_named_property(env, result, "finishState", vFinish);
@@ -753,6 +772,12 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_set_named_property(env, result, "indicatorAngleDeg", vIndicator);
     napi_set_named_property(env, result, "ndcX", vNdcX);
     napi_set_named_property(env, result, "ndcY", vNdcY);
+    napi_set_named_property(env, result, "huntPhase", vHuntPhase);
+    napi_set_named_property(env, result, "yawDiffRad", vYaw);
+    napi_set_named_property(env, result, "pitchDiffRad", vPitch);
+    napi_set_named_property(env, result, "isAligned", vAligned);
+    napi_set_named_property(env, result, "isLocked", vLocked);
+    napi_set_named_property(env, result, "isViewingFromBack", vViewBack);
     return result;
 }
 
