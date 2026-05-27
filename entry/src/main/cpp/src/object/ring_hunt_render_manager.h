@@ -17,21 +17,20 @@
 #define RING_HUNT_RENDER_MANAGER_H
 
 #include "ar/ar_engine_core.h"
-#include "disk_renderer.h"
 #include "graphic/RenderContext.h"
 #include "graphic/RenderSurface.h"
-#include "ring_renderer.h"
+#include "wayfinder_renderer.h"
 #include "world/world_background_renderer.h" // reused camera background (NOT modified)
 #include <glm.hpp>
 
 namespace ARObject {
 
+// Camera info the app thread needs each frame: tracking + world position (distance feedback) and
+// the column-major view/projection matrices, so the app can project the beacon top to screen space
+// for the off-screen guidance UI. Filled every drawn frame.
 struct RingCameraInfo {
     bool tracking = false;
-    float quatXYZW[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     float pos[3] = {0.0f, 0.0f, 0.0f};
-    // Stage 10: column-major view/projection matrices, so the app thread can project the ring
-    // world position to screen space for the off-screen guidance UI. Filled every drawn frame.
     float viewMat[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     float projMat[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
@@ -44,20 +43,19 @@ public:
     void Initialize(void *window, AREngine_ARSession *arSession);
     void Release();
 
-    // Draws background + (if present) the ring (Fresnel glow; ring=distance, arrow=angle), plus a
-    // near-proximity billboard glow disk (distance < 0.30, color = green when double-aligned).
-    // Fills *outCam.
+    // Draws background + (if a beacon is placed and its anchor is tracking) the Wayfinder beacon at
+    // the anchor: ground ring + pillar core/fog + spinning top + phone icon. color drives the
+    // ring/pillar tint (Stage 11A: fixed red), animTime spins the top ring. Fills *outCam.
     bool OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
-                     AREngine_ARAnchor *ringAnchor, const float *ringQuatXYZW, bool distOnTarget, bool angOnTarget,
-                     float distance, RingCameraInfo *outCam);
+                     AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color, float distance,
+                     RingCameraInfo *outCam);
     void DrawBlack();
 
     GLuint GetPreviewTextureId() { return mBackgroundRenderer.GetTextureId(); }
 
 private:
     ARWorld::WorldBackgroundRenderer mBackgroundRenderer = ARWorld::WorldBackgroundRenderer();
-    RingRenderer mRingRenderer;
-    DiskRenderer mDiskRenderer;
+    WayfinderRenderer mWayfinderRenderer;
 
     RenderContext mRenderContext;
     RenderSurface mRenderSurface;

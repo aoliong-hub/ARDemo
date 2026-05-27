@@ -15,28 +15,13 @@
 
 #include "ring_hunt_render_manager.h"
 #include "app_util.h"
-#include "object_math.h"
 #include "renderer_ref.h"
 #include "utils/log.h"
 #include <cstring>
 #include <gtc/matrix_transform.hpp>
-#include <gtc/quaternion.hpp>
 #include <gtc/type_ptr.hpp>
 
 namespace ARObject {
-namespace {
-// rgb base colors: ring = distance feedback, arrow = angle feedback (each independently red/green).
-const float kColorRed[3] = {0.902f, 0.224f, 0.275f};   // #E63946
-const float kColorGreen[3] = {0.000f, 0.902f, 0.463f}; // #00E676
-// Fresnel glow colors keyed to the base color.
-const float kGlowRed[3] = {1.0f, 0.3f, 0.35f};
-const float kGlowGreen[3] = {0.0f, 1.0f, 0.4f};
-
-glm::mat4 QuatXYZWToMat(const float q[4])
-{
-    return glm::mat4_cast(glm::quat(q[3], q[0], q[1], q[2]));
-}
-} // namespace
 
 void RingHuntRenderManager::Initialize(void *window, AREngine_ARSession *arSession)
 {
@@ -45,8 +30,7 @@ void RingHuntRenderManager::Initialize(void *window, AREngine_ARSession *arSessi
         mRenderSurface.Create(window);
         mRenderContext.MakeCurrent(&mRenderSurface);
         mBackgroundRenderer.InitializeBackGroundGlContent();
-        mRingRenderer.InitializeGlContent();
-        mDiskRenderer.InitializeGlContent();
+        mWayfinderRenderer.Init();
         CHECK(HMS_AREngine_ARSession_SetCameraGLTexture(arSession, mBackgroundRenderer.GetTextureId()));
         isInited = true;
         RenderRef::GetInstance().Increment();
@@ -56,8 +40,7 @@ void RingHuntRenderManager::Initialize(void *window, AREngine_ARSession *arSessi
 void RingHuntRenderManager::Release()
 {
     if (isInited && RenderRef::GetInstance().IsOne()) {
-        mRingRenderer.Release();
-        mDiskRenderer.Release();
+        mWayfinderRenderer.Release();
         mRenderContext.ReleaseCurrent();
         mRenderSurface.Release();
         mRenderContext.Release();
@@ -75,8 +58,8 @@ void RingHuntRenderManager::DrawBlack()
 }
 
 bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
-                                        AREngine_ARAnchor *ringAnchor, const float *ringQuatXYZW, bool distOnTarget,
-                                        bool angOnTarget, float distance, RingCameraInfo *outCam)
+                                        AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color,
+                                        float distance, RingCameraInfo *outCam)
 {
     if (!isInited) {
         LOGE("RingHuntRenderManager not ready!");
@@ -101,16 +84,10 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
     {
         AREngine_ARPose *camPose = nullptr;
         if (HMS_AREngine_ARPose_Create(arSession, nullptr, 0, &camPose) == ARENGINE_SUCCESS && camPose != nullptr) {
-            // Display-oriented pose: local X/Y align with the screen (fixes the portrait 90deg
-            // axis swap for the yaw/pitch aiming split). The -Z look-at is unchanged, so the
-            // alignment angle/distance/finish logic is unaffected.
             if (HMS_AREngine_ARCamera_GetDisplayOrientedPose(arSession, arCamera, camPose) == ARENGINE_SUCCESS) {
                 float raw[7] = {0.0f};
                 HMS_AREngine_ARPose_GetPoseRaw(arSession, camPose, raw, 7);
                 cameraPos = glm::vec3(raw[4], raw[5], raw[6]);
-                if (outCam != nullptr) {
-                    ARObject::UnpackQuatXYZW(raw, ARObject::QuatFormat::XYZW, outCam->quatXYZW);
-                }
             }
             HMS_AREngine_ARPose_Destroy(camPose);
         }
@@ -122,8 +99,7 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
         outCam->pos[0] = cameraPos.x;
         outCam->pos[1] = cameraPos.y;
         outCam->pos[2] = cameraPos.z;
-        // Stage 10: hand the view/projection matrices to the app thread for screen-space
-        // projection of the off-screen guidance UI. These are the same matrices used to render.
+        // Hand the matrices to the app thread to project the beacon top for off-screen guidance.
         std::memcpy(outCam->viewMat, glm::value_ptr(viewMat), sizeof(float) * 16);
         std::memcpy(outCam->projMat, glm::value_ptr(projectionMat), sizeof(float) * 16);
     }
@@ -135,7 +111,7 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
         return false;
     }
 
-    if (hasRing && ringAnchor != nullptr && ringQuatXYZW != nullptr) {
+    if (hasRing && ringAnchor != nullptr) {
         AREngine_ARTrackingState anchorTracking = ARENGINE_TRACKING_STATE_STOPPED;
         CHECK(HMS_AREngine_ARAnchor_GetTrackingState(arSession, ringAnchor, &anchorTracking));
         if (anchorTracking == ARENGINE_TRACKING_STATE_TRACKING) {
@@ -147,42 +123,10 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
             HMS_AREngine_ARPose_Destroy(pose);
             glm::vec3 ringPos(anchorMat[3].x, anchorMat[3].y, anchorMat[3].z);
 
-            // Stage 8: no spin. Ring colored by distance. The center arrow only goes green once
-            // you are BOTH close (distance on target) AND aligned -- so a distant lucky angle
-            // does not light it up. (Per user feedback.)
-            glm::mat4 modelMat = glm::translate(glm::mat4(1.0f), ringPos) * QuatXYZWToMat(ringQuatXYZW);
-            bool arrowOn = distOnTarget && angOnTarget;
-            const float *ringBase = distOnTarget ? kColorGreen : kColorRed;
-            const float *ringGlow = distOnTarget ? kGlowGreen : kGlowRed;
-            const float *arrowBase = arrowOn ? kColorGreen : kColorRed;
-            const float *arrowGlow = arrowOn ? kGlowGreen : kGlowRed;
-            mRingRenderer.Draw(projectionMat, viewMat, modelMat, glm::value_ptr(cameraPos), ringBase, ringGlow,
-                               arrowBase, arrowGlow);
-
-            // Near-proximity billboard glow disk: keeps a visible anchor marker as the ring
-            // grows huge / starts to clip near the camera. Color mirrors the ring (distance).
-            if (distance < 0.30f) {
-                glm::vec3 fwd = cameraPos - ringPos;
-                float fwdLen = glm::length(fwd);
-                if (fwdLen > 1e-5f) {
-                    fwd /= fwdLen;
-                    glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
-                    glm::vec3 right = glm::cross(worldUp, fwd);
-                    if (glm::length(right) < 1e-4f) {
-                        right = glm::vec3(1.0f, 0.0f, 0.0f); // camera directly above/below
-                    } else {
-                        right = glm::normalize(right);
-                    }
-                    glm::vec3 up = glm::cross(fwd, right);
-                    glm::mat4 billboard(1.0f);
-                    billboard[0] = glm::vec4(right, 0.0f);
-                    billboard[1] = glm::vec4(up, 0.0f);
-                    billboard[2] = glm::vec4(fwd, 0.0f);
-                    glm::mat4 diskModel = glm::translate(glm::mat4(1.0f), ringPos) * billboard;
-                    const float *diskColor = distOnTarget ? kColorGreen : kColorRed; // same as ring
-                    mDiskRenderer.Draw(projectionMat, viewMat, diskModel, diskColor);
-                }
-            }
+            // Translate the whole beacon to the anchor with world +Y preserved (no anchor
+            // rotation), so the ground ring lies flat on the floor and the pillar rises straight up.
+            glm::mat4 wayfinderToWorld = glm::translate(glm::mat4(1.0f), ringPos);
+            mWayfinderRenderer.Render(viewMat, projectionMat, wayfinderToWorld, cameraPos, color, animTime, distance);
         }
     }
 

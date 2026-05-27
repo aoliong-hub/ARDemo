@@ -27,8 +27,10 @@
 
 namespace ARObject {
 
-// Ring hunt: a glowing ring is placed at a random nearby pose. The player must walk to it
-// (distance) and orient the phone through it (angle). Both held for 0.5s -> FOUND (timed).
+// Wayfinder beacon (Stage 11A): a beacon is dropped on the floor 1m ahead of the camera. The
+// renderer draws the ground ring + light pillar + spinning top + phone icon there (fixed red).
+// getRingState reports only the camera->beacon distance for now; the distance gradient + finish
+// state machine return in 11B.
 class RingHuntApp : public AppNapi {
 public:
     explicit RingHuntApp(std::string &id);
@@ -46,8 +48,7 @@ public:
 
     int32_t PlaceRing() override;
     void ResetRing() override;
-    void GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad, bool &distOnTarget,
-                      bool &angOnTarget, int32_t &finishState, float &foundSec, bool &isTargetInView,
+    void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
                       float &ndcY) override;
 
@@ -55,15 +56,12 @@ private:
     AREngine_ARSession *mArSession = nullptr;
     AREngine_ARFrame *mArFrame = nullptr;
 
-    // Ring target — created/reset/read only on the task-queue thread.
+    // Beacon anchor — created/reset/read only on the task-queue thread.
     AREngine_ARAnchor *mRingAnchor = nullptr;
-    float mRingQuatXYZW[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     int32_t mNextId = 1;
 
-    // Finish state machine (task thread only).
-    FinishState mFinishState = FinishState::NOT_FINISHED;
-    float mFinishTimerSec = 0.0f;
-    std::chrono::steady_clock::time_point mStartTime;
+    // Animation clock (task thread only): drives the top spinner.
+    float mAnimTime = 0.0f;
     std::chrono::steady_clock::time_point mLastFrameTime;
     bool mHasLastFrame = false;
 
@@ -71,17 +69,10 @@ private:
     std::atomic<bool> mReady{false};
     std::atomic<bool> mHasRing{false};
     std::atomic<bool> mCameraTracking{false};
-    std::atomic<float> mDistance{0.0f};
-    std::atomic<float> mAngleRad{3.14159265358979323846f};
-    std::atomic<float> mYawDiffRad{0.0f};
-    std::atomic<float> mPitchDiffRad{0.0f};
-    std::atomic<bool> mDistOnTarget{false};
-    std::atomic<bool> mAngOnTarget{false};
-    std::atomic<int32_t> mFinishStateInt{0};
-    std::atomic<float> mFoundSec{0.0f};
+    std::atomic<float> mDistance{99.0f};
 
-    // Stage 10: off-screen target guidance (computed each tracked frame from the view/proj
-    // matrices). Default "in view" so guidance stays hidden until a ring is placed.
+    // Off-screen target guidance (computed each tracked frame from the view/proj matrices, targeting
+    // the beacon top). Default "in view" so guidance stays hidden until a beacon is placed.
     std::atomic<bool> mIsTargetInView{true};
     std::atomic<float> mScreenEdgeX{0.5f};
     std::atomic<float> mScreenEdgeY{0.5f};

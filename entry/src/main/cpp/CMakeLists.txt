@@ -60,11 +60,9 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/object/object_render_manager.cpp
     ${NATIVE_ROOT_PATH}/src/object/arrow_geometry.cpp
 
-    # ring hunt (ring alignment & hunt game)
-    ${NATIVE_ROOT_PATH}/src/object/ring_geometry.cpp
-    ${NATIVE_ROOT_PATH}/src/object/ring_renderer.cpp
-    ${NATIVE_ROOT_PATH}/src/object/disk_geometry.cpp
-    ${NATIVE_ROOT_PATH}/src/object/disk_renderer.cpp
+    # ring hunt -> Wayfinder (Stage 11)
+    ${NATIVE_ROOT_PATH}/src/object/wayfinder_geometry.cpp
+    ${NATIVE_ROOT_PATH}/src/object/wayfinder_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/object/ring_hunt_render_manager.cpp
     ${NATIVE_ROOT_PATH}/src/object/ring_hunt_ar_application.cpp
 

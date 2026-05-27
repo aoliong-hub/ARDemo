@@ -45,22 +45,18 @@ export const placeTargetArrow: (id: string) => number;
 export const resetArrowAlign: (id: string) => void;
 export const getAlignmentState: (id: string) => AlignmentState;
 
-// ARRingHunt ring game. Stage 8: 2-axis feedback (ringColor by distance, arrowColor by angle)
-// + yaw/pitch split for the 2D aiming HUD. The old single 4-level `level` is removed.
+// ARRingHunt Wayfinder beacon (Stage 11A). Reports the camera->beacon-top distance, whether a
+// beacon is placed, a finish state (always 0 in 11A; the state machine returns in 11B), and the
+// off-screen target guidance (project the beacon top to screen space to drive the droplet arrow).
 export interface RingState {
-  distance: number;
-  angleRad: number;
-  yawDiffRad: number;
-  pitchDiffRad: number;
-  ringColor: string;   // "red" | "green" (distance)
-  arrowColor: string;  // "red" | "green" (angle)
-  finishState: number; // 0=NOT 1=FINISHING 2=FINISHED
-  foundSec: number;
-  // Stage 10: off-screen target guidance.
-  isTargetInView: boolean;    // ring projects inside the visible screen (10% margin)
+  distance: number;     // metres from the camera to the beacon top
+  ringPlaced: boolean;  // a beacon is currently placed
+  finishState: number;  // 0=NOT 1=FINISHING 2=FINISHED (always 0 in Stage 11A)
+  // Off-screen target guidance (targets the beacon top).
+  isTargetInView: boolean;    // beacon top projects inside the visible screen
   screenEdgeX: number;        // 0..1 left..right ratio to pin the edge thumbnail
   screenEdgeY: number;        // 0..1 top..bottom ratio (screen coords, y down)
-  isBehind: boolean;          // ring is directly behind the player (|yaw| > 135deg)
+  isBehind: boolean;          // beacon is directly behind the player (|yaw| > 135deg)
   indicatorAngleDeg: number;  // arrow rotation, clockwise from 12 o'clock, toward the target
   ndcX: number;               // raw projected ndc.x (ArkTS derives the screen-space guidance ray)
   ndcY: number;               // raw projected ndc.y

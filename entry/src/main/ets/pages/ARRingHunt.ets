@@ -17,7 +17,6 @@ import { display } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { vibrator } from '@kit.SensorServiceKit';
 import arEngineDemo from 'libentry.so';
 import { RingState } from 'libentry.so';
 import { Logger } from '../utils/Logger';
@@ -31,7 +30,7 @@ interface Particle {
   startY: number;
   targetX: number;
   targetY: number;
-  color: string; // 6-digit '#RRGGBB' locked at birth (follows the ring color)
+  color: string; // 6-digit '#RRGGBB' locked at birth
 }
 
 @Builder
@@ -39,12 +38,16 @@ export function ARRingHuntBuilder() {
   ARRingHunt();
 }
 
+// Stage 11A: ARRingHunt is a Wayfinder beacon. The native layer draws the whole beacon (ground ring
+// + ripple + light pillar + camera-facing badge with phone icon) on the placed anchor, tinted
+// red->green by distance. The ArkTS UI: place/reset buttons + a live distance readout, plus the
+// off-screen guidance overlay (edge-pinned droplet arrow + breathing halo + particle trail + a ↻
+// glyph when the beacon is behind you) — it points at the beacon TOP whenever it's off-screen.
 @Component
 struct ARRingHunt {
   pageInfos: NavPathStack = new NavPathStack();
   private interval: number = -1;
   private stateTimer: number = -1;
-  private prevFinishState: number = 0;
   private xComponentId: string = 'ARRingHunt';
   @State context: Context = this.getUIContext().getHostContext() as Context;
   private resMgr: resourceManager.ResourceManager = this.context.resourceManager;
@@ -52,15 +55,9 @@ struct ARRingHunt {
   private idStr: string = systemDateTime.getTime(false).toString() + this.xComponentId;
 
   @State distance: number = 99;
-  @State angleRad: number = Math.PI;
-  @State yawDiffRad: number = 0;
-  @State pitchDiffRad: number = 0;
-  @State finishState: number = 0;
-  @State foundSec: number = 0;
   @State ringPlaced: boolean = false;
 
-  // Stage 10: off-screen target guidance.
-  @State ringColor: string = 'red';
+  // Off-screen target guidance.
   @State isTargetInView: boolean = true;
   @State screenEdgeX: number = 0.5;
   @State screenEdgeY: number = 0.5;
@@ -77,7 +74,7 @@ struct ARRingHunt {
   @State guidanceStackW: number = 0;
   @State guidanceStackH: number = 0;
 
-  // Stage 10 UX upgrade: breathing halo (scale-pulsed) + a particle trail flowing center->droplet.
+  // Breathing halo (scale-pulsed) + a particle trail flowing center->droplet.
   @State breathScale: number = 1.0;
   private breathDurationMs: number = 0;     // current breathing period; restart on distance-bucket change
   private distanceBucket: number = -1;      // 0:<1m 1:<3m 2:>=3m, drives breath+spawn speed
@@ -102,55 +99,14 @@ struct ARRingHunt {
     return v;
   }
 
-  private isProximityMode(): boolean {
-    return this.ringPlaced && this.distance < 0.15;
-  }
-
-  private isAligned(): boolean {
-    // "Aligned" (green) only counts once you are close (proximity) AND within angle. A distant
-    // lucky angle keeps the reticle white. (Per user feedback.)
-    return this.isProximityMode() && this.angleRad < (5 * Math.PI / 180);
-  }
-
-  private reticleColor(): string {
-    return this.isAligned() ? '#FF00E676' : '#CCFFFFFF';
-  }
-
-  private aimOffsetX(): number {
-    let yawDeg: number = this.yawDiffRad * 180 / Math.PI;
-    return this.clamp(yawDeg / 30.0, -1, 1) * 120;
-  }
-
-  private aimOffsetY(): number {
-    // ArkUI translate Y is positive downward; target above (pitch > 0) -> aim circle up -> negate.
-    let pitchDeg: number = this.pitchDiffRad * 180 / Math.PI;
-    return -this.clamp(pitchDeg / 30.0, -1, 1) * 120;
-  }
-
   private distText(): string {
     return this.distance.toFixed(2);
   }
 
-  private angleText(): string {
-    return (this.angleRad * 180 / Math.PI).toFixed(1);
-  }
-
-  private triggerVibration(): void {
-    try {
-      vibrator.startVibration({ type: 'time', duration: 80 }, { usage: 'notification' })
-        .catch((err: BusinessError) => {
-          Logger.warn(`vibrate failed: code=${err.code} msg=${err.message}`);
-        });
-    } catch (e) {
-      let err: BusinessError = e as BusinessError;
-      Logger.warn(`vibrate exception: ${err.message}`);
-    }
-  }
-
-  // ---- Stage 10: off-screen guidance ----
+  // ---- Off-screen guidance ----
 
   // The guidance overlay Stack's own size in vp (measured via its onAreaChange). Fallback values
-  // cover the first frame before layout. This is the coordinate frame .offset() resolves in.
+  // cover the first frame before layout. This is the coordinate frame .position() resolves in.
   private getStackWidth(): number {
     return this.guidanceStackW > 0 ? this.guidanceStackW : 360;
   }
@@ -159,9 +115,10 @@ struct ARRingHunt {
     return this.guidanceStackH > 0 ? this.guidanceStackH : 800;
   }
 
-  // Guidance follows the RING color (distance feedback): green when on target, else red.
+  // Guidance only shows when the beacon is off-screen (you've turned away), where the beacon reads
+  // red — so the droplet/halo/particles are fixed red.
   private guidanceColor(): string {
-    return this.ringColor === 'green' ? '#FF00E676' : '#FFE63946';
+    return '#FFE63946';
   }
 
   // Distance-feel halo: near = thick+saturated, far = thin+dim.
@@ -206,8 +163,8 @@ struct ARRingHunt {
     return 2000;
   }
 
-  // Infinite alternating pulse 0.95 <-> 1.10. Gentle amplitude so the breathing ring never
-  // shrinks below the ~92vp droplet (a wider pulse made the tip poke out). Restarted on bucket change.
+  // Infinite alternating pulse 0.95 <-> 1.10. Gentle amplitude so the breathing ring never shrinks
+  // below the droplet. Restarted on bucket change.
   private startBreathing(): void {
     this.breathDurationMs = this.breathDurationFor(this.distBucket());
     this.breathScale = 0.95;
@@ -240,9 +197,9 @@ struct ARRingHunt {
     return 300;
   }
 
-  // Particle color follows the ring: 6-digit hex (Canvas uses globalAlpha for the fade).
+  // Particle color follows the (fixed red) guidance: 6-digit hex (Canvas uses globalAlpha to fade).
   private particleRgb(): string {
-    return this.ringColor === 'green' ? '#00E676' : '#E63946';
+    return '#E63946';
   }
 
   // Emit one particle from screen center toward the droplet's current center.
@@ -317,7 +274,7 @@ struct ARRingHunt {
     }
   }
 
-  // Stop emitting. clearNow=true wipes in-flight particles immediately (< 0.30m / FOUND);
+  // Stop emitting. clearNow=true wipes in-flight particles immediately (< 0.30m / reset);
   // otherwise the render loop drains the remaining particles, then self-stops.
   private stopParticles(clearNow: boolean): void {
     if (this.spawnTimer !== -1) {
@@ -443,19 +400,9 @@ struct ARRingHunt {
     return Math.atan2(this.rayDirX(), -this.rayDirY()) * 180 / Math.PI;
   }
 
-  // Reconcile guidance visibility with a 0.3s opacity transition. FOUND hides immediately;
-  // very close (< 0.30m, ring in your face) is suppressed to avoid near-clip projection jitter.
+  // Reconcile guidance visibility with a 0.3s opacity transition. Very close (< 0.30m, the beacon
+  // is in your face) is suppressed to avoid near-clip projection jitter.
   private reconcileGuidance(): void {
-    if (this.finishState === 2) {
-      if (this.guidanceMounted || this.guidanceShown) {
-        this.guidanceShown = false;
-        this.guidanceOpacity = 0;
-        this.guidanceMounted = false;
-        this.stopBreathing();
-        this.stopParticles(true);
-      }
-      return;
-    }
     let shouldShow: boolean =
       this.ringPlaced && !this.isTargetInView && this.distance >= 0.30;
     if (shouldShow === this.guidanceShown) {
@@ -484,7 +431,7 @@ struct ARRingHunt {
       });
     } else {
       this.stopBreathing();
-      // < 0.30m: wipe instantly (ring is in your face). Re-entered view: let the trail drain.
+      // < 0.30m: wipe instantly (beacon is in your face). Re-entered view: let the trail drain.
       this.stopParticles(this.distance < 0.30);
       this.distanceBucket = -1;
       this.getUIContext().animateTo({
@@ -502,7 +449,6 @@ struct ARRingHunt {
   }
 
   private resetGuidance(): void {
-    this.ringColor = 'red';
     this.isTargetInView = true;
     this.isBehind = false;
     this.screenEdgeX = 0.5;
@@ -533,17 +479,9 @@ struct ARRingHunt {
               arEngineDemo.update(this.idStr);
             }, 33)
             this.stateTimer = setInterval(() => {
-              // Freeze UI once FOUND (locked until reset).
-              if (this.finishState === 2) {
-                return;
-              }
               let s: RingState = arEngineDemo.getRingState(this.idStr);
               this.distance = s.distance;
-              this.angleRad = s.angleRad;
-              this.yawDiffRad = s.yawDiffRad;
-              this.pitchDiffRad = s.pitchDiffRad;
-              this.foundSec = s.foundSec;
-              this.ringColor = s.ringColor;
+              this.ringPlaced = s.ringPlaced;
               this.isTargetInView = s.isTargetInView;
               this.screenEdgeX = s.screenEdgeX;
               this.screenEdgeY = s.screenEdgeY;
@@ -551,11 +489,6 @@ struct ARRingHunt {
               this.indicatorAngleDeg = s.indicatorAngleDeg;
               this.ndcX = s.ndcX;
               this.ndcY = s.ndcY;
-              if (s.finishState === 2 && this.prevFinishState !== 2) {
-                this.triggerVibration();
-              }
-              this.prevFinishState = s.finishState;
-              this.finishState = s.finishState;
               this.reconcileGuidance();
             }, 62)
           })
@@ -573,8 +506,8 @@ struct ARRingHunt {
             }
           })
 
-        // Particle trail layer (UX upgrade): a full-screen, non-interactive Canvas BELOW the
-        // droplet. Particles stream from screen center to the droplet. Drawn imperatively at 60fps.
+        // Particle trail layer: a full-screen, non-interactive Canvas BELOW the droplet. Particles
+        // stream from screen center to the droplet. Drawn imperatively at 60fps.
         Canvas(this.canvasCtx)
           .id('particles')
           .width('100%')
@@ -588,12 +521,9 @@ struct ARRingHunt {
             left: { anchor: '__container__', align: HorizontalAlign.Start }
           })
 
-        // Off-screen target guidance (Stage 10 + UX upgrade). Full-screen, non-interactive overlay
-        // that pins a ring-colored DROPLET arrow (with a breathing halo + distance-feel glow) to
-        // the screen edge nearest the off-screen ring. Placed under the HUD so the buttons stay
-        // clickable. Mounted only while guiding; opacity is animated for the 0.3s fade.
-        // Off-screen target guidance (Stage 10 + UX). Always-present full-screen, non-interactive
-        // overlay with an explicit TopStart anchor, so the cluster Column's .offset() places its
+        // Off-screen target guidance: full-screen, non-interactive overlay that pins a red DROPLET
+        // arrow (with a breathing halo + distance-feel glow) to the screen edge nearest the
+        // off-screen beacon. Explicit TopStart anchor, so the cluster's .position() places its
         // top-left at exactly (getDropletX, getDropletY) in this Stack's own coordinate frame.
         Stack() {
           if (this.guidanceMounted) {
@@ -619,13 +549,9 @@ struct ARRingHunt {
                 .scale({ x: this.breathScale, y: this.breathScale })
               // Center content:
               if (!this.isBehind) {
-                // Droplet (Shape+viewPort = density-independent 120vp), rotated to the bearing.
-                // Auto-centered by the cluster Stack exactly like the ↻ glyph: its box geometric
-                // center sits at the halo center (tip-up shape => visual mass ~16vp low, accepted).
                 // Droplet as an svg Image (viewBox 0..120) — Image scales/centers svg reliably,
-                // unlike Shape+viewPort here. Guidance only shows when the target is off-screen
-                // (distance > 0.3m), where the ring is always red, so the droplet is fixed red.
-                // Centered by the cluster Stack; rotates about its own center, in place.
+                // unlike Shape+viewPort here. Centered by the cluster Stack; rotates about its own
+                // center, in place, to the bearing toward the beacon.
                 Image($r('app.media.droplet'))
                   .width(60)
                   .height(60)
@@ -659,73 +585,18 @@ struct ARRingHunt {
           this.guidanceStackH = n.height as number;
         })
 
-        // Center crosshair (always shown). White / green by angle.
-        Stack() {
-          Row().width(48).height(3).backgroundColor(this.reticleColor())
-          Column().width(3).height(48).backgroundColor(this.reticleColor())
-        }
-        .id('crosshair')
-        .alignRules({
-          center: { anchor: '__container__', align: VerticalAlign.Center },
-          middle: { anchor: '__container__', align: HorizontalAlign.Center }
-        })
-
-        // 2D dual-ring aiming HUD, only in proximity mode (distance < 30cm).
-        if (this.isProximityMode() && this.finishState !== 2) {
-          Stack({ alignContent: Alignment.Center }) {
-            // Fixed middle ring.
-            Circle({ width: 80, height: 80 })
-              .fillOpacity(0)
-              .stroke(this.reticleColor())
-              .strokeWidth(3)
-              .opacity(0.85)
-            // Aim ring, offset by yaw/pitch.
-            Circle({ width: 50, height: 50 })
-              .fillOpacity(0)
-              .stroke(this.reticleColor())
-              .strokeWidth(3)
-              .translate({ x: this.aimOffsetX(), y: this.aimOffsetY() })
-          }
-          .id('dualRing')
-          .width(300)
-          .height(300)
-          .alignRules({
-            center: { anchor: '__container__', align: VerticalAlign.Center },
-            middle: { anchor: '__container__', align: HorizontalAlign.Center }
-          })
-        }
-
-        // FOUND banner.
-        if (this.finishState === 2) {
-          Column() {
-            Text('FOUND')
-              .fontSize(64)
-              .fontColor(Color.White)
-              .fontWeight(FontWeight.Bold)
-            Text(`in ${this.foundSec.toFixed(1)}s`)
-              .fontSize(32)
-              .fontColor(Color.White)
-          }
-          .id('foundBanner')
-          .padding({ left: 24, right: 24, top: 16, bottom: 16 })
-          .backgroundColor('#A0000000')
-          .borderRadius(12)
-          .alignRules({
-            center: { anchor: '__container__', align: VerticalAlign.Center },
-            middle: { anchor: '__container__', align: HorizontalAlign.Center }
-          })
-        }
-
-        // Bottom HUD.
+        // Bottom HUD: live distance + place/reset buttons.
         Column({ space: 8 }) {
-          Text(`距离 ${this.distText()}m  |  角度 ${this.angleText()}°`)
-            .fontSize(18)
-            .fontColor(Color.White)
-            .backgroundColor('#80000000')
-            .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-            .borderRadius(6)
+          if (this.ringPlaced) {
+            Text(`距离 ${this.distText()}m`)
+              .fontSize(18)
+              .fontColor(Color.White)
+              .backgroundColor('#80000000')
+              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+              .borderRadius(6)
+          }
           Row({ space: 10 }) {
-            Button('放置圆环')
+            Button('放置信标')
               .layoutWeight(1)
               .onClick(() => {
                 let id: number = arEngineDemo.placeRing(this.idStr);
@@ -745,10 +616,7 @@ struct ARRingHunt {
               .layoutWeight(1)
               .onClick(() => {
                 arEngineDemo.resetRing(this.idStr);
-                this.prevFinishState = 0;
-                this.finishState = 0;
                 this.distance = 99;
-                this.angleRad = Math.PI;
                 this.ringPlaced = false;
                 this.resetGuidance();
                 Logger.info(`[RingHunt] resetRing`);

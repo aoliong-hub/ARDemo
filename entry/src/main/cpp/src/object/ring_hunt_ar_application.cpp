@@ -18,12 +18,19 @@
 #include "object_math.h"
 #include "utils/log.h"
 #include <ace/xcomponent/native_interface_xcomponent.h>
-#include <cmath>
-#include <random>
 #include <window_manager/oh_display_info.h>
 #include <window_manager/oh_display_manager.h>
 
 namespace ARObject {
+namespace {
+// Stage 11A: the beacon tints red->green by distance to its top badge.
+const glm::vec3 kColorRed(1.0f, 0.3f, 0.3f);
+const glm::vec3 kColorGreen(0.3f, 1.0f, 0.4f);
+constexpr float kColorRedDist = 0.50f;   // >= this metres: fully red
+constexpr float kColorGreenDist = 0.40f; // <= this metres: fully green (10cm smooth band between)
+constexpr float kPlaceDistance = 1.0f;   // beacon dropped 1m ahead of the camera
+constexpr float kGroundDrop = 1.0f;      // lower it ~1m to approximate the floor
+} // namespace
 
 RingHuntApp::RingHuntApp(std::string &id) : AppNapi(id) { LOGD("RingHuntApp::Constructor"); }
 
@@ -107,21 +114,7 @@ void RingHuntApp::OnUpdate()
             return;
         }
 
-        // Render with last frame's on-target flags (1-frame lag is imperceptible at 30fps).
-        RingCameraInfo cam;
-        mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mRingQuatXYZW,
-                                   mDistOnTarget.load(), mAngOnTarget.load(), mDistance.load(), &cam);
-
-        mCameraTracking.store(cam.tracking);
-        if (!cam.tracking) {
-            return;
-        }
-        if (!mReady.load()) {
-            mReady.store(true);
-            LOGI("[RingHunt] tracking ready.");
-        }
-
-        // Frame delta time (clamped so a stall can't jump the finish timer).
+        // Frame delta time (clamped) to advance the spinner clock.
         auto now = std::chrono::steady_clock::now();
         float dt = 0.0f;
         if (mHasLastFrame) {
@@ -135,18 +128,34 @@ void RingHuntApp::OnUpdate()
         }
         mLastFrameTime = now;
         mHasLastFrame = true;
+        mAnimTime += dt; // raw seconds: the renderer derives spin angle (deg/s) + ripple phase
+
+        // Color from last frame's distance (1-frame lag is imperceptible): red far, green near.
+        float lastDist = mDistance.load();
+        float t = glm::clamp((kColorRedDist - lastDist) / (kColorRedDist - kColorGreenDist), 0.0f, 1.0f);
+        glm::vec3 color = glm::mix(kColorRed, kColorGreen, t);
+
+        RingCameraInfo cam;
+        mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mAnimTime, color, lastDist,
+                                   &cam);
+
+        mCameraTracking.store(cam.tracking);
+        if (!cam.tracking) {
+            return;
+        }
+        if (!mReady.load()) {
+            mReady.store(true);
+            LOGI("[RingHunt] tracking ready.");
+        }
 
         if (!mHasRing.load() || mRingAnchor == nullptr) {
             mDistance.store(99.0f);
-            mAngleRad.store(3.14159265358979323846f);
-            mDistOnTarget.store(false);
-            mAngOnTarget.store(false);
-            mIsTargetInView.store(true); // no ring -> keep guidance hidden
+            mIsTargetInView.store(true); // no beacon -> keep guidance hidden
             mIsBehind.store(false);
             return;
         }
 
-        // Ring world position (translation of its anchor pose).
+        // Beacon world position (translation of its anchor pose) -> distance to the camera.
         glm::vec3 ringPos(0.0f);
         {
             AREngine_ARPose *pose = nullptr;
@@ -160,63 +169,23 @@ void RingHuntApp::OnUpdate()
             }
         }
 
+        // Distance to the beacon TOP (the badge/phone icon at the pillar top), not the ground ring
+        // — that is what the user looks at and walks toward.
         float camPos[3] = {cam.pos[0], cam.pos[1], cam.pos[2]};
-        float ringPos3[3] = {ringPos.x, ringPos.y, ringPos.z};
-        float dist = Compute3DDistance(camPos, ringPos3);
+        float beaconTop[3] = {ringPos.x, ringPos.y + kWayfinderTopHeight, ringPos.z};
+        mDistance.store(Compute3DDistance(camPos, beaconTop));
 
-        // Angle: aligned when camera forward points opposite the ring normal (looking through it).
-        float camForward[3];
-        ComputeArrowDirection(cam.quatXYZW, camForward);
-        float ringNormal[3];
-        {
-            float zPos[3] = {0.0f, 0.0f, 1.0f};
-            RotateVectorByQuatXYZW(mRingQuatXYZW, zPos, ringNormal);
-        }
-        float alignVec[3] = {-ringNormal[0], -ringNormal[1], -ringNormal[2]};
-        float d = camForward[0] * alignVec[0] + camForward[1] * alignVec[1] + camForward[2] * alignVec[2];
-        if (d > 1.0f) {
-            d = 1.0f;
-        }
-        if (d < -1.0f) {
-            d = -1.0f;
-        }
-        float angle = std::acos(d);
-
-        // Stage 8: independent 2-axis feedback + yaw/pitch split for the 2D aiming HUD.
-        bool distOnTarget = IsDistanceOnTarget(dist);
-        bool angOnTarget = IsAngleOnTarget(angle);
-        float yawDiff = 0.0f;
-        float pitchDiff = 0.0f;
-        ComputeYawPitchDiff(cam.quatXYZW, ringNormal, yawDiff, pitchDiff);
-
-        FinishState prevFinish = mFinishState;
-        mFinishState = UpdateFinishState(mFinishState, mFinishTimerSec, dist, angle, dt);
-        if (mFinishState == FinishState::FINISHED && prevFinish != FinishState::FINISHED) {
-            float elapsed = std::chrono::duration<float>(now - mStartTime).count();
-            mFoundSec.store(elapsed);
-            LOGI("[RingHunt] FOUND in %{public}f s", elapsed);
-        }
-
-        // Stage 10: project the ring to screen space (using the matrices the renderer just used)
-        // to drive the off-screen guidance UI: in/out of view, which edge, behind, arrow angle.
+        // Off-screen guidance: project the beacon TOP (the badge the user aims at) to screen space
+        // using the matrices the renderer just used, driving the edge-pinned droplet arrow UI.
         OffscreenGuidance guide;
-        ComputeOffscreenGuidance(cam.viewMat, cam.projMat, ringPos3, guide);
+        ComputeOffscreenGuidance(cam.viewMat, cam.projMat, beaconTop, guide);
         mIsTargetInView.store(guide.isInView);
         mScreenEdgeX.store(guide.screenEdgeX);
         mScreenEdgeY.store(guide.screenEdgeY);
-        // Guidance points to the ring's position, not the ring-normal alignment target.
         mIsBehind.store(guide.isBehind);
         mIndicatorAngleDeg.store(guide.indicatorAngleDeg);
-        mNdcX.store(guide.ndcX); // projected ndc -> ArkTS screen-space guidance ray
+        mNdcX.store(guide.ndcX);
         mNdcY.store(guide.ndcY);
-
-        mDistance.store(dist);
-        mAngleRad.store(angle);
-        mYawDiffRad.store(yawDiff);
-        mPitchDiffRad.store(pitchDiff);
-        mDistOnTarget.store(distOnTarget);
-        mAngOnTarget.store(angOnTarget);
-        mFinishStateInt.store(static_cast<int32_t>(mFinishState));
     });
 }
 
@@ -272,9 +241,8 @@ int32_t RingHuntApp::PlaceRing()
         return -1;
     }
     int32_t objectId = mNextId;
-    uint32_t seed = std::random_device{}();
 
-    mTaskQueue.Push([this, objectId, seed] {
+    mTaskQueue.Push([this, objectId] {
         AREngine_ARCamera *cam = nullptr;
         CHECK(HMS_AREngine_ARFrame_AcquireCamera(mArSession, mArFrame, &cam));
         AREngine_ARPose *camPose = nullptr;
@@ -289,12 +257,13 @@ int32_t RingHuntApp::PlaceRing()
         float camQuat[4];
         ARObject::UnpackQuatXYZW(raw, ARObject::QuatFormat::XYZW, camQuat);
 
-        RingTargetParams params;
-        ComputeRingTargetParams(camPos, camQuat, seed, params);
-        mRingQuatXYZW[0] = params.targetQuat[0];
-        mRingQuatXYZW[1] = params.targetQuat[1];
-        mRingQuatXYZW[2] = params.targetQuat[2];
-        mRingQuatXYZW[3] = params.targetQuat[3];
+        // Drop the beacon 1m ahead of the camera, then lower it ~1m to approximate the floor so the
+        // ground ring lies flat and the pillar rises to roughly eye level. Identity rotation: the
+        // renderer translates only (world +Y up), so the beacon's orientation is irrelevant.
+        float targetPos[3];
+        ComputeForwardPoint(camPos, camQuat, kPlaceDistance, targetPos);
+        targetPos[1] = camPos[1] - kGroundDrop;
+        const float identityQuat[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
         if (mRingAnchor != nullptr) {
             CHECK(HMS_AREngine_ARAnchor_Detach(mArSession, mRingAnchor));
@@ -302,27 +271,20 @@ int32_t RingHuntApp::PlaceRing()
             mRingAnchor = nullptr;
         }
         float poseRaw[7];
-        ARObject::PackPoseRaw(params.targetQuat, params.targetPos, ARObject::QuatFormat::XYZW, poseRaw);
+        ARObject::PackPoseRaw(identityQuat, targetPos, ARObject::QuatFormat::XYZW, poseRaw);
         AREngine_ARPose *pose = nullptr;
         CHECK(HMS_AREngine_ARPose_Create(mArSession, poseRaw, 7, &pose));
         AREngine_ARAnchor *anchor = nullptr;
         AREngine_ARStatus st = HMS_AREngine_ARSession_AcquireNewAnchor(mArSession, pose, &anchor);
         HMS_AREngine_ARPose_Destroy(pose);
         if (st != ARENGINE_SUCCESS || anchor == nullptr) {
-            LOGW("[RingHunt] ring AcquireNewAnchor failed st=%{public}d.", st);
+            LOGW("[RingHunt] beacon AcquireNewAnchor failed st=%{public}d.", st);
             return;
         }
         mRingAnchor = anchor;
-        mFinishState = FinishState::NOT_FINISHED;
-        mFinishTimerSec = 0.0f;
-        mFoundSec.store(0.0f);
-        mFinishStateInt.store(0);
-        mStartTime = std::chrono::steady_clock::now();
         mHasRing.store(true);
-        LOGI("[RingHunt] Ring placed id=%{public}d pos=(%{public}f,%{public}f,%{public}f) "
-             "quat=(%{public}f,%{public}f,%{public}f,%{public}f)",
-             objectId, params.targetPos[0], params.targetPos[1], params.targetPos[2], params.targetQuat[0],
-             params.targetQuat[1], params.targetQuat[2], params.targetQuat[3]);
+        LOGI("[RingHunt] Beacon placed id=%{public}d pos=(%{public}f,%{public}f,%{public}f)", objectId, targetPos[0],
+             targetPos[1], targetPos[2]);
     });
     return objectId;
 }
@@ -335,39 +297,26 @@ void RingHuntApp::ResetRing()
             HMS_AREngine_ARAnchor_Release(mRingAnchor);
             mRingAnchor = nullptr;
         }
-        mFinishState = FinishState::NOT_FINISHED;
-        mFinishTimerSec = 0.0f;
         mHasRing.store(false);
         mDistance.store(99.0f);
-        mAngleRad.store(3.14159265358979323846f);
-        mYawDiffRad.store(0.0f);
-        mPitchDiffRad.store(0.0f);
-        mDistOnTarget.store(false);
-        mAngOnTarget.store(false);
-        mFinishStateInt.store(0);
-        mFoundSec.store(0.0f);
         mIsTargetInView.store(true);
         mScreenEdgeX.store(0.5f);
         mScreenEdgeY.store(0.5f);
         mIsBehind.store(false);
         mIndicatorAngleDeg.store(0.0f);
+        mNdcX.store(0.0f);
+        mNdcY.store(0.0f);
         LOGI("[RingHunt] reset.");
     });
 }
 
-void RingHuntApp::GetRingState(float &distance, float &angleRad, float &yawDiffRad, float &pitchDiffRad,
-                               bool &distOnTarget, bool &angOnTarget, int32_t &finishState, float &foundSec,
-                               bool &isTargetInView, float &screenEdgeX, float &screenEdgeY, bool &isBehind,
-                               float &indicatorAngleDeg, float &ndcX, float &ndcY)
+void RingHuntApp::GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
+                               float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
+                               float &ndcX, float &ndcY)
 {
     distance = mDistance.load();
-    angleRad = mAngleRad.load();
-    yawDiffRad = mYawDiffRad.load();
-    pitchDiffRad = mPitchDiffRad.load();
-    distOnTarget = mDistOnTarget.load();
-    angOnTarget = mAngOnTarget.load();
-    finishState = mFinishStateInt.load();
-    foundSec = mFoundSec.load();
+    ringPlaced = mHasRing.load();
+    finishState = 0; // Stage 11A: no finish state machine yet (returns in 11B).
     isTargetInView = mIsTargetInView.load();
     screenEdgeX = mScreenEdgeX.load();
     screenEdgeY = mScreenEdgeY.load();
