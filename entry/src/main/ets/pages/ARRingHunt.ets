@@ -135,14 +135,6 @@ struct ARRingHunt {
     return (this.angleRad * 180 / Math.PI).toFixed(1);
   }
 
-  private distProgress(): number {
-    return (1.0 - Math.min(this.distance / 2.0, 1.0)) * 100;
-  }
-
-  private angleProgress(): number {
-    return (1.0 - Math.min(this.angleRad / Math.PI, 1.0)) * 100;
-  }
-
   private triggerVibration(): void {
     try {
       vibrator.startVibration({ type: 'time', duration: 80 }, { usage: 'notification' })
@@ -255,7 +247,8 @@ struct ARRingHunt {
 
   // Emit one particle from screen center toward the droplet's current center.
   private spawnParticle(): void {
-    if (!this.guidanceShown || this.distance < 0.30) {
+    // No particles when the target is behind you (a direction-to-target trail is meaningless).
+    if (!this.guidanceShown || this.distance < 0.30 || this.isBehind) {
       return;
     }
     let p: Particle = {
@@ -422,7 +415,7 @@ struct ARRingHunt {
 
   private rayCenterY(): number {
     if (this.isBehind) {
-      return this.getStackHeight() - 220; // cluster top-left at h-300, +80 to its center
+      return this.getStackHeight() - 200; // behind: cluster center bottom-center, 200vp from bottom
     }
     return this.getStackHeight() / 2 + this.rayTMin() * this.rayDirY();
   }
@@ -473,6 +466,9 @@ struct ARRingHunt {
           this.distanceBucket = bucket;
           this.startBreathing();
           this.restartSpawnTimer();
+        }
+        if (this.isBehind) {
+          this.particles = []; // behind: drop any in-flight particles (none spawn either)
         }
       }
       return;
@@ -601,61 +597,50 @@ struct ARRingHunt {
         // top-left at exactly (getDropletX, getDropletY) in this Stack's own coordinate frame.
         Stack() {
           if (this.guidanceMounted) {
-            // One Column: the droplet cluster, plus (when behind) the turn-around cue beneath it.
-            Column({ space: 8 }) {
-              Stack({ alignContent: Alignment.Center }) {
-                // Bottom: distance-feel glow halo (strokeWidth/opacity by distance).
-                Circle()
-                  .width(124)
-                  .height(124)
-                  .fillOpacity(0)
-                  .stroke(this.guidanceColor())
-                  .strokeWidth(this.glowThickness())
-                  .opacity(this.glowOpacity())
-                // Middle: breathing halo — pulses 0.95<->1.10, always larger than the droplet.
-                Circle()
-                  .width(108)
-                  .height(108)
-                  .fillOpacity(0)
-                  .stroke(this.guidanceColor())
-                  .strokeWidth(3)
-                  .opacity(0.5)
-                  .scale({ x: this.breathScale, y: this.breathScale })
-                // Top: the droplet (Shape+viewPort = density-independent 120vp), rotated to bearing.
-                Shape() {
-                  Path()
-                    .commands('M 60 10 C 86 35 100 54 100 74 C 100 97 82 112 60 112 C 38 112 20 97 20 74 C 20 54 34 35 60 10 Z')
-                    .fill(this.guidanceColor())
-                    .stroke('#FFFFFF')
-                    .strokeWidth(2.5)
-                  Path()
-                    .commands('M 45 50 C 38 62 39 76 47 88')
-                    .fill('#00FFFFFF')
-                    .stroke('#66FFFFFF')
-                    .strokeWidth(5)
-                }
-                .viewPort({ x: 0, y: 0, width: 120, height: 120 })
-                .width(120)
-                .height(120)
-                .rotate({ x: 0, y: 0, z: 1, angle: this.dropletRotationDeg(), centerX: '50%', centerY: '50%' })
-              }
-              .width(160)
-              .height(160)
-              // Behind: rotate glyph + caption under the bottom-center droplet.
-              if (this.isBehind) {
+            // Unified cluster: halos + center content. Front -> droplet (points at target); behind
+            // -> a ↻ glyph (same halos, just the center swaps). Position: edge vs bottom-center.
+            Stack({ alignContent: Alignment.Center }) {
+              // Bottom: distance-feel glow halo (strokeWidth/opacity by distance).
+              Circle()
+                .width(124)
+                .height(124)
+                .fillOpacity(0)
+                .stroke(this.guidanceColor())
+                .strokeWidth(this.glowThickness())
+                .opacity(this.glowOpacity())
+              // Middle: breathing halo — pulses 0.95<->1.10.
+              Circle()
+                .width(108)
+                .height(108)
+                .fillOpacity(0)
+                .stroke(this.guidanceColor())
+                .strokeWidth(3)
+                .opacity(0.5)
+                .scale({ x: this.breathScale, y: this.breathScale })
+              // Center content:
+              if (!this.isBehind) {
+                // Droplet (Shape+viewPort = density-independent 120vp), rotated to the bearing.
+                // Auto-centered by the cluster Stack exactly like the ↻ glyph: its box geometric
+                // center sits at the halo center (tip-up shape => visual mass ~16vp low, accepted).
+                // Droplet as an svg Image (viewBox 0..120) — Image scales/centers svg reliably,
+                // unlike Shape+viewPort here. Guidance only shows when the target is off-screen
+                // (distance > 0.3m), where the ring is always red, so the droplet is fixed red.
+                // Centered by the cluster Stack; rotates about its own center, in place.
+                Image($r('app.media.droplet'))
+                  .width(60)
+                  .height(60)
+                  .objectFit(ImageFit.Contain)
+                  .rotate({ x: 0, y: 0, z: 1, angle: this.dropletRotationDeg(), centerX: '50%', centerY: '50%' })
+              } else {
+                // Behind: a rotate glyph in the halo center (no droplet, no caption).
                 Text('↻')
                   .fontColor('#FFFFFF')
-                  .fontSize(48)
-                Text('向后转')
-                  .fontColor('#FFFFFF')
-                  .fontSize(20)
-                  .backgroundColor('#00000080')
-                  .padding({ left: 12, right: 12, top: 4, bottom: 4 })
-                  .borderRadius(8)
+                  .fontSize(56)
+                  .fontWeight(FontWeight.Bold)
               }
             }
             .width(160)
-            .alignItems(HorizontalAlign.Center)
+            .height(160)
             .opacity(this.guidanceOpacity)
             .position({ x: this.getDropletX(), y: this.getDropletY() })
           }
@@ -733,17 +718,6 @@ struct ARRingHunt {
 
         // Bottom HUD.
         Column({ space: 8 }) {
-          Progress({ value: this.distProgress(), total: 100, type: ProgressType.Linear })
-            .width('100%')
-            .height(6)
-            .color('#2196F3') // blue = distance
-            .backgroundColor('#80AAAAAA')
-          Progress({ value: this.angleProgress(), total: 100, type: ProgressType.Linear })
-            .width('100%')
-            .height(6)
-            .color('#9C27B0') // purple = angle
-            .backgroundColor('#80AAAAAA')
-            .visibility(this.isProximityMode() ? Visibility.None : Visibility.Visible)
           Text(`距离 ${this.distText()}m  |  角度 ${this.angleText()}°`)
             .fontSize(18)
             .fontColor(Color.White)
