@@ -117,3 +117,46 @@
 
 ---
 **Stage 10 完成(含 UX 升级)。`sign-placeholder.ps1` 已回填占位签名,准备提交。**
+
+---
+
+# 经验记录(v3.1 定位最终化)
+
+> 屏幕外引导水滴的"位置 + 指向"在真机上反复迭代多轮才定稿(commit `3632620`)。
+> 以下是踩到的 ArkUI 坑与最终方案,留给后续 Stage 参考。
+
+### a. ArkUI `.offset()` 不改 layout position
+`.offset({x,y})` 是渲染期变换,**不改变组件的 layout 位置**;因此 `onAreaChange` 报的 `position` 仍是偏移前的 (0,0),不是实际渲染位置 —— 调试时误判成"定位没生效"。
+**修复**:改用 `.position({x,y})`(它设置 layout 位置,`onAreaChange` 能报真实坐标),并在父 Stack 上显式 `alignContent: Alignment.TopStart`。
+
+### b. Stack 默认 `alignContent = Center` 会让 `.position()` 按中心锚定
+默认 Center 对齐下,`.position()` 把子组件的**中心**放到给定坐标,而非左上角 —— 与"左上角 + 半宽偏移"的算法假设冲突,导致整组偏移半个身位(竖直方向约占屏高 10%)。
+**修复**:外层 Stack 显式 `alignContent: Alignment.TopStart`,强制左上角锚定语义,`clusterX/Y = center - 半宽` 才成立。
+
+### c. `Path.commands` 坐标单位是 px,不随 width/height 缩放
+ArkUI `Path` 的 `commands` 是**绝对 px 坐标(1:1,不缩放)**;`.width/.height` 只是非裁剪的边界框。高密度屏上 70 单位的水滴只渲染成 ~20vp("红点被光晕吞掉")。
+**修复**:用 `Shape() { Path() }` + `.viewPort({x:0,y:0,width:W,height:H})` 包装,viewPort 会 SVG 式缩放到组件 vp 尺寸,做到分辨率无关。
+
+### d. 屏幕外引导定位:别走 NDC→edge 多变量管线,用射线-边缘交点
+最初用 native 的 `screenEdgeX/Y`(NDC 投影到 [-1,1] 方框边再归一化)直接定位,中间变量多、与"指向角"不自洽,易错。直接用"屏幕中心→目标方向"的**射线与屏幕边缘矩形交点**更稳,且与粒子流/尖端方向天然一致。
+**注意**:NDC 是方形归一化的,竖屏长宽比下直接取角会有 10–20° 偏差。
+**最终方案**:把投影 NDC 先换算到**屏幕空间**再求射线方向(`projectedNdc`→`targetVector`→`rayDir`);粒子 `target` 与尖端旋转都用水滴 **post-clamp 渲染后中心**(`getDropletX()+80`),三者 by construction 一致。
+
+### e. `RingState` 的 `ndcX/ndcY` / `screenEdgeX/Y` 是承重字段,不是 debug
+这四个 NAPI 字段被最终定位算法使用:`shouldFlipProjectedNdc`(`screenEdge` + `ndc`)、`projectedNdc`(`ndc`)、`targetVector`(`ndc` × stack 尺寸)。
+**教训**:健康检查报告里曾把它们误判为"临时 debug / 未使用、可删" —— 险些删掉承重逻辑。**改字段用途前先 grep 全部引用**,不要凭 commit 当时的印象判定"是不是 debug"。
+
+---
+
+# 经验记录(v3.1.1 视觉统一)
+
+### 6. `Shape{Path}+viewPort` 在本环境不可靠;`rotate` 支点别用百分比;最终改 svg `Image`
+v3.1.1 推翻了 c 条的"用 `Shape+viewPort` 缩放"方案:它**并没有**把 Path 缩放居中——内容仍按原始小坐标画在 box **左上角**,`rotate` 再绕 box 中心把它甩出圈外(看起来像"水滴飞到目标方向、圈外")。
+- 怀疑并逐一尝试(**均无效**):① `rotate` 的 `'50%'` 百分比支点可能按**父容器(Stack)**而非 Shape viewPort 解析 → 改显式数值 `centerX:60, centerY:60`(无效);② 子 `Path` 缺 `.width/.height` → 对照官方示例补齐(无效)。
+- **真正修复**:放弃 `Shape+viewPort`,改用 svg 资源 + `Image($r('app.media.droplet')).objectFit(ImageFit.Contain)` —— `Image` 对 svg `viewBox` 的缩放 / 居中 / 旋转是标准可靠行为,绕自身中心原地转。
+- **教训**:需要**矢量图形精确填充 + 居中**(尤其再叠加 `rotate`)时,优先 **svg + `Image`**,不要依赖 `Shape+viewPort+Path` 在本环境的缩放;`rotate` 支点尽量用**数值**而非百分比。
+
+### 7. UI 视觉 bug 的调试方法论:尽早测量,别只靠截图 + 推理
+- 远程截图 + 算法推理在 **3 轮内**没能定位 → **必须加 `onAreaChange` log 测真实渲染位置**,不要继续猜。
+- 真实测量数据(本例 `pos=(20,20) wh=(120,120)` —— 证明 box 居中、问题在内容)**一次性终结了所有假设**。
+- **教训**:**UI 行为推理 ≠ UI 行为测量**;远程视觉调试有上限,务必尽早从"推理"切到"测量"。
