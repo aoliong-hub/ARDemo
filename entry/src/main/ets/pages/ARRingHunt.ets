@@ -64,7 +64,6 @@ struct ARRingHunt {
   @State pitchDiffRad: number = 0;
   @State isAligned: boolean = false;
   @State isLocked: boolean = false;
-  @State isViewingFromBack: boolean = false; // ALIGNING: on the wrong side -> show droplet
   private prevLocked: boolean = false;
 
   // Off-screen target guidance.
@@ -116,11 +115,10 @@ struct ARRingHunt {
   // ---- Stage 11D alignment HUD: dot offset driven by yaw/pitch diff (max at 30deg) ----
   private readonly kMaxOffset: number = 200;
 
-  // Dot position = the frame's direction relative to you: frame to your right -> dot right; frame
-  // pointing down -> dot down. (Stage 11D micro-tune: both signs flipped from the initial mapping.)
+  // Dot position relative to screen center, driven by the yaw/pitch diff to the frame normal.
   private dotOffsetX(): number {
     let yawDeg: number = this.clamp(this.yawDiffRad * 180 / Math.PI, -30, 30);
-    return -(yawDeg / 30) * this.kMaxOffset;
+    return (yawDeg / 30) * this.kMaxOffset;
   }
 
   private dotOffsetY(): number {
@@ -452,13 +450,10 @@ struct ARRingHunt {
   // Reconcile guidance visibility with a 0.3s opacity transition. Very close (< 0.30m, the beacon
   // is in your face) is suppressed to avoid near-clip projection jitter.
   private reconcileGuidance(): void {
-    // Droplet shows: (a) APPROACHING with the beacon off-screen (>=0.30m, avoids near-clip jitter),
-    // or (b) ALIGNING while viewing the frame from the wrong side (guide the user around to the
-    // front). ALIGNING-front and LOCKED use the HUD / banner instead.
-    let approaching: boolean =
+    // Droplet shows only in APPROACHING with the beacon off-screen (>=0.30m avoids near-clip jitter).
+    // ALIGNING/LOCKED use the HUD + the co-planar disk for orientation; no droplet.
+    let shouldShow: boolean =
       this.huntPhase === 0 && this.ringPlaced && !this.isTargetInView && this.distance >= 0.30;
-    let aligningBack: boolean = this.huntPhase === 1 && this.isViewingFromBack;
-    let shouldShow: boolean = approaching || aligningBack;
     if (shouldShow === this.guidanceShown) {
       // Already in the right state: keep breathing/particle speed in sync with distance.
       if (shouldShow) {
@@ -548,7 +543,6 @@ struct ARRingHunt {
               this.pitchDiffRad = s.pitchDiffRad;
               this.isAligned = s.isAligned;
               this.isLocked = s.isLocked;
-              this.isViewingFromBack = s.isViewingFromBack;
               if (this.isLocked && !this.prevLocked) {
                 this.triggerLockVibration(); // rising edge: LOCKED reached
               }
@@ -650,9 +644,9 @@ struct ARRingHunt {
         })
 
         // Stage 11D ALIGNING HUD: a fixed white crosshair at screen center + a red/green dot that
-        // tracks the yaw/pitch diff to the 6DoF frame normal (centered = aligned). Only when viewing
-        // the frame's front side; from the back the droplet (above) leads you around instead.
-        if (this.huntPhase === 1 && !this.isViewingFromBack) {
+        // tracks the yaw/pitch diff to the 6DoF frame normal (centered = aligned). Shown throughout
+        // ALIGNING; the co-planar disk indicates which side you're on.
+        if (this.huntPhase === 1) {
           Stack({ alignContent: Alignment.Center }) {
             // Crosshair (two thin white bars).
             Row().width(56).height(3).backgroundColor('#E6FFFFFF')
@@ -733,7 +727,6 @@ struct ARRingHunt {
                 this.huntPhase = 0;
                 this.isAligned = false;
                 this.isLocked = false;
-                this.isViewingFromBack = false;
                 this.prevLocked = false;
                 this.resetGuidance();
                 Logger.info(`[RingHunt] resetRing`);

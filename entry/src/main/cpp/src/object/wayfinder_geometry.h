@@ -28,8 +28,10 @@
 
 namespace ARObject {
 
-// Pillar / spinner / phone-icon top height (m). The pillar core & fog share it.
-constexpr float kWayfinderTopHeight = 1.2f;
+// Pillar / badge / alignment-frame top height (m) above the ground anchor. Drives the pillar
+// geometry height, the badge/frame world position, and the distance reference. Lowered to 0.9m so
+// the alignment frame sits near a comfortable hold height (no need to raise the phone).
+constexpr float kWayfinderTopHeight = 0.9f;
 
 struct WayfinderMesh {
     std::vector<float> positions;   // x,y,z per vertex
@@ -85,6 +87,13 @@ public:
     // 15x30cm outer, 1.0cm band, 1.0cm outer corner radius. Oriented in 6DoF by the renderer.
     static WayfinderMesh CreateAlignmentFrame(float width = 0.15f, float height = 0.30f, float thickness = 0.010f,
                                               float cornerRadius = 0.010f, int segPerCorner = 8);
+
+    // 3D arrow (Stage 11D), pointing along +Z. A thin cylinder shaft + a single flat triangular
+    // 2-barb arrowhead in the XZ plane. uv.y runs 0 (shaft base) -> 1 (tip) for the lengthwise hue
+    // gradient. ~6cm long. Rendered with the arrow hue shader.
+    static WayfinderMesh CreateArrow3D(float shaftRadius = 0.0015f, float shaftLength = 0.04f,
+                                       float wingSpan = 0.012f, float wingThickness = 0.002f,
+                                       float headLength = 0.02f, int shaftSegments = 16);
 };
 
 } // namespace ARObject

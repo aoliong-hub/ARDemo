@@ -79,7 +79,7 @@ public:
     virtual void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                               float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
                               float &ndcX, float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad,
-                              bool &isAligned, bool &isLocked, bool &isViewingFromBack)
+                              bool &isAligned, bool &isLocked)
     {
         distance = 0.0f;
         ringPlaced = false;
@@ -96,7 +96,6 @@ public:
         pitchDiffRad = 0.0f;
         isAligned = false;
         isLocked = false;
-        isViewingFromBack = false;
     }
 
 public:

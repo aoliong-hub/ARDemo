@@ -51,7 +51,7 @@ public:
     void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
                       float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad, bool &isAligned,
-                      bool &isLocked, bool &isViewingFromBack) override;
+                      bool &isLocked) override;
 
 private:
     AREngine_ARSession *mArSession = nullptr;
@@ -77,6 +77,7 @@ private:
     float mToAligningTimer = 0.0f;
     float mToApproachingTimer = 0.0f;
     float mLockTimer = 0.0f;
+    bool mWasAligned = false; // previous-frame aligned state, for the 5deg/7deg hysteresis
 
     // Shared with the ArkTS poll (getRingState).
     std::atomic<bool> mReady{false};
@@ -90,7 +91,6 @@ private:
     std::atomic<float> mPitchDiffRad{0.0f};
     std::atomic<bool> mIsAligned{false};
     std::atomic<bool> mIsLocked{false};
-    std::atomic<bool> mIsViewingFromBack{false}; // ALIGNING: camera is on the wrong side of the frame
 
     // Off-screen target guidance (computed each tracked frame from the view/proj matrices, targeting
     // the beacon top). Default "in view" so guidance stays hidden until a beacon is placed.

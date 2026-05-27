@@ -139,6 +139,44 @@ constexpr char FRAME_FS[] = R"(
     }
 )";
 
+// Arrow program (Stage 11D): lengthwise pink->purple->blue gradient (uv.y) + hue rotation; fades to
+// a solid green (u_override) by u_aligned (0..1) when the user is aligned.
+constexpr char ARROW_VS[] = R"(
+    uniform mat4 u_mvp;
+    attribute vec4 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 v_uv;
+    void main() {
+        v_uv = a_uv;
+        gl_Position = u_mvp * a_pos;
+    }
+)";
+constexpr char ARROW_FS[] = R"(
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform float u_time;
+    uniform float u_aligned;
+    uniform vec3 u_override;
+    vec3 hueRotate(vec3 col, float angle) {
+        float c = cos(angle);
+        float s = sin(angle);
+        vec3 r = vec3(0.299 + 0.701 * c + 0.168 * s, 0.587 - 0.587 * c + 0.330 * s, 0.114 - 0.114 * c - 0.497 * s);
+        vec3 g = vec3(0.299 - 0.299 * c - 0.328 * s, 0.587 + 0.413 * c + 0.035 * s, 0.114 - 0.114 * c + 0.292 * s);
+        vec3 b = vec3(0.299 - 0.300 * c + 1.250 * s, 0.587 - 0.588 * c - 1.050 * s, 0.114 + 0.886 * c - 0.203 * s);
+        return vec3(dot(r, col), dot(g, col), dot(b, col));
+    }
+    void main() {
+        vec3 pink = vec3(0.95, 0.3, 0.7);
+        vec3 purple = vec3(0.5, 0.3, 0.95);
+        vec3 blue = vec3(0.3, 0.6, 0.95);
+        float t = v_uv.y;
+        vec3 base = (t < 0.5) ? mix(pink, purple, t * 2.0) : mix(purple, blue, (t - 0.5) * 2.0);
+        base = clamp(hueRotate(base, u_time * 0.7853982), 0.0, 1.0);
+        vec3 finalColor = mix(base, u_override, u_aligned);
+        gl_FragColor = vec4(finalColor, 1.0);
+    }
+)";
+
 const glm::vec3 kBadgeRingColor(0.70f, 0.70f, 0.74f); // gray rim
 const glm::vec3 kBadgeDiskColor(0.45f, 0.45f, 0.48f); // darker semi-transparent medallion
 const glm::vec3 kPhoneColor(1.0f, 1.0f, 1.0f);        // white wireframe
@@ -191,6 +229,18 @@ void WayfinderRenderer::Init()
         LOGE("WayfinderRenderer: alignment-frame program failed to compile.");
     }
 
+    mArrowProgram = GLUtils::CreateProgram(ARROW_VS, ARROW_FS);
+    if (mArrowProgram) {
+        mArrowMvp = glGetUniformLocation(mArrowProgram, "u_mvp");
+        mArrowTime = glGetUniformLocation(mArrowProgram, "u_time");
+        mArrowAligned = glGetUniformLocation(mArrowProgram, "u_aligned");
+        mArrowOverride = glGetUniformLocation(mArrowProgram, "u_override");
+        mArrowPos = glGetAttribLocation(mArrowProgram, "a_pos");
+        mArrowUv = glGetAttribLocation(mArrowProgram, "a_uv");
+    } else {
+        LOGE("WayfinderRenderer: arrow program failed to compile.");
+    }
+
     mGround = WayfinderGeometry::CreateGroundRing();
     mCore = WayfinderGeometry::CreatePillarCore();
     mFog = WayfinderGeometry::CreatePillarFog();
@@ -200,6 +250,7 @@ void WayfinderRenderer::Init()
     mBadgeDisk = WayfinderGeometry::CreateTopBadgeDisk();
     mPhone = WayfinderGeometry::CreatePhoneIconRounded();
     mAlignFrame = WayfinderGeometry::CreateAlignmentFrame();
+    mArrow = WayfinderGeometry::CreateArrow3D();
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
 
@@ -220,6 +271,10 @@ void WayfinderRenderer::Release()
     if (mFrameProgram) {
         GLUtils::ReleaseProgram(mFrameProgram);
         mFrameProgram = 0;
+    }
+    if (mArrowProgram) {
+        GLUtils::ReleaseProgram(mArrowProgram);
+        mArrowProgram = 0;
     }
 }
 
@@ -292,7 +347,7 @@ void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mes
     if (mesh.indices.empty() || !mFrameProgram) {
         return;
     }
-    glDepthMask(GL_FALSE);
+    glDepthMask(GL_TRUE); // write depth so the frame border occludes the co-planar disk from behind
     glUseProgram(mFrameProgram);
     glUniformMatrix4fv(mFrameMvp, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniform1f(mFrameTime, hueTime);
@@ -305,9 +360,31 @@ void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mes
     glDisableVertexAttribArray(mFrameUv);
 }
 
+void WayfinderRenderer::DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned)
+{
+    if (mArrow.indices.empty() || !mArrowProgram) {
+        return;
+    }
+    glDepthMask(GL_TRUE);
+    glUseProgram(mArrowProgram);
+    glUniformMatrix4fv(mArrowMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniform1f(mArrowTime, hueTime);
+    glUniform1f(mArrowAligned, aligned);
+    glUniform3f(mArrowOverride, 0.3f, 1.0f, 0.4f); // solid green when aligned
+    glEnableVertexAttribArray(mArrowPos);
+    glEnableVertexAttribArray(mArrowUv);
+    glVertexAttribPointer(mArrowPos, 3, GL_FLOAT, GL_FALSE, 0, mArrow.positions.data());
+    glVertexAttribPointer(mArrowUv, 2, GL_FLOAT, GL_FALSE, 0, mArrow.uvs.data());
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mArrow.indices.size()), GL_UNSIGNED_SHORT,
+                   mArrow.indices.data());
+    glDisableVertexAttribArray(mArrowPos);
+    glDisableVertexAttribArray(mArrowUv);
+}
+
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance,
-                               int huntPhase, const glm::quat &frameOrientation, float frameHueTime)
+                               int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
+                               float deltaTime)
 {
     if (!mSolidProgram || !mLineProgram) {
         return;
@@ -317,6 +394,14 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_CULL_FACE);
+
+    // Arrow align transition (0 colorful+spinning -> 1 green+stopped over ~0.3s) + spin angle (3s/rev,
+    // slows to a stop as it greens). Advanced every frame; only drawn in ALIGNING/LOCKED below.
+    float target = isAligned ? 1.0f : 0.0f;
+    mAlignedTransition += (target - mAlignedTransition) * (deltaTime / 0.3f);
+    mAlignedTransition = glm::clamp(mAlignedTransition, 0.0f, 1.0f);
+    float spinSpeed = (kTwoPi / 3.0f) * (1.0f - mAlignedTransition);
+    mSpinAngle += spinSpeed * deltaTime;
 
     const glm::mat4 vp = proj * view;
     const glm::mat4 mvp = vp * wayfinderToWorld;
@@ -328,9 +413,21 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         float bPhase = std::fmod(animTime, 0.8f) / 0.8f;
         float bAlpha = 0.5f + 0.5f * (0.5f + 0.5f * std::sin(bPhase * kTwoPi - kHalfPi)); // 0.5..1.0
         DrawSolid(mvp, mGround, color, 0.85f * bAlpha, 0.85f * bAlpha, true);
+
         glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, kWayfinderTopHeight, 0.0f);
-        glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * glm::mat4_cast(frameOrientation);
+        glm::mat4 frameRot = glm::mat4_cast(frameOrientation);
+        glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot;
         DrawFrame(vp * frameModel, mAlignFrame, frameHueTime);
+
+        // 3D twin-wing arrow protruding from the frame center along its facing normal (frameRot * +Z).
+        // It points the same way regardless of the spin; the spin only rotates the wings about the
+        // shaft. Iridescent + spinning when unaligned; eases to solid green + still as you align.
+        glm::mat4 spinMat = glm::rotate(glm::mat4(1.0f), mSpinAngle, glm::vec3(0.0f, 0.0f, 1.0f));
+        // Flip 180deg so the arrow points toward the viewer's correct side (out of the frame).
+        glm::mat4 flip = glm::rotate(glm::mat4(1.0f), 3.14159265f, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 arrowMvp = vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * flip * spinMat;
+        DrawArrow(arrowMvp, animTime, mAlignedTransition);
+
         glDepthMask(GL_TRUE);
         glUseProgram(0);
         GLUtils::CheckError(__FILE_NAME__, __LINE__);

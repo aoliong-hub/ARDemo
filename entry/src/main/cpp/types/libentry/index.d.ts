@@ -66,7 +66,6 @@ export interface RingState {
   pitchDiffRad: number;       // pitch difference to the alignment frame normal
   isAligned: boolean;         // instantaneous: within 5deg yaw+pitch and <30cm
   isLocked: boolean;          // alignment held 0.5s -> LOCKED
-  isViewingFromBack: boolean; // ALIGNING: camera is on the wrong side of the frame (show droplet)
 }
 export const placeRing: (id: string) => number;
 export const resetRing: (id: string) => void;

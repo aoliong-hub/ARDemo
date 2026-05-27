@@ -39,9 +39,10 @@ constexpr float kGroundDrop = 1.0f;      // lower it ~1m to approximate the floo
 
 // Stage 11D 6DoF alignment challenge.
 constexpr float kAligningDistMeters = 0.30f; // distance threshold to enter ALIGNING
-constexpr float kAlignAngleRad = 0.0872665f; // 5 degrees: yaw & pitch tolerance for LOCKED
+constexpr float kFrameAlignEnterRad = 0.0872665f; // 5 degrees: enter "aligned" (turn green)
+constexpr float kFrameAlignExitRad = 0.1221730f;  // 7 degrees: leave "aligned" (hysteresis, turn red)
 constexpr float kDebounceSec = 0.30f;        // hold time for APPROACHING<->ALIGNING transitions
-constexpr float kLockSec = 0.50f;            // hold time aligned before LOCKED
+constexpr float kLockSec = 1.00f;            // hold time aligned before LOCKED
 constexpr float kRandYawRad = 0.3490659f;     // +/-20 deg
 constexpr float kRandRollRad = 0.2617994f;    // +/-15 deg
 constexpr float kPitchDownMinRad = 0.1745329f; // 10 deg minimum downward tilt
@@ -157,7 +158,7 @@ void RingHuntApp::OnUpdate()
 
         RingCameraInfo cam;
         mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mAnimTime, color, lastDist,
-                                   mHuntPhase.load(), targetQ, mFrameHueTime, &cam);
+                                   mHuntPhase.load(), targetQ, mFrameHueTime, mIsAligned.load(), dt, &cam);
 
         mCameraTracking.store(cam.tracking);
         if (!cam.tracking) {
@@ -175,10 +176,10 @@ void RingHuntApp::OnUpdate()
             mHuntPhase.store(0);
             mIsAligned.store(false);
             mIsLocked.store(false);
-            mIsViewingFromBack.store(false);
             mToAligningTimer = 0.0f;
             mToApproachingTimer = 0.0f;
             mLockTimer = 0.0f;
+            mWasAligned = false;
             mFrameHueTime = mAnimTime;
             return;
         }
@@ -217,18 +218,13 @@ void RingHuntApp::OnUpdate()
         mYawDiffRad.store(yawDiff);
         mPitchDiffRad.store(pitchDiff);
 
-        // Which side of the frame is the camera on? Aligning needs camFwd ~ frameNormal, achievable
-        // only from the -frameNormal side (looking toward +frameNormal through the frame). On that
-        // side the camera->frame vector points along +frameNormal (dot > 0). dot < 0 = wrong side.
-        glm::vec3 framePosV(beaconTop[0], beaconTop[1], beaconTop[2]);
-        glm::vec3 camPosV(camPos[0], camPos[1], camPos[2]);
-        glm::vec3 toFrame = glm::normalize(framePosV - camPosV);
-        bool viewingBack = glm::dot(frameNormal, toFrame) < 0.0f;
-        mIsViewingFromBack.store(viewingBack);
-
         float dist = mDistance.load();
         bool inRange = dist < kAligningDistMeters;
-        bool aligned = inRange && std::fabs(yawDiff) < kAlignAngleRad && std::fabs(pitchDiff) < kAlignAngleRad;
+        // Hysteresis: need <5deg to become aligned (green), but only >7deg breaks it (red) — so the
+        // arrow doesn't flicker red/green right at the boundary.
+        float thresh = mWasAligned ? kFrameAlignExitRad : kFrameAlignEnterRad;
+        bool aligned = inRange && std::fabs(yawDiff) < thresh && std::fabs(pitchDiff) < thresh;
+        mWasAligned = aligned;
         mIsAligned.store(aligned);
 
         int phase = mHuntPhase.load();
@@ -262,24 +258,11 @@ void RingHuntApp::OnUpdate()
             mFrameHueTime = mAnimTime; // keep hue live until locked, then freeze at this value
         }
 
-        // Off-screen guidance (droplet). APPROACHING: target the beacon top. ALIGNING + wrong side:
-        // target a point 0.5m on the correct (-frameNormal) side so the droplet leads you around.
-        // Otherwise (ALIGNING front / LOCKED): no droplet (HUD handles it) -> mark "in view".
-        bool wantGuide = (phase == 0) || (phase == 1 && viewingBack);
-        if (wantGuide) {
-            float guideTarget[3];
-            if (phase == 0) {
-                guideTarget[0] = beaconTop[0];
-                guideTarget[1] = beaconTop[1];
-                guideTarget[2] = beaconTop[2];
-            } else {
-                glm::vec3 g = framePosV - frameNormal * 0.5f; // correct side of the frame
-                guideTarget[0] = g.x;
-                guideTarget[1] = g.y;
-                guideTarget[2] = g.z;
-            }
+        // Off-screen guidance (droplet) only in APPROACHING: project the beacon top to screen space.
+        // In ALIGNING/LOCKED the droplet is off (orientation is shown by the co-planar disk + HUD).
+        if (phase == 0) {
             OffscreenGuidance guide;
-            ComputeOffscreenGuidance(cam.viewMat, cam.projMat, guideTarget, guide);
+            ComputeOffscreenGuidance(cam.viewMat, cam.projMat, beaconTop, guide);
             mIsTargetInView.store(guide.isInView);
             mScreenEdgeX.store(guide.screenEdgeX);
             mScreenEdgeY.store(guide.screenEdgeY);
@@ -288,7 +271,7 @@ void RingHuntApp::OnUpdate()
             mNdcX.store(guide.ndcX);
             mNdcY.store(guide.ndcY);
         } else {
-            mIsTargetInView.store(true); // hide the droplet; ALIGNING-front shows the HUD
+            mIsTargetInView.store(true); // hide the droplet in ALIGNING/LOCKED
             mIsBehind.store(false);
         }
     });
@@ -401,10 +384,10 @@ int32_t RingHuntApp::PlaceRing()
         mHuntPhase.store(0);
         mIsAligned.store(false);
         mIsLocked.store(false);
-        mIsViewingFromBack.store(false);
         mToAligningTimer = 0.0f;
         mToApproachingTimer = 0.0f;
         mLockTimer = 0.0f;
+        mWasAligned = false;
         mFrameHueTime = mAnimTime;
         mHasRing.store(true);
         LOGI("[RingHunt] Beacon placed id=%{public}d pos=(%{public}f,%{public}f,%{public}f) "
@@ -434,12 +417,12 @@ void RingHuntApp::ResetRing()
         mHuntPhase.store(0);
         mIsAligned.store(false);
         mIsLocked.store(false);
-        mIsViewingFromBack.store(false);
         mYawDiffRad.store(0.0f);
         mPitchDiffRad.store(0.0f);
         mToAligningTimer = 0.0f;
         mToApproachingTimer = 0.0f;
         mLockTimer = 0.0f;
+        mWasAligned = false;
         LOGI("[RingHunt] reset.");
     });
 }
@@ -447,7 +430,7 @@ void RingHuntApp::ResetRing()
 void RingHuntApp::GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                                float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
                                float &ndcX, float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad,
-                               bool &isAligned, bool &isLocked, bool &isViewingFromBack)
+                               bool &isAligned, bool &isLocked)
 {
     distance = mDistance.load();
     ringPlaced = mHasRing.load();
@@ -464,7 +447,6 @@ void RingHuntApp::GetRingState(float &distance, bool &ringPlaced, int32_t &finis
     pitchDiffRad = mPitchDiffRad.load();
     isAligned = mIsAligned.load();
     isLocked = mIsLocked.load();
-    isViewingFromBack = mIsViewingFromBack.load();
 }
 
 } // namespace ARObject

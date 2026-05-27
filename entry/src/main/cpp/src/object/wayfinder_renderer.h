@@ -41,7 +41,7 @@ public:
     // LOCKED). Other params as before: color (distance red->mint), animTime (s), distance (m).
     void Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                 const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance, int huntPhase,
-                const glm::quat &frameOrientation, float frameHueTime);
+                const glm::quat &frameOrientation, float frameHueTime, bool isAligned, float deltaTime);
 
 private:
     void DrawSolid(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase,
@@ -51,6 +51,8 @@ private:
     void DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase, float time);
     // Alignment frame: pink->purple->blue gradient along uv.x, hue-rotated by hueTime.
     void DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime);
+    // 3D arrow: lengthwise pink->purple->blue gradient + hue rotation; fades to green by aligned (0..1).
+    void DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned);
 
     GLuint mSolidProgram = 0;
     GLint mSolidMvp = -1;
@@ -80,6 +82,18 @@ private:
     GLint mFramePos = -1;
     GLint mFrameUv = -1;
 
+    GLuint mArrowProgram = 0;
+    GLint mArrowMvp = -1;
+    GLint mArrowTime = -1;
+    GLint mArrowAligned = -1;
+    GLint mArrowOverride = -1;
+    GLint mArrowPos = -1;
+    GLint mArrowUv = -1;
+
+    // Arrow animation state (persists across frames): align color/spin transition + spin angle.
+    float mAlignedTransition = 0.0f; // 0 = colorful + spinning, 1 = green + stopped
+    float mSpinAngle = 0.0f;         // current spin about the arrow's own axis (rad)
+
     WayfinderMesh mGround;
     WayfinderMesh mCore;
     WayfinderMesh mFog;
@@ -89,6 +103,7 @@ private:
     WayfinderMesh mBadgeDisk;
     WayfinderMesh mPhone;
     WayfinderMesh mAlignFrame;
+    WayfinderMesh mArrow;
 };
 
 } // namespace ARObject
