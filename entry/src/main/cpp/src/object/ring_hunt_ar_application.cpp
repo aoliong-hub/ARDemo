@@ -223,6 +223,26 @@ void RingHuntApp::OnUpdate()
         mYawDiffRad.store(yawDiff);
         mPitchDiffRad.store(pitchDiff);
 
+        // Stage 12B-1: roll diff — signed radians by which the camera's local up axis is rotated
+        // around its forward axis relative to the target frame's up axis. Positive = phone rolled
+        // clockwise from user POV vs the target. Camera up = row 1 of the column-major view rotation;
+        // frame up = targetQ * (0,1,0). Project frame up onto the camera right-up plane (i.e.
+        // strip the forward component) so the angle is measured purely about the camera forward.
+        // Used by the on-screen banner only; alignment gate stays yaw/pitch as before.
+        glm::vec3 camUp(cam.viewMat[1], cam.viewMat[5], cam.viewMat[9]);
+        glm::vec3 frameUp = glm::normalize(targetQ * glm::vec3(0.0f, 1.0f, 0.0f));
+        float rollDiff = 0.0f;
+        glm::vec3 projFrameUp = frameUp - glm::dot(frameUp, camFwd) * camFwd;
+        float projLen = glm::length(projFrameUp);
+        if (projLen > 1e-4f) {
+            projFrameUp = projFrameUp / projLen;
+            float cosA = glm::dot(camUp, projFrameUp);
+            glm::vec3 cross = glm::cross(projFrameUp, camUp);
+            float sinA = glm::dot(cross, camFwd);
+            rollDiff = std::atan2(sinA, cosA);
+        }
+        mRollDiffRad.store(rollDiff);
+
         float dist = mDistance.load();
         bool inRange = dist < kAligningDistMeters;
         // Hysteresis: need <5deg to become aligned (green), but only >7deg breaks it (red) — so the
@@ -466,6 +486,7 @@ void RingHuntApp::ResetRing()
         mIsLocked.store(false);
         mYawDiffRad.store(0.0f);
         mPitchDiffRad.store(0.0f);
+        mRollDiffRad.store(0.0f);
         mToAligningTimer = 0.0f;
         mToApproachingTimer = 0.0f;
         mLockTimer = 0.0f;
@@ -477,8 +498,8 @@ void RingHuntApp::ResetRing()
 void RingHuntApp::GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                                float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
                                float &ndcX, float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad,
-                               bool &isAligned, bool &isLocked, float &targetYawDeg, float &targetPitchDeg,
-                               float &targetRollDeg)
+                               float &rollDiffRad, bool &isAligned, bool &isLocked, float &targetYawDeg,
+                               float &targetPitchDeg, float &targetRollDeg)
 {
     distance = mDistance.load();
     ringPlaced = mHasRing.load();
@@ -493,6 +514,7 @@ void RingHuntApp::GetRingState(float &distance, bool &ringPlaced, int32_t &finis
     huntPhase = mHuntPhase.load();
     yawDiffRad = mYawDiffRad.load();
     pitchDiffRad = mPitchDiffRad.load();
+    rollDiffRad = mRollDiffRad.load();
     isAligned = mIsAligned.load();
     isLocked = mIsLocked.load();
     targetYawDeg = mTargetYawDeg.load();

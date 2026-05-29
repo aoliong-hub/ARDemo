@@ -64,6 +64,7 @@ export interface RingState {
   huntPhase: number;          // 0=APPROACHING 1=ALIGNING 2=LOCKED
   yawDiffRad: number;         // yaw difference to the alignment frame normal
   pitchDiffRad: number;       // pitch difference to the alignment frame normal
+  rollDiffRad: number;        // Stage 12B-1: roll difference (banner only; not part of align gate)
   isAligned: boolean;         // instantaneous: within 5deg yaw+pitch and <30cm
   isLocked: boolean;          // alignment held 1s -> LOCKED
   // Stage 11D interface extension: current 6DoF target orientation (degrees), for either placement path.

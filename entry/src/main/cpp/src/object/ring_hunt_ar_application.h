@@ -51,8 +51,9 @@ public:
     void ResetRing() override;
     void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
-                      float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad, bool &isAligned,
-                      bool &isLocked, float &targetYawDeg, float &targetPitchDeg, float &targetRollDeg) override;
+                      float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad, float &rollDiffRad,
+                      bool &isAligned, bool &isLocked, float &targetYawDeg, float &targetPitchDeg,
+                      float &targetRollDeg) override;
 
 private:
     // Shared placement: anchor 1m ahead on the floor + set the 6DoF target orientation. useGiven
@@ -94,6 +95,8 @@ private:
     std::atomic<int32_t> mHuntPhase{0}; // 0=APPROACHING 1=ALIGNING 2=LOCKED
     std::atomic<float> mYawDiffRad{0.0f};
     std::atomic<float> mPitchDiffRad{0.0f};
+    // Stage 12B-1: roll diff drives the on-screen banner only — not part of the alignment gate.
+    std::atomic<float> mRollDiffRad{0.0f};
     std::atomic<bool> mIsAligned{false};
     std::atomic<bool> mIsLocked{false};
     // Degree mirrors of the target orientation, set at placement so the ArkTS poll can read them.

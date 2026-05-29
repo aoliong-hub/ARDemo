@@ -88,8 +88,8 @@ public:
     virtual void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                               float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
                               float &ndcX, float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad,
-                              bool &isAligned, bool &isLocked, float &targetYawDeg, float &targetPitchDeg,
-                              float &targetRollDeg)
+                              float &rollDiffRad, bool &isAligned, bool &isLocked, float &targetYawDeg,
+                              float &targetPitchDeg, float &targetRollDeg)
     {
         distance = 0.0f;
         ringPlaced = false;
@@ -104,6 +104,7 @@ public:
         huntPhase = 0;
         yawDiffRad = 0.0f;
         pitchDiffRad = 0.0f;
+        rollDiffRad = 0.0f;
         isAligned = false;
         isLocked = false;
         targetYawDeg = 0.0f;

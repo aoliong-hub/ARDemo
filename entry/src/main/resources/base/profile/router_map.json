@@ -95,6 +95,22 @@
       "data": {
         "description": "This is ARRingHunt."
       }
+    },
+    {
+      "name": "ARRingHuntCam",
+      "pageSourceFile": "src/main/ets/pages/ARRingHuntCam.ets",
+      "buildFunction": "ARRingHuntCamBuilder",
+      "data": {
+        "description": "Camera-style AI拍照 home (Stage 12A redo)."
+      }
+    },
+    {
+      "name": "DevSelector",
+      "pageSourceFile": "src/main/ets/pages/DevSelector.ets",
+      "buildFunction": "DevSelectorBuilder",
+      "data": {
+        "description": "Hidden dev entry — long-press gear to open."
+      }
     }
   ]
 }

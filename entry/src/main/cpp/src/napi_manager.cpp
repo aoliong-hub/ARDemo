@@ -755,14 +755,15 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     int32_t huntPhase = 0;
     float yawDiffRad = 0.0f;
     float pitchDiffRad = 0.0f;
+    float rollDiffRad = 0.0f;
     bool isAligned = false;
     bool isLocked = false;
     float targetYawDeg = 0.0f;
     float targetPitchDeg = 0.0f;
     float targetRollDeg = 0.0f;
     app->GetRingState(distance, ringPlaced, finishState, isTargetInView, screenEdgeX, screenEdgeY, isBehind,
-                      indicatorAngleDeg, ndcX, ndcY, huntPhase, yawDiffRad, pitchDiffRad, isAligned, isLocked,
-                      targetYawDeg, targetPitchDeg, targetRollDeg);
+                      indicatorAngleDeg, ndcX, ndcY, huntPhase, yawDiffRad, pitchDiffRad, rollDiffRad, isAligned,
+                      isLocked, targetYawDeg, targetPitchDeg, targetRollDeg);
 
     napi_value result = nullptr;
     napi_create_object(env, &result);
@@ -779,6 +780,7 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_value vHuntPhase = nullptr;
     napi_value vYaw = nullptr;
     napi_value vPitch = nullptr;
+    napi_value vRoll = nullptr;
     napi_value vAligned = nullptr;
     napi_value vLocked = nullptr;
     napi_value vTYaw = nullptr;
@@ -797,6 +799,7 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_create_int32(env, huntPhase, &vHuntPhase);
     napi_create_double(env, static_cast<double>(yawDiffRad), &vYaw);
     napi_create_double(env, static_cast<double>(pitchDiffRad), &vPitch);
+    napi_create_double(env, static_cast<double>(rollDiffRad), &vRoll);
     napi_get_boolean(env, isAligned, &vAligned);
     napi_get_boolean(env, isLocked, &vLocked);
     napi_create_double(env, static_cast<double>(targetYawDeg), &vTYaw);
@@ -815,6 +818,7 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_set_named_property(env, result, "huntPhase", vHuntPhase);
     napi_set_named_property(env, result, "yawDiffRad", vYaw);
     napi_set_named_property(env, result, "pitchDiffRad", vPitch);
+    napi_set_named_property(env, result, "rollDiffRad", vRoll);
     napi_set_named_property(env, result, "isAligned", vAligned);
     napi_set_named_property(env, result, "isLocked", vLocked);
     napi_set_named_property(env, result, "targetYawDeg", vTYaw);
