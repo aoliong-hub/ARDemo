@@ -96,6 +96,7 @@ struct ARRingHuntCam {
   // Mode-switch fade.
   @State private fadeOpacity: number = 1.0;
 
+
   // Stage 12B-1 bottom reference-shot panel. Two INDEPENDENT states drive the layout:
   //   panelExpanded — are we in "AI 机位" mode at all (compact chrome, panel visible).
   //                   Flips true on AI sphere tap; never flips false again in this stage.
@@ -321,6 +322,32 @@ struct ARRingHuntCam {
     } catch (e) {
       let err: BusinessError = e as BusinessError;
       Logger.warn(`toast failed: ${err.message}`);
+    }
+  }
+
+  // Stage 12C dev path: place a beacon at a CAMERA-RELATIVE position + 6DoF target via placeRingAt.
+  //   x = right (horizontal, perpendicular to user's heading)
+  //   y = up    (height of the ring/badge above the ground base — what the user aims at)
+  //   z = forward (horizontal, user's heading at call time)
+  //   yaw/pitch/roll degrees: yaw composes with the camera's current world yaw (so 0 = facing
+  //   along the user's gaze, back of the frame toward the user); pitch/roll are absolute world.
+  private placeBeaconAt(x: number, y: number, z: number, yawDeg: number, pitchDeg: number, rollDeg: number,
+                        label: string): void {
+    if (this.ringPlaced) {
+      this.distance = 99;
+      this.huntPhase = 0;
+      this.isAligned = false;
+      this.isLocked = false;
+      this.prevLocked = false;
+      this.resetGuidance();
+    }
+    let id: number = arEngineDemo.placeRingAt(this.idStr, x, y, z, yawDeg, pitchDeg, rollDeg);
+    Logger.info(`[ARRingHuntCam] placeRingAt(${label}: x=${x} y=${y} z=${z} yaw=${yawDeg} pitch=${pitchDeg} roll=${rollDeg}) -> ${id}`);
+    if (id < 0) {
+      this.toast('请稳住手机等待跟踪稳定');
+    } else {
+      this.ringPlaced = true;
+      this.enterAiModeAndOpenCard();
     }
   }
 
@@ -885,6 +912,62 @@ struct ARRingHuntCam {
           .backgroundColor('#FF000000')
           .position({ x: 0, y: 0 })
           .hitTestBehavior(HitTestMode.None)
+
+        // Stage 12C dev chips — placeRingAt test buttons at top-left of the viewport. Row 1 tests
+        // position (x=right, y=ringHeight, z=forward); row 2 tests orientation (yaw composes with
+        // camera yaw — 0 = facing user's gaze, back of frame toward user; pitch/roll absolute).
+        // Tiny, semi-transparent; verifies the contract on every build. Remove only when the 3D
+        // pose-calc pipeline replaces them.
+        Column({ space: 4 }) {
+          Row({ space: 6 }) {
+            Text('前2高1.2')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 0, 0, 0, '前2高1.2'); })
+            Text('前2高0.5')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.placeBeaconAt(0, 0.5, 2, 0, 0, 0, '前2高0.5'); })
+            Text('右1前1高1.2')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.placeBeaconAt(1, 1.2, 1, 0, 0, 0, '右1前1高1.2'); })
+          }
+          Row({ space: 6 }) {
+            Text('前2转右30')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 30, 0, 0, '前2转右30'); })
+            Text('前2俯30')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 0, -30, 0, '前2俯30'); })
+            Text('前2斜45')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 0, 0, 45, '前2斜45'); })
+          }
+        }
+        .alignItems(HorizontalAlign.Start)
+        .position({ x: 12, y: this.viewportTop + 8 })
 
         // (4) Bottom black bar — opaque mask from viewportBottom down to page bottom.
         Column()

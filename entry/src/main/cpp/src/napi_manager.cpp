@@ -722,6 +722,47 @@ napi_value NapiManager::NapiPlaceRingWithOrientation(napi_env env, napi_callback
     return result;
 }
 
+// Stage 12C: placeRingAt(id, x, y, z, yawDeg, pitchDeg, rollDeg). Validates types silently
+// (non-number args → -1, no throw). Native handles the camera-relative → world-frame mapping
+// (x=right, y=up/ringHeight, z=forward).
+napi_value NapiManager::NapiPlaceRingAt(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiPlaceRingAt");
+    size_t argc = 7;
+    napi_value args[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    napi_value result = nullptr;
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    napi_valuetype types[6] = {napi_undefined, napi_undefined, napi_undefined,
+                               napi_undefined, napi_undefined, napi_undefined};
+    if (argc >= 7) {
+        for (int i = 0; i < 6; ++i) {
+            napi_typeof(env, args[i + 1], &types[i]);
+        }
+    }
+    bool allNumbers = true;
+    for (int i = 0; i < 6; ++i) {
+        if (types[i] != napi_number) {
+            allNumbers = false;
+            break;
+        }
+    }
+    if (app == nullptr || argc < 7 || !allNumbers) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+    double vals[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    for (int i = 0; i < 6; ++i) {
+        napi_get_value_double(env, args[i + 1], &vals[i]);
+    }
+    int32_t objectId = app->PlaceRingAt(
+        static_cast<float>(vals[0]), static_cast<float>(vals[1]), static_cast<float>(vals[2]),
+        static_cast<float>(vals[3]), static_cast<float>(vals[4]), static_cast<float>(vals[5]));
+    napi_create_int32(env, objectId, &result);
+    return result;
+}
+
 napi_value NapiManager::NapiResetRing(napi_env env, napi_callback_info info)
 {
     LOGD("NapiManager::NapiResetRing");

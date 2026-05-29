@@ -77,5 +77,14 @@ export const placeRing: (id: string) => number;
 // camera forward at placement). Clamped to yaw +/-180, pitch +/-90, roll +/-180. Returns objectId
 // (>=0) or -1 on failure (not ready / bad args).
 export const placeRingWithOrientation: (id: string, yawDeg: number, pitchDeg: number, rollDeg: number) => number;
+// Stage 12C: place a beacon at a CAMERA-RELATIVE horizontal position with a per-beacon ring
+// height. Base ground-snapped (same heuristic as placeRing); the visible ring/badge sits at y.
+//   x = right    (metres, horizontal — perpendicular to user's heading)
+//   y = up       (metres, world vertical — height of the ring above the ground base)
+//   z = forward  (metres, horizontal — user's heading at call time)
+//   yawDeg/pitchDeg/rollDeg: same clamping as placeRingWithOrientation.
+// Returns objectId (>=0) or -1 on failure (not ready / bad args).
+export const placeRingAt: (id: string, x: number, y: number, z: number,
+  yawDeg: number, pitchDeg: number, rollDeg: number) => number;
 export const resetRing: (id: string) => void;
 export const getRingState: (id: string) => RingState;

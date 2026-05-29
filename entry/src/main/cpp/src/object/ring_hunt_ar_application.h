@@ -48,6 +48,7 @@ public:
 
     int32_t PlaceRing() override;
     int32_t PlaceRingWithOrientation(float yawDeg, float pitchDeg, float rollDeg) override;
+    int32_t PlaceRingAt(float x, float y, float z, float yawDeg, float pitchDeg, float rollDeg) override;
     void ResetRing() override;
     void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
@@ -56,9 +57,18 @@ public:
                       float &targetRollDeg) override;
 
 private:
-    // Shared placement: anchor 1m ahead on the floor + set the 6DoF target orientation. useGiven
-    // false = random (PlaceRing); true = the supplied radians (PlaceRingWithOrientation).
-    int32_t PlaceBeaconInternal(bool useGivenOrientation, float yawRad, float pitchRad, float rollRad);
+    // Shared placement core. Two orthogonal toggles:
+    //   useGivenOrientation = false → fresh random 6DoF target (PlaceRing demo path)
+    //                          true → the supplied radians (PlaceRingWithOrientation / PlaceRingAt)
+    //   useGivenPosition    = false → drop 1m ahead of the camera, base on the floor heuristic
+    //                                 (legacy PlaceRing / PlaceRingWithOrientation behaviour)
+    //                          true → camera-relative HORIZONTAL offset (Stage 12C PlaceRingAt):
+    //                                 base.xz = camPos.xz + rightHoriz*relX + fwdHoriz*relZ
+    //                                 base.y  = camPos.y  - kGroundDrop (still ground-snapped)
+    //                                 Per-beacon ring/badge height = ringY (stored in mRingHeight,
+    //                                 replaces the global kWayfinderTopHeight only for THIS beacon).
+    int32_t PlaceBeaconInternal(bool useGivenOrientation, float yawRad, float pitchRad, float rollRad,
+                                bool useGivenPosition, float relX, float relZ, float ringY);
 
     AREngine_ARSession *mArSession = nullptr;
     AREngine_ARFrame *mArFrame = nullptr;
@@ -124,6 +134,11 @@ private:
     bool mIsSurfaceChange = false;
     std::atomic<bool> isPaused = false;
     ConfigParams mConfigParam{};
+
+    // Stage 12C: per-beacon ring/badge height (metres above the base). Default = the legacy
+    // kWayfinderTopHeight = 0.9f so PlaceRing / PlaceRingWithOrientation render identically to
+    // before. PlaceRingAt overrides this from its y parameter at placement time.
+    std::atomic<float> mRingHeight{0.9f};
 };
 
 } // namespace ARObject

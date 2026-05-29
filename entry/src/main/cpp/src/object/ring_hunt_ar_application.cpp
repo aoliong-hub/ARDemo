@@ -38,6 +38,10 @@ constexpr float kPlaceDistance = 1.0f;   // beacon dropped 1m ahead of the camer
 constexpr float kGroundDrop = 1.0f;      // lower it ~1m to approximate the floor
 
 // Stage 11D 6DoF alignment challenge.
+// Stage 12C: stays at 30cm after the on-device test — once the frame was shrunk to 5x10cm with a
+// hairline border, closing to 15cm put the camera so close that the frame couldn't be seen at all
+// (out of focus / clipping). 30cm gives the user enough standoff to actually see and align the
+// reticle. Measured to the visible ring/badge at the top of the beacon (ringPos.y + mRingHeight).
 constexpr float kAligningDistMeters = 0.30f; // distance threshold to enter ALIGNING
 constexpr float kFrameAlignEnterRad = 0.0872665f; // 5 degrees: enter "aligned" (turn green)
 constexpr float kFrameAlignExitRad = 0.1221730f;  // 7 degrees: leave "aligned" (hysteresis, turn red)
@@ -163,7 +167,8 @@ void RingHuntApp::OnUpdate()
 
         RingCameraInfo cam;
         mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mAnimTime, color, lastDist,
-                                   mHuntPhase.load(), targetQ, mFrameHueTime, mIsAligned.load(), dt, &cam);
+                                   mHuntPhase.load(), targetQ, mFrameHueTime, mIsAligned.load(), dt,
+                                   mRingHeight.load(), &cam);
 
         mCameraTracking.store(cam.tracking);
         if (!cam.tracking) {
@@ -203,11 +208,14 @@ void RingHuntApp::OnUpdate()
             }
         }
 
-        // Distance to the beacon TOP (the badge/phone icon at the pillar top), not the ground ring
-        // — that is what the user looks at and walks toward.
+        // Stage 12C (revised): distance is to the RING/badge at the top of the beacon — that's the
+        // visible aim point the user lines the camera up with, and what placeRingAt's y parameter
+        // controls. Ring height comes from mRingHeight (per-beacon: legacy paths keep the constant
+        // 0.9m default, placeRingAt overrides per call). 15cm ALIGNING gate uses this same distance.
         float camPos[3] = {cam.pos[0], cam.pos[1], cam.pos[2]};
-        float beaconTop[3] = {ringPos.x, ringPos.y + kWayfinderTopHeight, ringPos.z};
-        mDistance.store(Compute3DDistance(camPos, beaconTop));
+        float ringH = mRingHeight.load();
+        float ringTop[3] = {ringPos.x, ringPos.y + ringH, ringPos.z};
+        mDistance.store(Compute3DDistance(camPos, ringTop));
 
         // --- Stage 11D: 6DoF alignment + 3-state machine (with debounce) ---
         // Camera forward in world space = -(3rd row of the view rotation) for a column-major view.
@@ -283,11 +291,12 @@ void RingHuntApp::OnUpdate()
             mFrameHueTime = mAnimTime; // keep hue live until locked, then freeze at this value
         }
 
-        // Off-screen guidance (droplet) only in APPROACHING: project the beacon top to screen space.
-        // In ALIGNING/LOCKED the droplet is off (orientation is shown by the co-planar disk + HUD).
+        // Off-screen guidance (droplet) only in APPROACHING: project the beacon ring (visible top
+        // badge) to screen space. In ALIGNING/LOCKED the droplet is off (orientation is shown by
+        // the co-planar disk + HUD). Same ringTop point as the distance / 15cm gate.
         if (phase == 0) {
             OffscreenGuidance guide;
-            ComputeOffscreenGuidance(cam.viewMat, cam.projMat, beaconTop, guide);
+            ComputeOffscreenGuidance(cam.viewMat, cam.projMat, ringTop, guide);
             mIsTargetInView.store(guide.isInView);
             mScreenEdgeX.store(guide.screenEdgeX);
             mScreenEdgeY.store(guide.screenEdgeY);
@@ -345,23 +354,46 @@ void RingHuntApp::OnSurfaceDestroyed(OH_NativeXComponent *component, void *windo
 
 int32_t RingHuntApp::PlaceRing()
 {
-    // Demo path: random orientation (useGiven=false).
-    return PlaceBeaconInternal(false, 0.0f, 0.0f, 0.0f);
+    // Demo path: random orientation, legacy floor-heuristic position (1m ahead, 1m down),
+    // default ring height (0.9m).
+    mRingHeight.store(kWayfinderTopHeight);
+    return PlaceBeaconInternal(false, 0.0f, 0.0f, 0.0f, false, 0.0f, 0.0f, kWayfinderTopHeight);
 }
 
 int32_t RingHuntApp::PlaceRingWithOrientation(float yawDeg, float pitchDeg, float rollDeg)
 {
-    // External path: caller supplies the 6DoF target (relative to the camera forward at placement).
-    // Silent clamp to valid ranges, then convert deg -> rad and place with that fixed orientation.
+    // External path: caller supplies the 6DoF target. Position + ring height stay legacy.
     float yawRad = 0.0f;
     float pitchRad = 0.0f;
     float rollRad = 0.0f;
     ClampOrientationDegToRad(yawDeg, pitchDeg, rollDeg, yawRad, pitchRad, rollRad);
-    return PlaceBeaconInternal(true, yawRad, pitchRad, rollRad);
+    mRingHeight.store(kWayfinderTopHeight);
+    return PlaceBeaconInternal(true, yawRad, pitchRad, rollRad, false, 0.0f, 0.0f, kWayfinderTopHeight);
 }
 
-int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad, float pitchRad, float rollRad)
+int32_t RingHuntApp::PlaceRingAt(float x, float y, float z, float yawDeg, float pitchDeg, float rollDeg)
 {
+    // Stage 12C: camera-relative HORIZONTAL placement with a per-beacon ring/badge height.
+    //   x = right        (metres, horizontal — perpendicular to user's heading)
+    //   y = height       (metres, world vertical — height of the visible ring/badge above ground)
+    //   z = forward      (metres, horizontal — user's heading at call time)
+    // Beacon BASE stays ground-snapped (same kGroundDrop heuristic as PlaceRing); only x/z place
+    // the base horizontally and y stretches the pillar so the badge lands at the desired height.
+    // Aim point + distance gate (15cm) measure to the badge, so y controls "what height the user
+    // is asked to aim at". The AR Engine world origin is NOT pinned to session-start camera —
+    // hence the camera-relative contract instead of an absolute-world one.
+    float yawRad = 0.0f;
+    float pitchRad = 0.0f;
+    float rollRad = 0.0f;
+    ClampOrientationDegToRad(yawDeg, pitchDeg, rollDeg, yawRad, pitchRad, rollRad);
+    mRingHeight.store(y);
+    return PlaceBeaconInternal(true, yawRad, pitchRad, rollRad, true, x, z, y);
+}
+
+int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad, float pitchRad, float rollRad,
+                                         bool useGivenPosition, float relX, float relZ, float ringY)
+{
+    (void)ringY; // currently stored via mRingHeight at the caller; reserved for future use.
     if (mArSession == nullptr || isPaused.load() || !mReady.load()) {
         LOGW("[RingHunt] placeRing: not ready.");
         return -1;
@@ -373,7 +405,8 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
     int32_t objectId = mNextId;
     uint32_t seed = std::random_device{}();
 
-    mTaskQueue.Push([this, objectId, seed, useGivenOrientation, yawRad, pitchRad, rollRad] {
+    mTaskQueue.Push([this, objectId, seed, useGivenOrientation, yawRad, pitchRad, rollRad,
+                     useGivenPosition, relX, relZ] {
         // Acquire the camera pose first: it gives both the placement position AND the heading
         // (world yaw) that the target orientation is measured relative to.
         AREngine_ARCamera *cam = nullptr;
@@ -424,10 +457,38 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
         mTargetPitchDeg.store(glm::degrees(relPitch));
         mTargetRollDeg.store(glm::degrees(relRoll));
 
-        // Drop the beacon 1m ahead of the camera, then lower it ~1m to approximate the floor.
+        // Position: legacy heuristic (1m ahead) or camera-relative HORIZONTAL offset (Stage 12C
+        // PlaceRingAt). In both paths the BASE is ground-snapped via kGroundDrop — the pillar/badge
+        // rises from the floor; ring/badge height is per-beacon (mRingHeight) and lives in the
+        // renderer, not in the anchor pose.
         float targetPos[3];
-        ComputeForwardPoint(camPos, camQuat, kPlaceDistance, targetPos);
-        targetPos[1] = camPos[1] - kGroundDrop;
+        if (useGivenPosition) {
+            // Camera forward in world frame, projected onto the horizontal plane so "forward"
+            // tracks the user's heading regardless of phone tilt. Horizontal right is
+            // cross(fwdHoriz, worldUp(0,1,0)) = (-fwdHoriz.z, 0, fwdHoriz.x). The reverse order
+            // (cross(up, fwd)) gives LEFT — verified on device: x=+1 placed beacon on user's left
+            // until this fix.
+            const float fwdLocal[3] = {0.0f, 0.0f, -1.0f};
+            float camFwdWorld[3] = {0.0f, 0.0f, 0.0f};
+            ARObject::RotateVectorByQuatXYZW(camQuat, fwdLocal, camFwdWorld);
+            float fwdHoriz[3] = {camFwdWorld[0], 0.0f, camFwdWorld[2]};
+            float fwdLen = std::sqrt(fwdHoriz[0] * fwdHoriz[0] + fwdHoriz[2] * fwdHoriz[2]);
+            if (fwdLen < 1e-4f) {
+                // Camera pointing straight up/down — horizontal projection degenerate. Fallback +Z.
+                fwdHoriz[0] = 0.0f;
+                fwdHoriz[2] = 1.0f;
+            } else {
+                fwdHoriz[0] /= fwdLen;
+                fwdHoriz[2] /= fwdLen;
+            }
+            float rightHoriz[3] = {-fwdHoriz[2], 0.0f, fwdHoriz[0]};
+            targetPos[0] = camPos[0] + rightHoriz[0] * relX + fwdHoriz[0] * relZ;
+            targetPos[1] = camPos[1] - kGroundDrop;
+            targetPos[2] = camPos[2] + rightHoriz[2] * relX + fwdHoriz[2] * relZ;
+        } else {
+            ComputeForwardPoint(camPos, camQuat, kPlaceDistance, targetPos);
+            targetPos[1] = camPos[1] - kGroundDrop;
+        }
         const float identityQuat[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
         if (mRingAnchor != nullptr) {

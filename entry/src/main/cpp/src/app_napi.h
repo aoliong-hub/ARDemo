@@ -81,6 +81,23 @@ public:
         (void)rollDeg;
         return -1;
     }
+    // Stage 12C: place a beacon at a CAMERA-RELATIVE HORIZONTAL position with a per-beacon ring
+    // height. AR Engine world origin is not pinned to session start, so the contract is camera-
+    // relative at call time. Beacon BASE is ground-snapped (same heuristic as PlaceRing); the
+    // visible top ring/badge sits at height y — that's the user's aim point.
+    //   x = right    (metres, horizontal — perpendicular to user's heading)
+    //   y = up       (metres, world vertical — height of the ring/badge above the ground base)
+    //   z = forward  (metres, horizontal — user's heading at call time)
+    virtual int32_t PlaceRingAt(float x, float y, float z, float yawDeg, float pitchDeg, float rollDeg)
+    {
+        (void)x;
+        (void)y;
+        (void)z;
+        (void)yawDeg;
+        (void)pitchDeg;
+        (void)rollDeg;
+        return -1;
+    }
     virtual void ResetRing() {}
     // The Wayfinder beacon exposes its distance, placement, the off-screen guidance fields, and
     // (Stage 11D) the 6DoF alignment challenge: huntPhase (0=APPROACHING 1=ALIGNING 2=LOCKED),

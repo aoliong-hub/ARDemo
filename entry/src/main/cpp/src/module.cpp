@@ -57,6 +57,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"placeRing", nullptr, NapiManager::NapiPlaceRing, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"placeRingWithOrientation", nullptr, NapiManager::NapiPlaceRingWithOrientation, nullptr, nullptr, nullptr,
          napi_default, nullptr},
+        {"placeRingAt", nullptr, NapiManager::NapiPlaceRingAt, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"resetRing", nullptr, NapiManager::NapiResetRing, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getRingState", nullptr, NapiManager::NapiGetRingState, nullptr, nullptr, nullptr, napi_default, nullptr}
     };

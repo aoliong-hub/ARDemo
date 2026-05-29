@@ -41,7 +41,8 @@ public:
     // LOCKED). Other params as before: color (distance red->mint), animTime (s), distance (m).
     void Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                 const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance, int huntPhase,
-                const glm::quat &frameOrientation, float frameHueTime, bool isAligned, float deltaTime);
+                const glm::quat &frameOrientation, float frameHueTime, bool isAligned, float deltaTime,
+                float ringHeight);
 
 private:
     void DrawSolid(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase,

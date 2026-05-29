@@ -384,7 +384,7 @@ void WayfinderRenderer::DrawArrow(const glm::mat4 &mvp, float hueTime, float ali
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance,
                                int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
-                               float deltaTime)
+                               float deltaTime, float ringHeight)
 {
     if (!mSolidProgram || !mLineProgram) {
         return;
@@ -405,6 +405,12 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
 
     const glm::mat4 vp = proj * view;
     const glm::mat4 mvp = vp * wayfinderToWorld;
+    // Stage 12C: per-beacon ring height. The pillar meshes (core/fog/bloom) were built with a
+    // fixed kWayfinderTopHeight (0.9m); apply a Y-scale = ringHeight / 0.9 to stretch them so the
+    // glow runs from the floor up to the badge regardless of the requested height. Ground ring,
+    // ripples, badge, frame all use unscaled matrices (their positions are explicit anyway).
+    float pillarYScale = ringHeight / kWayfinderTopHeight;
+    const glm::mat4 mvpPillar = vp * wayfinderToWorld * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, pillarYScale, 1.0f));
 
     // ALIGNING (1) / LOCKED (2): hide the pillar/badge/ripple; show only the ground ring (with a
     // stronger, faster breath) + the 6DoF alignment frame at the beacon top. The frame's hue is
@@ -414,7 +420,7 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         float bAlpha = 0.5f + 0.5f * (0.5f + 0.5f * std::sin(bPhase * kTwoPi - kHalfPi)); // 0.5..1.0
         DrawSolid(mvp, mGround, color, 0.85f * bAlpha, 0.85f * bAlpha, true);
 
-        glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, kWayfinderTopHeight, 0.0f);
+        glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
         glm::mat4 frameRot = glm::mat4_cast(frameOrientation);
         glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot;
         DrawFrame(vp * frameModel, mAlignFrame, frameHueTime);
@@ -455,19 +461,19 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     }
 
     // 3. pillar bloom: wide, faint smooth glow halo OUTSIDE the fog (no noise, no depth write).
-    DrawSolid(mvp, mPillarBloom, color, 0.05f, 0.0f, false);
+    DrawSolid(mvpPillar, mPillarBloom, color, 0.05f, 0.0f, false);
 
     // 4. pillar fog: volumetric noise scrolling upward (no depth write).
-    DrawFog(mvp, mFog, color, 0.16f, animTime);
+    DrawFog(mvpPillar, mFog, color, 0.16f, animTime);
 
     // 5. pillar core: thin "laser line" (bright at base, vaporizes toward the top; writes depth).
-    DrawSolid(mvp, mCore, color, 0.60f, 0.08f, true);
+    DrawSolid(mvpPillar, mCore, color, 0.60f, 0.08f, true);
 
     // 6. top badge: a camera-facing medallion at the pillar top (bloom + disk + rim + phone icon)
     // that revolves about the vertical pillar axis like a carousel. The billboard frame (local +Z
     // toward the camera) is built first, then the world-Y spin is applied in WORLD space (before the
     // billboard, after the translate) so the badge orbits the vertical axis rather than flipping.
-    glm::vec3 badgeWorldPos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, kWayfinderTopHeight, 0.0f);
+    glm::vec3 badgeWorldPos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
     glm::vec3 toCamera = cameraPos - badgeWorldPos;
     float tcLen = glm::length(toCamera);
     toCamera = (tcLen > 1e-5f) ? (toCamera / tcLen) : glm::vec3(0.0f, 0.0f, 1.0f);

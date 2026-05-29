@@ -59,6 +59,7 @@ public:
     // ARRingHunt ring game
     static napi_value NapiPlaceRing(napi_env env, napi_callback_info info);
     static napi_value NapiPlaceRingWithOrientation(napi_env env, napi_callback_info info);
+    static napi_value NapiPlaceRingAt(napi_env env, napi_callback_info info);
     static napi_value NapiResetRing(napi_env env, napi_callback_info info);
     static napi_value NapiGetRingState(napi_env env, napi_callback_info info);
 

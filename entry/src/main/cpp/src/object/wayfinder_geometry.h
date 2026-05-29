@@ -81,19 +81,23 @@ public:
     // 5cm x 9cm body, 6mm body corner radius, 4mm screen corner radius. GL_LINES list.
     static WayfinderMesh CreatePhoneIconRounded(float width = 0.05f, float height = 0.09f);
 
-    // Alignment frame (Stage 11D): a rounded-rectangle BORDER (a filled band of `thickness`) in the
-    // XY plane (z=0), normal +Z, centered at the origin. Rendered as a triangle list. uv.x runs
-    // 0..1 around the perimeter (drives the hue gradient); uv.y = 0 inner edge / 1 outer edge.
-    // 15x30cm outer, 1.0cm band, 1.0cm outer corner radius. Oriented in 6DoF by the renderer.
-    static WayfinderMesh CreateAlignmentFrame(float width = 0.15f, float height = 0.30f, float thickness = 0.010f,
-                                              float cornerRadius = 0.010f, int segPerCorner = 8);
+    // Alignment frame (Stage 11D, Stage 12C-shrunk): a rounded-rectangle BORDER (a filled band of
+    // `thickness`) in the XY plane (z=0), normal +Z, centered at the origin. Rendered as a triangle
+    // list. uv.x runs 0..1 around the perimeter (drives the hue gradient); uv.y = 0 inner edge / 1
+    // outer edge. 7.5x15cm outer, 0.5cm band, 0.5cm outer corner radius — halved from the original
+    // 15x30 so the frame fits inside the camera-style viewport. (A further-shrunk 5x10cm variant
+    // was tried but felt too small at the 30cm ALIGNING distance — reverted to this size.)
+    // Oriented in 6DoF by the renderer.
+    static WayfinderMesh CreateAlignmentFrame(float width = 0.075f, float height = 0.15f, float thickness = 0.005f,
+                                              float cornerRadius = 0.005f, int segPerCorner = 8);
 
-    // 3D arrow (Stage 11D), pointing along +Z. A thin cylinder shaft + a single flat triangular
-    // 2-barb arrowhead in the XZ plane. uv.y runs 0 (shaft base) -> 1 (tip) for the lengthwise hue
-    // gradient. ~6cm long. Rendered with the arrow hue shader.
-    static WayfinderMesh CreateArrow3D(float shaftRadius = 0.0015f, float shaftLength = 0.04f,
-                                       float wingSpan = 0.012f, float wingThickness = 0.002f,
-                                       float headLength = 0.02f, int shaftSegments = 16);
+    // 3D arrow (Stage 11D, Stage 12C-shrunk to ~40%): a thin cylinder shaft + a single flat
+    // triangular 2-barb arrowhead in the XZ plane, pointing along +Z. uv.y runs 0 (shaft base) ->
+    // 1 (tip) for the lengthwise hue gradient. ~2.4cm long (was 6cm). Rendered with the arrow hue
+    // shader. Proportions tuned to read as a small, precise aim indicator inside the shrunk frame.
+    static WayfinderMesh CreateArrow3D(float shaftRadius = 0.0006f, float shaftLength = 0.016f,
+                                       float wingSpan = 0.0048f, float wingThickness = 0.0008f,
+                                       float headLength = 0.008f, int shaftSegments = 16);
 };
 
 } // namespace ARObject

@@ -49,7 +49,7 @@ public:
     bool OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
                      AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color, float distance,
                      int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
-                     float deltaTime, RingCameraInfo *outCam);
+                     float deltaTime, float ringHeight, RingCameraInfo *outCam);
     void DrawBlack();
 
     GLuint GetPreviewTextureId() { return mBackgroundRenderer.GetTextureId(); }
