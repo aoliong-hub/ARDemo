@@ -7,7 +7,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { display } from '@kit.ArkUI';
+import { display, PathShape } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -18,18 +18,6 @@ import { Logger } from '../utils/Logger';
 import { Palette, FontSize, Spacing, Radius } from '../styles/Theme';
 import { CameraChrome } from '../components/CameraChrome';
 import { ReferencePanel } from '../components/ReferencePanel';
-
-// Trail particle flying from screen center to the off-screen droplet, fading as it goes.
-interface Particle {
-  id: number;
-  birthMs: number;
-  lifeMs: number;
-  startX: number;
-  startY: number;
-  targetX: number;
-  targetY: number;
-  color: string;
-}
 
 @Builder
 export function ARRingHuntCamBuilder() {
@@ -80,18 +68,15 @@ struct ARRingHuntCam {
   private guidanceShown: boolean = false;
   @State guidanceStackW: number = 0;
   @State guidanceStackH: number = 0;
+  // Iridescent-dot breathing: applied to BOTH the off-screen guidance dot and the alignment-HUD
+  // center dot. Fixed 2s alternate, 0.92↔1.08 — no longer distance-modulated (kept constant for a
+  // calm, "alive" pulse that doesn't compete for attention with the hue gradient).
   @State breathScale: number = 1.0;
-  private breathDurationMs: number = 0;
-  private distanceBucket: number = -1;
-
-  // Particle trail.
-  private canvasSettings: RenderingContextSettings = new RenderingContextSettings(true);
-  private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.canvasSettings);
-  private canvasReady: boolean = false;
-  private particles: Particle[] = [];
-  private nextParticleId: number = 0;
-  private spawnTimer: number = -1;
-  private renderTimer: number = -1;
+  // Iridescent hue flow [0,1] for the two Text glyphs (▲ off-screen direction, ⟳ turn-around).
+  // Driven by animateTo (Linear, 2.4s, Alternate). Text doesn't support gradient fill on this
+  // device, so the multi-hue read is delivered by sweeping fontColor along the pearl spectrum
+  // instead. ▲ and ⟳ share the same flowT and so flow in sync.
+  @State flowT: number = 0;
 
   // Mode-switch fade.
   @State private fadeOpacity: number = 1.0;
@@ -293,7 +278,10 @@ struct ARRingHuntCam {
   }
 
   // ---- 6DoF aiming HUD: dot offset driven by yaw/pitch diff (max at 30deg) ----
-  private readonly kMaxOffset: number = 200;
+  // Stage 12C-redesign: kMaxOffset shrunk 200→90 so the iridescent center dot reaches just past
+  // the L-corner bracket box (80vp side) at the 30° edge of the aim envelope. The dot still uses
+  // the same yaw/pitch ratio (deg/30 × kMaxOffset).
+  private readonly kMaxOffset: number = 90;
 
   private dotOffsetX(): number {
     let yawDeg: number = this.clamp(this.yawDiffRad * 180 / Math.PI, -30, 30);
@@ -305,15 +293,33 @@ struct ARRingHuntCam {
     return (pitchDeg / 30) * this.kMaxOffset;
   }
 
-  private dotColor(): string {
-    let ox: number = this.dotOffsetX();
-    let oy: number = this.dotOffsetY();
-    let d: number = Math.sqrt(ox * ox + oy * oy);
-    let t: number = this.clamp(1 - d / this.kMaxOffset, 0, 1);
-    let r: number = Math.round(255 + (76 - 255) * t);
-    let g: number = Math.round(76 + (255 - 76) * t);
-    let b: number = Math.round(76 + (102 - 76) * t);
-    return `rgb(${r},${g},${b})`;
+  // Stage 12C-redesign batch 1 fix — bracket / crosshair line builder. Off-aim = single white60
+  // (pearl colors wash out at hairline thickness anyway). Aligned = real pearl pink→purple→blue
+  // linearGradient so the L brackets AND the center "+" both shimmer together as the user pins
+  // the dot in the gate. Solid colors on aligned looked uniform-purple in batch 1; switching to
+  // gradient is the actual fix the brief asked for.
+  @Builder
+  private bracketLine(w: number, h: number, tx: number, ty: number): void {
+    if (this.isAligned) {
+      Column()
+        .width(w).height(h)
+        .linearGradient({
+          angle: 45,
+          colors: [
+            [Palette.iridescentOrange, 0.0],
+            [Palette.iridescentPink, 0.33],
+            [Palette.iridescentPurple, 0.66],
+            [Palette.iridescentBlue, 1.0]
+          ]
+        })
+        .shadow({ radius: 4, color: '#80FFFFFF', offsetX: 0, offsetY: 0 })
+        .translate({ x: tx, y: ty })
+    } else {
+      Column()
+        .width(w).height(h)
+        .backgroundColor(Palette.white60)
+        .translate({ x: tx, y: ty })
+    }
   }
 
   private toast(msg: string): void {
@@ -404,160 +410,70 @@ struct ARRingHuntCam {
     return this.guidanceStackH > 0 ? this.guidanceStackH : 800;
   }
 
-  private guidanceColor(): string {
-    return Palette.alertRed;
-  }
-
-  private glowThickness(): number {
-    if (this.distance < 1.0) {
-      return 4;
-    }
-    if (this.distance < 3.0) {
-      return 2;
-    }
-    return 1;
-  }
-
-  private glowOpacity(): number {
-    if (this.distance < 1.0) {
-      return 0.9;
-    }
-    if (this.distance < 3.0) {
-      return 0.6;
-    }
-    return 0.3;
-  }
-
-  private distBucket(): number {
-    if (this.distance < 1.0) {
-      return 0;
-    }
-    if (this.distance < 3.0) {
-      return 1;
-    }
-    return 2;
-  }
-
-  private breathDurationFor(bucket: number): number {
-    if (bucket === 0) {
-      return 800;
-    }
-    if (bucket === 1) {
-      return 1500;
-    }
-    return 2000;
-  }
-
+  // Stage 12C-redesign: breathing is now a single fixed loop (0.92↔1.08, 2s alternate) shared by
+  // the iridescent dots in both the ALIGNING HUD and the off-screen guidance. Distance-modulated
+  // glow/halo/particle helpers (guidanceColor / glowThickness / glowOpacity / distBucket /
+  // breathDurationFor / particle pipeline) all dropped — the new minimal accent doesn't need
+  // distance feedback (the banner already shows the live distance).
   private startBreathing(): void {
-    this.breathDurationMs = this.breathDurationFor(this.distBucket());
-    this.breathScale = 0.95;
+    this.breathScale = 0.92;
     this.getUIContext().animateTo({
-      duration: this.breathDurationMs,
+      duration: 2000,
       curve: Curve.EaseInOut,
       iterations: -1,
       playMode: PlayMode.Alternate
     }, () => {
-      this.breathScale = 1.10;
+      this.breathScale = 1.08;
     });
   }
 
   private stopBreathing(): void {
-    this.breathDurationMs = 0;
     this.getUIContext().animateTo({ duration: 0 }, () => {
       this.breathScale = 1.0;
     });
   }
 
-  private spawnIntervalMs(): number {
-    if (this.distance < 1.0) {
-      return 50;
-    }
-    if (this.distance < 3.0) {
-      return 150;
-    }
-    return 300;
+  // Pearl iridescent spectrum (orange → pink → purple → blue, image-#3 reference). Driven by
+  // @State flowT via animateTo; sampling iridescentFlow(flowT) at any moment gives a fontColor
+  // that walks the spectrum smoothly. Used for ▲ and ⟳ which can't take a real gradient fill.
+  private toHex2(v: number): string {
+    const s = Math.round(Math.max(0, Math.min(255, v))).toString(16);
+    return s.length < 2 ? '0' + s : s;
   }
 
-  private particleRgb(): string {
-    return '#E63946';
+  private iridescentFlow(t: number): string {
+    // Saturated pearl-ish spectrum, closed loop (last stop = first) so Normal-mode (one-way)
+    // animation walks the spectrum without a jump back at the wrap. Pearl-soft hues looked dead
+    // on AR preview; pushing saturation + lightness brings the color back as the icon's lead.
+    const stops: number[][] = [
+      [253, 222, 193],  // #FDDEC1 warm pearl
+      [244, 210, 209],  // #F4D2D1 pearl pink
+      [214, 189, 255],  // #D6BDFF pearl purple
+      [199, 214, 255],  // #C7D6FF pearl blue
+      [253, 222, 193]   // wrap back to warm (close loop for Normal-mode play)
+    ];
+    const n: number = stops.length - 1;
+    const x: number = Math.max(0, Math.min(1, t)) * n;
+    const i: number = Math.min(Math.floor(x), n - 1);
+    const f: number = x - i;
+    const a: number[] = stops[i];
+    const b: number[] = stops[i + 1];
+    const r: number = a[0] + (b[0] - a[0]) * f;
+    const g: number = a[1] + (b[1] - a[1]) * f;
+    const bl: number = a[2] + (b[2] - a[2]) * f;
+    return '#' + this.toHex2(r) + this.toHex2(g) + this.toHex2(bl);
   }
 
-  private spawnParticle(): void {
-    if (!this.guidanceShown || this.distance < 0.30 || this.isBehind) {
-      return;
-    }
-    let p: Particle = {
-      id: this.nextParticleId,
-      birthMs: Date.now(),
-      lifeMs: 1000,
-      startX: this.getStackWidth() / 2,
-      startY: this.getStackHeight() / 2,
-      targetX: this.dropletCenterX(),
-      targetY: this.dropletCenterY(),
-      color: this.particleRgb()
-    };
-    this.nextParticleId = this.nextParticleId + 1;
-    this.particles.push(p);
-  }
-
-  private renderParticles(): void {
-    if (!this.canvasReady) {
-      return;
-    }
-    let ctx: CanvasRenderingContext2D = this.canvasCtx;
-    let w: number = this.getStackWidth();
-    let h: number = this.getStackHeight();
-    ctx.clearRect(0, 0, w, h);
-    let now: number = Date.now();
-    let alive: Particle[] = [];
-    for (let p of this.particles) {
-      let t: number = (now - p.birthMs) / p.lifeMs;
-      if (t >= 1) {
-        continue;
-      }
-      let x: number = p.startX + (p.targetX - p.startX) * t;
-      let y: number = p.startY + (p.targetY - p.startY) * t;
-      ctx.globalAlpha = 1 - t * t;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(x, y, 4 - t * 2, 0, Math.PI * 2);
-      ctx.fill();
-      alive.push(p);
-    }
-    ctx.globalAlpha = 1;
-    this.particles = alive;
-    if (this.spawnTimer === -1 && alive.length === 0 && this.renderTimer !== -1) {
-      clearInterval(this.renderTimer);
-      this.renderTimer = -1;
-    }
-  }
-
-  private restartSpawnTimer(): void {
-    if (this.spawnTimer !== -1) {
-      clearInterval(this.spawnTimer);
-    }
-    this.spawnTimer = setInterval(() => {
-      this.spawnParticle();
-    }, this.spawnIntervalMs());
-  }
-
-  private startParticles(): void {
-    this.restartSpawnTimer();
-    if (this.renderTimer === -1) {
-      this.renderTimer = setInterval(() => {
-        this.renderParticles();
-      }, 16);
-    }
-  }
-
-  private stopParticles(clearNow: boolean): void {
-    if (this.spawnTimer !== -1) {
-      clearInterval(this.spawnTimer);
-      this.spawnTimer = -1;
-    }
-    if (clearNow) {
-      this.particles = [];
-    }
+  private startIridescentFlow(): void {
+    this.flowT = 0;
+    this.getUIContext().animateTo({
+      duration: 1600,
+      curve: Curve.Linear,
+      iterations: -1,
+      playMode: PlayMode.Normal
+    }, () => {
+      this.flowT = 1;
+    });
   }
 
   private shouldFlipProjectedNdc(): boolean {
@@ -614,17 +530,19 @@ struct ARRingHuntCam {
     let dx: number = this.rayDirX();
     let dy: number = this.rayDirY();
     let t: number = Infinity;
+    // Edge margin matches the new 96vp guidance container's half-width (48vp) so the indicator
+    // lands flush against the viewport edge without clipping the outer ring or the triangle.
     if (dx > 0.001) {
-      t = Math.min(t, (this.getStackWidth() - 80 - cx) / dx);
+      t = Math.min(t, (this.getStackWidth() - 48 - cx) / dx);
     }
     if (dx < -0.001) {
-      t = Math.min(t, (80 - cx) / dx);
+      t = Math.min(t, (48 - cx) / dx);
     }
     if (dy > 0.001) {
-      t = Math.min(t, (this.getStackHeight() - 80 - cy) / dy);
+      t = Math.min(t, (this.getStackHeight() - 48 - cy) / dy);
     }
     if (dy < -0.001) {
-      t = Math.min(t, (80 - cy) / dy);
+      t = Math.min(t, (48 - cy) / dy);
     }
     if (t === Infinity || t < 0) {
       t = 0;
@@ -633,33 +551,19 @@ struct ARRingHuntCam {
   }
 
   private rayCenterX(): number {
-    if (this.isBehind) {
-      return this.getStackWidth() / 2;
-    }
     return this.getStackWidth() / 2 + this.rayTMin() * this.rayDirX();
   }
 
   private rayCenterY(): number {
-    if (this.isBehind) {
-      return this.getStackHeight() - 200;
-    }
     return this.getStackHeight() / 2 + this.rayTMin() * this.rayDirY();
   }
 
   private getDropletX(): number {
-    return this.clamp(this.rayCenterX() - 80, 0, this.getStackWidth() - 160);
+    return this.clamp(this.rayCenterX() - 48, 0, this.getStackWidth() - 96);
   }
 
   private getDropletY(): number {
-    return this.clamp(this.rayCenterY() - 80, 0, this.getStackHeight() - 160);
-  }
-
-  private dropletCenterX(): number {
-    return this.getDropletX() + 80;
-  }
-
-  private dropletCenterY(): number {
-    return this.getDropletY() + 80;
+    return this.clamp(this.rayCenterY() - 48, 0, this.getStackHeight() - 96);
   }
 
   private dropletRotationDeg(): number {
@@ -673,32 +577,18 @@ struct ARRingHuntCam {
     let shouldShow: boolean =
       this.huntPhase === 0 && this.ringPlaced && !this.isTargetInView && this.distance >= 0.30;
     if (shouldShow === this.guidanceShown) {
-      if (shouldShow) {
-        let bucket: number = this.distBucket();
-        if (bucket !== this.distanceBucket) {
-          this.distanceBucket = bucket;
-          this.startBreathing();
-          this.restartSpawnTimer();
-        }
-        if (this.isBehind) {
-          this.particles = [];
-        }
-      }
       return;
     }
     this.guidanceShown = shouldShow;
     if (shouldShow) {
       this.guidanceMounted = true;
-      this.distanceBucket = this.distBucket();
       this.startBreathing();
-      this.startParticles();
+      this.startIridescentFlow();
       this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseOut }, () => {
         this.guidanceOpacity = 1;
       });
     } else {
       this.stopBreathing();
-      this.stopParticles(this.distance < 0.30);
-      this.distanceBucket = -1;
       this.getUIContext().animateTo({
         duration: 300,
         curve: Curve.EaseOut,
@@ -722,9 +612,7 @@ struct ARRingHuntCam {
     this.guidanceShown = false;
     this.guidanceMounted = false;
     this.guidanceOpacity = 0;
-    this.distanceBucket = -1;
     this.stopBreathing();
-    this.stopParticles(true);
   }
 
   build(): void {
@@ -773,14 +661,6 @@ struct ARRingHuntCam {
             Logger.info(`XComponent onDestroy ${this.idStr}.`);
             clearInterval(this.interval);
             clearInterval(this.stateTimer);
-            if (this.spawnTimer !== -1) {
-              clearInterval(this.spawnTimer);
-              this.spawnTimer = -1;
-            }
-            if (this.renderTimer !== -1) {
-              clearInterval(this.renderTimer);
-              this.renderTimer = -1;
-            }
           })
 
         // (2) Viewport overlay — sized to the 4:3 rect, positioned at viewportTop. Every guidance
@@ -789,53 +669,121 @@ struct ARRingHuntCam {
         // clip(true) is a safety net for any per-frame jitter that could put a pixel outside.
         Stack({ alignContent: Alignment.Center }) {
 
-          // Particle trail (drawn imperatively at ~60fps inside the viewport).
-          Canvas(this.canvasCtx)
-            .id('particles')
-            .width('100%')
-            .height('100%')
-            .hitTestBehavior(HitTestMode.None)
-            .onReady(() => { this.canvasReady = true; })
-
-          // Off-screen droplet guidance. Same ray/edge math as the dev page, but the Stack is now
-          // viewport-sized, so getDropletX/Y land on the viewport border (not the screen border).
-          Stack() {
-            if (this.guidanceMounted) {
+          // Stage 12C-redesign batch 1 (fix) — full multi-color gradient. Every accent uses a
+          // pearl pink → purple → blue linearGradient as its fill, with a mask defining the shape
+          // (ring outline, triangle, arc + arrowhead). Single-color iridescent strokes from the
+          // first attempt looked uniformly tinted; gradient + mask gives the real "holographic"
+          // multi-hue read across each element.
+          //   !isBehind → 24vp gradient ring (mask = Circle stroke) + 10vp gradient dot + 10vp
+          //               gradient triangle (mask = Path). Rotates by dropletRotationDeg.
+          //   isBehind  → drawn 60vp arc + arrowhead (mask = Path) gradient-filled; centered on
+          //               the viewport with a "转向目标" label below.
+          Stack({ alignContent: Alignment.TopStart }) {
+            if (this.guidanceMounted && !this.isBehind) {
+              // Concentric ring is now a baked iridescent PNG sequence (guide_ring_*) instead of
+              // Circle.stroke + inner Column gradient — same reason as the triangle: glyph/Shape
+              // can't carry real multi-hue iridescence on this device. The ring stays STATIC at
+              // viewport center; only the direction triangle (inner Stack) rotates by
+              // dropletRotationDeg, so the ring no longer wobbles with the target bearing. Outer
+              // Stack still owns scale (breath), opacity (fade), and position (ray-edge anchor).
               Stack({ alignContent: Alignment.Center }) {
-                Circle()
-                  .width(124).height(124)
-                  .fillOpacity(0)
-                  .stroke(this.guidanceColor())
-                  .strokeWidth(this.glowThickness())
-                  .opacity(this.glowOpacity())
-                Circle()
-                  .width(108).height(108)
-                  .fillOpacity(0)
-                  .stroke(this.guidanceColor())
-                  .strokeWidth(3)
-                  .opacity(0.5)
-                  .scale({ x: this.breathScale, y: this.breathScale })
-                if (!this.isBehind) {
-                  Image($r('app.media.droplet'))
-                    .width(60).height(60)
-                    .objectFit(ImageFit.Contain)
-                    .rotate({ x: 0, y: 0, z: 1, angle: this.dropletRotationDeg(), centerX: '50%', centerY: '50%' })
-                } else {
-                  Text('↻')
-                    .fontColor(Palette.white)
-                    .fontSize(56)
-                    .fontWeight(FontWeight.Bold)
+                ImageAnimator()
+                  .images([
+                    { src: $r('app.media.guide_ring_0') }, { src: $r('app.media.guide_ring_1') },
+                    { src: $r('app.media.guide_ring_2') }, { src: $r('app.media.guide_ring_3') },
+                    { src: $r('app.media.guide_ring_4') }, { src: $r('app.media.guide_ring_5') },
+                    { src: $r('app.media.guide_ring_6') }, { src: $r('app.media.guide_ring_7') },
+                    { src: $r('app.media.guide_ring_8') }, { src: $r('app.media.guide_ring_9') },
+                    { src: $r('app.media.guide_ring_10') }, { src: $r('app.media.guide_ring_11') },
+                    { src: $r('app.media.guide_ring_12') }, { src: $r('app.media.guide_ring_13') },
+                    { src: $r('app.media.guide_ring_14') }, { src: $r('app.media.guide_ring_15') },
+                    { src: $r('app.media.guide_ring_16') }, { src: $r('app.media.guide_ring_17') }
+                  ])
+                  .duration(2000)
+                  .iterations(-1)
+                  .state(AnimationStatus.Running)
+                  .width(27).height(27)
+
+                // Triangle wrapped in its own 96×96 Stack that rotates by dropletRotationDeg.
+                // The triangle sits 27vp above this inner Stack's center via offset; rotation
+                // then orbits it around the ring to point at the target.
+                Stack({ alignContent: Alignment.Center }) {
+                  ImageAnimator()
+                    .images([
+                      { src: $r('app.media.guide_tri_0') }, { src: $r('app.media.guide_tri_1') },
+                      { src: $r('app.media.guide_tri_2') }, { src: $r('app.media.guide_tri_3') },
+                      { src: $r('app.media.guide_tri_4') }, { src: $r('app.media.guide_tri_5') },
+                      { src: $r('app.media.guide_tri_6') }, { src: $r('app.media.guide_tri_7') },
+                      { src: $r('app.media.guide_tri_8') }, { src: $r('app.media.guide_tri_9') },
+                      { src: $r('app.media.guide_tri_10') }, { src: $r('app.media.guide_tri_11') },
+                      { src: $r('app.media.guide_tri_12') }, { src: $r('app.media.guide_tri_13') },
+                      { src: $r('app.media.guide_tri_14') }, { src: $r('app.media.guide_tri_15') },
+                      { src: $r('app.media.guide_tri_16') }, { src: $r('app.media.guide_tri_17') }
+                    ])
+                    .duration(1600)
+                    .iterations(-1)
+                    .state(AnimationStatus.Running)
+                    .width(24).height(24)
+                    .offset({ x: 0, y: -22 })
                 }
+                .width(96).height(96)
+                .rotate({ x: 0, y: 0, z: 1, angle: this.dropletRotationDeg(),
+                          centerX: '50%', centerY: '50%' })
               }
-              .width(160).height(160)
+              .width(96).height(96)
+              .scale({ x: this.breathScale, y: this.breathScale, centerX: '50%', centerY: '50%' })
               .opacity(this.guidanceOpacity)
               .position({ x: this.getDropletX(), y: this.getDropletY() })
+            }
+
+            if (this.guidanceMounted && this.isBehind) {
+              // Centered turn-around indicator — drawn arc (NOT a Unicode glyph; the ⟳ char
+              // brought its own outline that looked like an extra frame). 270° arc split into 4
+              // Path segments (67.5° each) in orange / pink / purple / blue, plus the V-arrowhead
+              // joined to the last (blue) segment. Center (50,50) radius 36 inside 100×100
+              // viewport. Endpoints: 67.5° → (63.78, 83.26), 135° → (24.54, 75.46), 202.5° →
+              // (16.74, 36.22), 270° → (50, 14). Arrowhead V at top pointing right.
+              //
+              // Centering via Flex (Column direction, both axes Center) which actually centers
+              // its children inside its bounds — earlier Stack({alignContent: Center}) reads kept
+              // pinning to top-left in this nesting context. No .shadow on Shape: that cast a
+              // rectangular halo on the 100×100 bbox which read as a "frame" around the icon.
+              // Direct children in Stack({alignContent:Center}) ended up scattered (icon top-left,
+              // text below center) because each child centers independently and the .offset() on
+              // the Text didn't pull the icon along. Solution: group icon + text inside ONE Column
+              // (alignItems Center), and let the Stack center that single Column as a tight unit
+              // — same nesting pattern that's now reliably working in block 1.
+              // Turn-around icon — Text('⟳') instead of Shape+Path arcs. Same device quirk: the
+              // 4 stroked arc Paths rendered as a tiny cluster in the top-left of the 100×100
+              // Shape because Path coords aren't scaled to component size. Text glyph at
+              // fontSize 48 fills its 56×56 box reliably, centered inside the wrapping Column.
+              // (If ⟳ U+27F3 is missing from the system font, swap to ↻ U+21BB.)
+              Stack({ alignContent: Alignment.Center }) {
+                Column() {
+                  Text('⟳')
+                    .fontSize(48)
+                    .fontColor(this.iridescentFlow(this.flowT))
+                    .textAlign(TextAlign.Center)
+                    .width(56).height(56)
+                    .lineHeight(56)
+                    .textShadow({ radius: 10, color: this.iridescentFlow(this.flowT) })
+
+                  Text('转向目标')
+                    .fontSize(14)
+                    .fontColor(Palette.white60)
+                    .margin({ top: 8 })
+                }
+                .alignItems(HorizontalAlign.Center)
+              }
+              .width(this.getStackWidth())
+              .height(this.getStackHeight())
+              .opacity(this.guidanceOpacity)
+              .hitTestBehavior(HitTestMode.None)
             }
           }
           .id('guidance')
           .width('100%').height('100%')
           .hitTestBehavior(HitTestMode.None)
-          .alignContent(Alignment.TopStart)
           .onAreaChange((_o: Area, n: Area) => {
             this.guidanceStackW = n.width as number;
             this.guidanceStackH = n.height as number;
@@ -866,21 +814,58 @@ struct ARRingHuntCam {
             .hitTestBehavior(HitTestMode.None)
           }
 
-          // ALIGNING HUD: crosshair + reference ring + aiming dot — centered on viewport center
-          // (which is now the visual center, not the screen center). Dot reach (kMaxOffset = 200)
-          // comfortably fits inside the viewport at default phone widths.
+          // Stage 12C-redesign — ALIGNING HUD: 4 L-shaped corner brackets at the corners of an
+          // 80vp focus box (the camera-style "you're framed here" mark), a faint 120vp reference
+          // ring around them, and an iridescent center dot that translates with yaw/pitch diff.
+          // Replaces the old 56vp slab crosshair + 400vp outer ring + solid red/green dot.
+          //   Off-aim    → brackets white60, dot has soft white glow.
+          //   ±5° aligned → brackets switch to iridescent purple, dot glow brightens.
+          // L bracket math: each corner = 1 horizontal 12×1.5 + 1 vertical 1.5×12 line whose
+          // centers land at (±34, ±40) / (±40, ±34) on the 80×80 box — measured from the Stack
+          // center via translate().
           if (this.huntPhase === 1) {
             Stack({ alignContent: Alignment.Center }) {
-              Row().width(56).height(3).backgroundColor('#E6FFFFFF')
-              Column().width(3).height(56).backgroundColor('#E6FFFFFF')
+              // Faint outer reference ring (1vp hairline, 30% white) — gives a context circle
+              // without competing with the brackets or dot.
               Circle()
-                .width(this.kMaxOffset * 2).height(this.kMaxOffset * 2)
+                .width(120).height(120)
                 .fillOpacity(0)
-                .stroke(Palette.white40)
-                .strokeWidth(2)
-              Circle()
-                .width(28).height(28)
-                .fill(this.dotColor())
+                .stroke(Palette.white30)
+                .strokeWidth(1)
+
+              // 4 L corner brackets — each line via bracketLine() builder; off-aim = white60,
+              // aligned = pearl pink→purple→blue gradient + soft glow.
+              this.bracketLine(12, 1.5, -34, -40)
+              this.bracketLine(1.5, 12, -40, -34)
+              this.bracketLine(12, 1.5, 34, -40)
+              this.bracketLine(1.5, 12, 40, -34)
+              this.bracketLine(12, 1.5, -34, 40)
+              this.bracketLine(1.5, 12, -40, 34)
+              this.bracketLine(12, 1.5, 34, 40)
+              this.bracketLine(1.5, 12, 40, 34)
+
+              // Center crosshair "+" — same gradient logic as the corner brackets so they all
+              // shimmer together in the aligned state.
+              this.bracketLine(14, 1.5, 0, 0)
+              this.bracketLine(1.5, 14, 0, 0)
+
+              // Iridescent center dot — 4-stop pearl gradient (orange / pink / purple / blue).
+              // Glow brightens when aligned so the "in the gate" feedback reads instantly.
+              Column()
+                .width(16).height(16)
+                .borderRadius(8)
+                .linearGradient({
+                  angle: 45,
+                  colors: [
+                    [Palette.iridescentOrange, 0.0],
+                    [Palette.iridescentPink, 0.33],
+                    [Palette.iridescentPurple, 0.66],
+                    [Palette.iridescentBlue, 1.0]
+                  ]
+                })
+                .shadow({ radius: this.isAligned ? 12 : 6,
+                          color: this.isAligned ? '#CCFFFFFF' : '#80FFFFFF',
+                          offsetX: 0, offsetY: 0 })
                 .translate({ x: this.dotOffsetX(), y: this.dotOffsetY() })
             }
             .id('alignHud')

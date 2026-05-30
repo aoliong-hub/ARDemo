@@ -101,7 +101,12 @@ WayfinderMesh WayfinderGeometry::CreateGroundRing(float outerRadius, float inner
         segments = 8;
     }
     // Two rings of vertices (outer, inner) in the XZ plane at y=0; normal +Y.
-    for (int i = 0; i < segments; ++i) {
+    // Stage 12C: emit segments+1 pairs so the seam pair (i=segments) has identical xz as i=0 but
+    // u=1.0 instead of u=0. With pearl(0)==pearl(1) in the FLOW shader, the last quad now
+    // interpolates u smoothly from (segments-1)/segments → 1.0 instead of wrapping → 0 and
+    // reverse-scanning the whole spectrum. Indexing drops the modulo since the seam vertex pair
+    // exists.
+    for (int i = 0; i <= segments; ++i) {
         float a = kTwoPi * i / segments;
         float cu = std::cos(a);
         float su = std::sin(a);
@@ -112,8 +117,8 @@ WayfinderMesh WayfinderGeometry::CreateGroundRing(float outerRadius, float inner
     for (int i = 0; i < segments; ++i) {
         uint16_t o0 = static_cast<uint16_t>(2 * i);
         uint16_t i0 = static_cast<uint16_t>(2 * i + 1);
-        uint16_t o1 = static_cast<uint16_t>(2 * ((i + 1) % segments));
-        uint16_t i1 = static_cast<uint16_t>(2 * ((i + 1) % segments) + 1);
+        uint16_t o1 = static_cast<uint16_t>(2 * (i + 1));
+        uint16_t i1 = static_cast<uint16_t>(2 * (i + 1) + 1);
         m.indices.push_back(o0);
         m.indices.push_back(i0);
         m.indices.push_back(i1);
@@ -132,7 +137,10 @@ WayfinderMesh WayfinderGeometry::CreateRippleRing(float innerRadius, float outer
     }
     // Flat annulus in the XZ plane at y=0, normal +Y. uv.y encodes the radial position so the solid
     // shader fades alpha from the inner edge (uv.y=0) to the outer edge (uv.y=1).
-    for (int i = 0; i < segments; ++i) {
+    // Stage 12C: same seam-closing fix as CreateGroundRing — emit segments+1 pairs and drop
+    // modulo indexing so the final quad doesn't reverse-scan the spectrum. uv.x is constant 0 here
+    // (ripples don't currently use circumferential color), but the geometry stays consistent.
+    for (int i = 0; i <= segments; ++i) {
         float a = kTwoPi * i / segments;
         float cu = std::cos(a);
         float su = std::sin(a);
@@ -142,8 +150,8 @@ WayfinderMesh WayfinderGeometry::CreateRippleRing(float innerRadius, float outer
     for (int i = 0; i < segments; ++i) {
         uint16_t o0 = static_cast<uint16_t>(2 * i);
         uint16_t i0 = static_cast<uint16_t>(2 * i + 1);
-        uint16_t o1 = static_cast<uint16_t>(2 * ((i + 1) % segments));
-        uint16_t i1 = static_cast<uint16_t>(2 * ((i + 1) % segments) + 1);
+        uint16_t o1 = static_cast<uint16_t>(2 * (i + 1));
+        uint16_t i1 = static_cast<uint16_t>(2 * (i + 1) + 1);
         m.indices.push_back(o0);
         m.indices.push_back(i0);
         m.indices.push_back(i1);
@@ -380,16 +388,21 @@ WayfinderMesh WayfinderGeometry::CreateAlignmentFrame(float width, float height,
     RoundedRectPerimeter(inner, hw - thickness, hh - thickness, rInner, segPerCorner);
     // Pair outer[i] / inner[i] (same perimeter index) into a band. uv.x = perimeter param for the
     // hue gradient; uv.y = 1 outer / 0 inner.
-    for (int i = 0; i < count; ++i) {
+    // Stage 12C: emit count+1 vertex pairs so the seam pair (i=count) has identical xy as i=0 but
+    // u=1.0 instead of u=0. With pearl(0)==pearl(1) in FRAME_FS, the last quad interpolates u
+    // smoothly from (count-1)/count → 1.0 instead of wrapping → 0 and reverse-scanning the
+    // spectrum. Coords still read from modulo so the seam pair coincides with the start pair.
+    for (int i = 0; i <= count; ++i) {
+        int src = i % count;
         float u = static_cast<float>(i) / count;
-        PushVtx(m, outer[2 * i], outer[2 * i + 1], 0.0f, 0.0f, 0.0f, 1.0f, u, 1.0f); // outer = 2i
-        PushVtx(m, inner[2 * i], inner[2 * i + 1], 0.0f, 0.0f, 0.0f, 1.0f, u, 0.0f); // inner = 2i+1
+        PushVtx(m, outer[2 * src], outer[2 * src + 1], 0.0f, 0.0f, 0.0f, 1.0f, u, 1.0f); // outer = 2i
+        PushVtx(m, inner[2 * src], inner[2 * src + 1], 0.0f, 0.0f, 0.0f, 1.0f, u, 0.0f); // inner = 2i+1
     }
     for (int i = 0; i < count; ++i) {
         uint16_t o0 = static_cast<uint16_t>(2 * i);
         uint16_t i0 = static_cast<uint16_t>(2 * i + 1);
-        uint16_t o1 = static_cast<uint16_t>(2 * ((i + 1) % count));
-        uint16_t i1 = static_cast<uint16_t>(2 * ((i + 1) % count) + 1);
+        uint16_t o1 = static_cast<uint16_t>(2 * (i + 1));
+        uint16_t i1 = static_cast<uint16_t>(2 * (i + 1) + 1);
         m.indices.push_back(o0);
         m.indices.push_back(i0);
         m.indices.push_back(i1);

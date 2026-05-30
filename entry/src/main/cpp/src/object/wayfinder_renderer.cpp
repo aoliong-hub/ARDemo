@@ -92,6 +92,18 @@ constexpr char FOG_FS[] = R"(
         return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), f.x),
                    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
     }
+    vec3 pearl(float t) {
+        t = fract(t);
+        vec3 c0 = vec3(1.00, 0.87, 0.76);
+        vec3 c1 = vec3(0.96, 0.82, 0.82);
+        vec3 c2 = vec3(0.84, 0.74, 1.00);
+        vec3 c3 = vec3(0.78, 0.84, 1.00);
+        float x = t * 4.0;
+        if (x < 1.0) return mix(c0, c1, x);
+        if (x < 2.0) return mix(c1, c2, x - 1.0);
+        if (x < 3.0) return mix(c2, c3, x - 2.0);
+        return mix(c3, c0, x - 3.0);
+    }
     void main() {
         float verticalFade = v_uv.y; // 0 bottom -> 1 top (top more transparent)
         vec2 nuv = vec2(v_uv.x * 4.0, v_uv.y * 2.0 - u_time * 0.3);
@@ -100,7 +112,48 @@ constexpr char FOG_FS[] = R"(
         float n2 = noise(nuv2);
         n = mix(n, n2, 0.4);
         float alpha = u_alphaBase * (1.0 - verticalFade) * n;
-        gl_FragColor = vec4(u_color, alpha * 0.85);
+        vec3 col = pearl(v_uv.y + u_time * 0.25);
+        gl_FragColor = vec4(col, alpha * 0.85);
+    }
+)";
+
+// Iridescent flow program (Stage 12C-batch3): closed-loop pearl spectrum
+// (orange→pink→purple→blue) swept by u_time along one axis. axis=0 → sweep uv.x (ground ring
+// circumference). axis=1 → sweep uv.y (pillar height). Matches the ArkTS guide_ring/guide_tri
+// PNG palette so the GL ground ring + pillar visually pair with the 2D off-screen indicator.
+constexpr char FLOW_VS[] = R"(
+    uniform mat4 u_mvp;
+    attribute vec4 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 v_uv;
+    void main() { v_uv = a_uv; gl_Position = u_mvp * a_pos; }
+)";
+constexpr char FLOW_FS[] = R"(
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform float u_time;
+    uniform float u_alphaBase;
+    uniform float u_alphaTop;
+    uniform float u_axis;
+    uniform float u_speed;
+    vec3 pearl(float t) {
+        t = fract(t);
+        vec3 c0 = vec3(1.00, 0.87, 0.76);
+        vec3 c1 = vec3(0.96, 0.82, 0.82);
+        vec3 c2 = vec3(0.84, 0.74, 1.00);
+        vec3 c3 = vec3(0.78, 0.84, 1.00);
+        float x = t * 4.0;
+        if (x < 1.0) return mix(c0, c1, x);
+        if (x < 2.0) return mix(c1, c2, x - 1.0);
+        if (x < 3.0) return mix(c2, c3, x - 2.0);
+        return mix(c3, c0, x - 3.0);
+    }
+    void main() {
+        float coord = mix(v_uv.x, v_uv.y, u_axis);
+        float t = coord + u_time * u_speed;
+        vec3 col = pearl(t);
+        float grad = mix(u_alphaBase, u_alphaTop, v_uv.y);
+        gl_FragColor = vec4(col, grad * 0.85);
     }
 )";
 
@@ -120,21 +173,20 @@ constexpr char FRAME_FS[] = R"(
     precision mediump float;
     varying vec2 v_uv;
     uniform float u_time;
-    vec3 hueRotate(vec3 col, float angle) {
-        float c = cos(angle);
-        float s = sin(angle);
-        vec3 r = vec3(0.299 + 0.701 * c + 0.168 * s, 0.587 - 0.587 * c + 0.330 * s, 0.114 - 0.114 * c - 0.497 * s);
-        vec3 g = vec3(0.299 - 0.299 * c - 0.328 * s, 0.587 + 0.413 * c + 0.035 * s, 0.114 - 0.114 * c + 0.292 * s);
-        vec3 b = vec3(0.299 - 0.300 * c + 1.250 * s, 0.587 - 0.588 * c - 1.050 * s, 0.114 + 0.886 * c - 0.203 * s);
-        return vec3(dot(r, col), dot(g, col), dot(b, col));
+    vec3 pearl(float t) {
+        t = fract(t);
+        vec3 c0 = vec3(1.00, 0.87, 0.76);
+        vec3 c1 = vec3(0.96, 0.82, 0.82);
+        vec3 c2 = vec3(0.84, 0.74, 1.00);
+        vec3 c3 = vec3(0.78, 0.84, 1.00);
+        float x = t * 4.0;
+        if (x < 1.0) return mix(c0, c1, x);
+        if (x < 2.0) return mix(c1, c2, x - 1.0);
+        if (x < 3.0) return mix(c2, c3, x - 2.0);
+        return mix(c3, c0, x - 3.0);
     }
     void main() {
-        vec3 pink = vec3(0.95, 0.3, 0.7);
-        vec3 purple = vec3(0.5, 0.3, 0.95);
-        vec3 blue = vec3(0.3, 0.6, 0.95);
-        float x = v_uv.x;
-        vec3 base = (x < 0.5) ? mix(pink, purple, x * 2.0) : mix(purple, blue, (x - 0.5) * 2.0);
-        vec3 col = clamp(hueRotate(base, u_time * 0.7853982), 0.0, 1.0); // 8s per full hue cycle
+        vec3 col = pearl(v_uv.x + u_time * 0.15);
         gl_FragColor = vec4(col, 0.85);
     }
 )";
@@ -157,21 +209,20 @@ constexpr char ARROW_FS[] = R"(
     uniform float u_time;
     uniform float u_aligned;
     uniform vec3 u_override;
-    vec3 hueRotate(vec3 col, float angle) {
-        float c = cos(angle);
-        float s = sin(angle);
-        vec3 r = vec3(0.299 + 0.701 * c + 0.168 * s, 0.587 - 0.587 * c + 0.330 * s, 0.114 - 0.114 * c - 0.497 * s);
-        vec3 g = vec3(0.299 - 0.299 * c - 0.328 * s, 0.587 + 0.413 * c + 0.035 * s, 0.114 - 0.114 * c + 0.292 * s);
-        vec3 b = vec3(0.299 - 0.300 * c + 1.250 * s, 0.587 - 0.588 * c - 1.050 * s, 0.114 + 0.886 * c - 0.203 * s);
-        return vec3(dot(r, col), dot(g, col), dot(b, col));
+    vec3 pearl(float t) {
+        t = fract(t);
+        vec3 c0 = vec3(1.00, 0.87, 0.76);
+        vec3 c1 = vec3(0.96, 0.82, 0.82);
+        vec3 c2 = vec3(0.84, 0.74, 1.00);
+        vec3 c3 = vec3(0.78, 0.84, 1.00);
+        float x = t * 4.0;
+        if (x < 1.0) return mix(c0, c1, x);
+        if (x < 2.0) return mix(c1, c2, x - 1.0);
+        if (x < 3.0) return mix(c2, c3, x - 2.0);
+        return mix(c3, c0, x - 3.0);
     }
     void main() {
-        vec3 pink = vec3(0.95, 0.3, 0.7);
-        vec3 purple = vec3(0.5, 0.3, 0.95);
-        vec3 blue = vec3(0.3, 0.6, 0.95);
-        float t = v_uv.y;
-        vec3 base = (t < 0.5) ? mix(pink, purple, t * 2.0) : mix(purple, blue, (t - 0.5) * 2.0);
-        base = clamp(hueRotate(base, u_time * 0.7853982), 0.0, 1.0);
+        vec3 base = pearl(v_uv.y + u_time * 0.15);
         vec3 finalColor = mix(base, u_override, u_aligned);
         gl_FragColor = vec4(finalColor, 1.0);
     }
@@ -241,6 +292,20 @@ void WayfinderRenderer::Init()
         LOGE("WayfinderRenderer: arrow program failed to compile.");
     }
 
+    mFlowProgram = GLUtils::CreateProgram(FLOW_VS, FLOW_FS);
+    if (mFlowProgram) {
+        mFlowMvp = glGetUniformLocation(mFlowProgram, "u_mvp");
+        mFlowTime = glGetUniformLocation(mFlowProgram, "u_time");
+        mFlowAlphaBase = glGetUniformLocation(mFlowProgram, "u_alphaBase");
+        mFlowAlphaTop = glGetUniformLocation(mFlowProgram, "u_alphaTop");
+        mFlowAxis = glGetUniformLocation(mFlowProgram, "u_axis");
+        mFlowSpeed = glGetUniformLocation(mFlowProgram, "u_speed");
+        mFlowPos = glGetAttribLocation(mFlowProgram, "a_pos");
+        mFlowUv = glGetAttribLocation(mFlowProgram, "a_uv");
+    } else {
+        LOGE("WayfinderRenderer: iridescent flow program failed to compile.");
+    }
+
     mGround = WayfinderGeometry::CreateGroundRing();
     mCore = WayfinderGeometry::CreatePillarCore();
     mFog = WayfinderGeometry::CreatePillarFog();
@@ -249,7 +314,10 @@ void WayfinderRenderer::Init()
     mBadgeRingBloom = WayfinderGeometry::CreateBadgeRingBloom();
     mBadgeDisk = WayfinderGeometry::CreateTopBadgeDisk();
     mPhone = WayfinderGeometry::CreatePhoneIconRounded();
-    mAlignFrame = WayfinderGeometry::CreateAlignmentFrame();
+    // Stage 12C-batch3 polish: thickness halved (0.005 → 0.0025) for a finer hairline. Frame is
+    // scaled +20% on the render side (frameModel * scale(1.2)); together that nets to "thinner
+    // line AND a slightly bigger frame".
+    mAlignFrame = WayfinderGeometry::CreateAlignmentFrame(0.075f, 0.15f, 0.0025f, 0.005f, 8);
     mArrow = WayfinderGeometry::CreateArrow3D();
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
@@ -275,6 +343,10 @@ void WayfinderRenderer::Release()
     if (mArrowProgram) {
         GLUtils::ReleaseProgram(mArrowProgram);
         mArrowProgram = 0;
+    }
+    if (mFlowProgram) {
+        GLUtils::ReleaseProgram(mFlowProgram);
+        mFlowProgram = 0;
     }
 }
 
@@ -381,6 +453,30 @@ void WayfinderRenderer::DrawArrow(const glm::mat4 &mvp, float hueTime, float ali
     glDisableVertexAttribArray(mArrowUv);
 }
 
+void WayfinderRenderer::DrawFlow(const glm::mat4 &mvp, const WayfinderMesh &mesh, float alphaBase,
+                                 float alphaTop, float time, float axis, float speed, bool depthWrite)
+{
+    if (mesh.indices.empty() || !mFlowProgram) {
+        return;
+    }
+    glDepthMask(depthWrite ? GL_TRUE : GL_FALSE);
+    glUseProgram(mFlowProgram);
+    glUniformMatrix4fv(mFlowMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniform1f(mFlowTime, time);
+    glUniform1f(mFlowAlphaBase, alphaBase);
+    glUniform1f(mFlowAlphaTop, alphaTop);
+    glUniform1f(mFlowAxis, axis);
+    glUniform1f(mFlowSpeed, speed);
+    glEnableVertexAttribArray(mFlowPos);
+    glEnableVertexAttribArray(mFlowUv);
+    glVertexAttribPointer(mFlowPos, 3, GL_FLOAT, GL_FALSE, 0, mesh.positions.data());
+    glVertexAttribPointer(mFlowUv, 2, GL_FLOAT, GL_FALSE, 0, mesh.uvs.data());
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.indices.size()), GL_UNSIGNED_SHORT, mesh.indices.data());
+    glDisableVertexAttribArray(mFlowPos);
+    glDisableVertexAttribArray(mFlowUv);
+    glDepthMask(GL_TRUE);
+}
+
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance,
                                int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
@@ -422,7 +518,11 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
 
         glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
         glm::mat4 frameRot = glm::mat4_cast(frameOrientation);
-        glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot;
+        // Stage 12C-batch3: scale the alignment frame by 1.2× on the model matrix (the arrow
+        // stays unscaled). Combined with the halved mesh thickness, the on-screen line is finer
+        // and the frame is slightly bigger.
+        glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot
+                               * glm::scale(glm::mat4(1.0f), glm::vec3(1.2f));
         DrawFrame(vp * frameModel, mAlignFrame, frameHueTime);
 
         // 3D arrow protruding from the frame center along its facing normal (frameRot * -Z, baked
@@ -439,10 +539,12 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         return;
     }
 
-    // 1. ground ring (writes depth) — breathes alpha 0.7<->1.0 over 1.3s.
+    // 1. ground ring (writes depth) — pearl iridescent flow swept circumferentially (axis=0). Breath
+    // alpha still pulses 0.7↔1.0 over 1.3s. Per-distance red/mint tint dropped: the pearl spectrum
+    // carries the visual now.
     float breathPhase = std::fmod(animTime, 1.3f) / 1.3f;
     float breathAlpha = 0.7f + 0.3f * (0.5f + 0.5f * std::sin(breathPhase * kTwoPi - kHalfPi));
-    DrawSolid(mvp, mGround, color, 0.85f * breathAlpha, 0.85f * breathAlpha, true);
+    DrawFlow(mvp, mGround, 0.85f * breathAlpha, 0.85f * breathAlpha, animTime, 0.0f, 0.25f, true);
 
     // 2. ground ripple: expanding "water waves" on the floor that draw the eye from a DISTANCE.
     // Three phase-staggered rings (50->100cm radius over 1.5s), fading as they expand. No depth
@@ -460,35 +562,43 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         }
     }
 
-    // 3. pillar bloom: wide, faint smooth glow halo OUTSIDE the fog (no noise, no depth write).
-    DrawSolid(mvpPillar, mPillarBloom, color, 0.05f, 0.0f, false);
+    // 3. (pillar bloom halo removed per Stage 12C-batch3 brief — no external glow on pillar.)
 
-    // 4. pillar fog: volumetric noise scrolling upward (no depth write).
+    // 4. pillar fog: volumetric noise scrolling upward, now colored by pearl(uv.y + time) inside
+    // the FOG_FS itself (u_color is ignored). DrawFog still passes color for API stability.
     DrawFog(mvpPillar, mFog, color, 0.16f, animTime);
 
-    // 5. pillar core: thin "laser line" (bright at base, vaporizes toward the top; writes depth).
-    DrawSolid(mvpPillar, mCore, color, 0.60f, 0.08f, true);
+    // 5. pillar core: pearl iridescent flow swept vertically (axis=1). Bright at base, vaporizes
+    // toward the top via per-vertex alpha gradient (alphaBase 0.60 → alphaTop 0.08).
+    DrawFlow(mvpPillar, mCore, 0.60f, 0.08f, animTime, 1.0f, 0.25f, true);
 
-    // 6. top badge: a camera-facing medallion at the pillar top (bloom + disk + rim + phone icon)
-    // that revolves about the vertical pillar axis like a carousel. The billboard frame (local +Z
-    // toward the camera) is built first, then the world-Y spin is applied in WORLD space (before the
-    // billboard, after the translate) so the badge orbits the vertical axis rather than flipping.
+    // 6. top badge: bloom + disk + rim + phone icon. Hybrid orientation:
+    //   - Y-axis (cylindrical) billboard frame: local +Y locked to worldUp → badge ALWAYS vertical
+    //     (no flipping flat when camera looks down). Local +Z initially points horizontally toward
+    //     the camera so the front face starts facing the user.
+    //   - World-Y spin (4s/revolution): rotates the whole frame around the vertical axis. Because
+    //     spin is applied AFTER billboard in the model matrix, it overrides the "face camera"
+    //     property — at 90°/270° you see the badge's edge, at 180° its back. Intentional: the spin
+    //     reads as "active beacon", trading the always-facing contract for visible motion.
     glm::vec3 badgeWorldPos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
-    glm::vec3 toCamera = cameraPos - badgeWorldPos;
-    float tcLen = glm::length(toCamera);
-    toCamera = (tcLen > 1e-5f) ? (toCamera / tcLen) : glm::vec3(0.0f, 0.0f, 1.0f);
     glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
-    glm::vec3 right = glm::cross(worldUp, toCamera);
-    float rLen = glm::length(right);
-    right = (rLen > 1e-4f) ? (right / rLen) : glm::vec3(1.0f, 0.0f, 0.0f); // camera directly above/below
-    glm::vec3 newUp = glm::cross(toCamera, right);
-    glm::mat4 billboard(1.0f); // pure rotation (no translation): orients the badge to face the camera
+    glm::vec3 toCamHoriz(cameraPos.x - badgeWorldPos.x, 0.0f, cameraPos.z - badgeWorldPos.z);
+    float thLen = std::sqrt(toCamHoriz.x * toCamHoriz.x + toCamHoriz.z * toCamHoriz.z);
+    if (thLen > 1e-4f) {
+        toCamHoriz /= thLen;
+    } else {
+        // Camera directly above/below the badge — horizontal direction degenerate. Hold a fixed
+        // orientation (badge front along world +Z) so the spin axis stays stable.
+        toCamHoriz = glm::vec3(0.0f, 0.0f, 1.0f);
+    }
+    glm::vec3 right = glm::cross(worldUp, toCamHoriz); // already unit since worldUp ⊥ toCamHoriz
+    glm::mat4 billboard(1.0f); // pure rotation: initial "front faces camera horizontally" frame
     billboard[0] = glm::vec4(right, 0.0f);
-    billboard[1] = glm::vec4(newUp, 0.0f);
-    billboard[2] = glm::vec4(toCamera, 0.0f);
+    billboard[1] = glm::vec4(worldUp, 0.0f);
+    billboard[2] = glm::vec4(toCamHoriz, 0.0f);
     glm::mat4 translate = glm::translate(glm::mat4(1.0f), badgeWorldPos);
     glm::mat4 spin = glm::rotate(glm::mat4(1.0f), glm::radians(animTime * kBadgeSpinDegPerSec), glm::vec3(0, 1, 0));
-    const glm::mat4 badgeModel = translate * spin * billboard; // orbit the vertical (world Y) axis
+    const glm::mat4 badgeModel = translate * spin * billboard; // vertical signpost spinning around its Y axis
     const glm::mat4 badgeMvp = vp * badgeModel;
 
     // badge ring bloom (faint colored halo around the rim; no depth write)

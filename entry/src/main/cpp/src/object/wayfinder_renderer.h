@@ -54,6 +54,11 @@ private:
     void DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime);
     // 3D arrow: lengthwise pink->purple->blue gradient + hue rotation; fades to green by aligned (0..1).
     void DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned);
+    // Stage 12C iridescent flow: pearl orange/pink/purple/blue closed-loop swept by time along one
+    // axis. axis=0 sweeps uv.x (circumferential — ground ring); axis=1 sweeps uv.y (vertical —
+    // pillar core). alphaBase/alphaTop drive the per-vertex alpha gradient along uv.y.
+    void DrawFlow(const glm::mat4 &mvp, const WayfinderMesh &mesh, float alphaBase, float alphaTop,
+                  float time, float axis, float speed, bool depthWrite);
 
     GLuint mSolidProgram = 0;
     GLint mSolidMvp = -1;
@@ -90,6 +95,16 @@ private:
     GLint mArrowOverride = -1;
     GLint mArrowPos = -1;
     GLint mArrowUv = -1;
+
+    GLuint mFlowProgram = 0;
+    GLint mFlowMvp = -1;
+    GLint mFlowTime = -1;
+    GLint mFlowAlphaBase = -1;
+    GLint mFlowAlphaTop = -1;
+    GLint mFlowAxis = -1;
+    GLint mFlowSpeed = -1;
+    GLint mFlowPos = -1;
+    GLint mFlowUv = -1;
 
     // Arrow animation state (persists across frames): align color/spin transition + spin angle.
     float mAlignedTransition = 0.0f; // 0 = colorful + spinning, 1 = green + stopped

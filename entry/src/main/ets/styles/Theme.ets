@@ -36,6 +36,18 @@ export class Palette {
   static readonly spherePink: string = '#FFFF7DB9';
   static readonly spherePurple: string = '#FF7B6CFB';
   static readonly sphereBlue: string = '#FF3F60E8';
+
+  // Stage 12C-redesign HUD/guidance — pearl iridescent stops with hue SPREAD across orange→pink
+  // →purple→blue. High lightness, low-to-mid saturation. Earlier set (#EBD3D3 / #DBC8F0 /
+  // #D6CAF6) collapsed into a single muddy-lavender region; this set keeps the pearl/holographic
+  // feel but actually shows the warm-to-cool sweep so 4-stop gradients read as multi-color.
+  static readonly iridescentOrange: string = '#FFFDDEC1'; // warm peach rgb(253,222,193)
+  static readonly iridescentPink: string = '#FFF4D2D1';   // pearl pink rgb(244,210,209)
+  static readonly iridescentPurple: string = '#FFD6BDFF'; // pearl purple rgb(214,189,255)
+  static readonly iridescentBlue: string = '#FFC7D6FF';   // pearl blue rgb(199,214,255)
+  // Endpoints kept as aliases so older 5-stop call sites keep compiling.
+  static readonly iridescentWarmEnd: string = '#FFFDDEC1';
+  static readonly iridescentCoolEnd: string = '#FFC7D6FF';
 }
 
 // Spacing (vp)

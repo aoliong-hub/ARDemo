@@ -74,13 +74,15 @@ export struct CameraBottomBar {
 
   @Builder
   flip(): void {
+    // Stage 12C-batch3: replaced the placeholder Circle(glass) + Text('⇋') glyph with the
+    // designed PNG icon (ic_flip_camera.png — white camera + circular swap arrows on a baked
+    // dark disc). The disc + edge ring live inside the PNG, so the wrapping Stack no longer
+    // draws its own Circle background to avoid a double-disc.
     Stack({ alignContent: Alignment.Center }) {
-      Circle({ width: 48, height: 48 })
-        .fill(Palette.glass)
-      // Two opposing arrows convey "flip" without an asset.
-      Text('⇋')
-        .fontSize(22)
-        .fontColor(Palette.white)
+      Image($r('app.media.ic_flip_camera'))
+        .width(56)
+        .height(56)
+        .objectFit(ImageFit.Contain)
     }
     .width(56)
     .height(56)
