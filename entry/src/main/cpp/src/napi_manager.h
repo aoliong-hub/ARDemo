@@ -60,8 +60,17 @@ public:
     static napi_value NapiPlaceRing(napi_env env, napi_callback_info info);
     static napi_value NapiPlaceRingWithOrientation(napi_env env, napi_callback_info info);
     static napi_value NapiPlaceRingAt(napi_env env, napi_callback_info info);
+    static napi_value NapiSetZoom(napi_env env, napi_callback_info info);
+    static napi_value NapiSetDisplayRotation(napi_env env, napi_callback_info info);
+    static napi_value NapiGetOrientation(napi_env env, napi_callback_info info);
     static napi_value NapiResetRing(napi_env env, napi_callback_info info);
     static napi_value NapiGetRingState(napi_env env, napi_callback_info info);
+
+    // Da3 frame capture (request/poll). captureFrame flips a flag; isFrameReady polls; takeFrameRGBA
+    // moves the RGBA bytes + dims out as an Object {buffer:ArrayBuffer, width, height} | null.
+    static napi_value NapiCaptureFrame(napi_env env, napi_callback_info info);
+    static napi_value NapiIsFrameReady(napi_env env, napi_callback_info info);
+    static napi_value NapiTakeFrameRGBA(napi_env env, napi_callback_info info);
 
     // Napi export
     bool Export(napi_env env, napi_value exports);

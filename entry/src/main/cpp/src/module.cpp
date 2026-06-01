@@ -58,8 +58,15 @@ static napi_value Init(napi_env env, napi_value exports)
         {"placeRingWithOrientation", nullptr, NapiManager::NapiPlaceRingWithOrientation, nullptr, nullptr, nullptr,
          napi_default, nullptr},
         {"placeRingAt", nullptr, NapiManager::NapiPlaceRingAt, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setZoom", nullptr, NapiManager::NapiSetZoom, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setDisplayRotation", nullptr, NapiManager::NapiSetDisplayRotation, nullptr, nullptr, nullptr, napi_default,
+         nullptr},
+        {"getOrientation", nullptr, NapiManager::NapiGetOrientation, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"resetRing", nullptr, NapiManager::NapiResetRing, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"getRingState", nullptr, NapiManager::NapiGetRingState, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"getRingState", nullptr, NapiManager::NapiGetRingState, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"captureFrame", nullptr, NapiManager::NapiCaptureFrame, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"isFrameReady", nullptr, NapiManager::NapiIsFrameReady, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"takeFrameRGBA", nullptr, NapiManager::NapiTakeFrameRGBA, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     NAPI_CALL(env, napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc));
     bool ret = NapiManager::GetInstance()->Export(env, exports);

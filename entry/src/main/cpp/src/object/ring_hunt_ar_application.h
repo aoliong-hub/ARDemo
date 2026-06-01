@@ -23,7 +23,9 @@
 #include "task_queue.h"
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <string>
+#include <vector>
 
 namespace ARObject {
 
@@ -49,7 +51,17 @@ public:
     int32_t PlaceRing() override;
     int32_t PlaceRingWithOrientation(float yawDeg, float pitchDeg, float rollDeg) override;
     int32_t PlaceRingAt(float x, float y, float z, float yawDeg, float pitchDeg, float rollDeg) override;
+    void SetZoom(float level) override;
     void ResetRing() override;
+    void SetDisplayRotation(int32_t rotation) override;
+    int32_t GetOrientation() const override { return mOrientation.load(); }
+
+    // Da3 capture hand-off (request/poll). RequestCapture flips mCaptureRequested; the next render
+    // frame fills mLastFrameRGBA + sets mFrameReady. TakeFrameRGBA moves the bytes out and clears
+    // mFrameReady. Producer = GL thread (render lambda), consumer = ArkTS via NAPI.
+    void RequestCapture() override;
+    bool IsFrameReady() const override;
+    bool TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH) override;
     void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
                       float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad, float &rollDiffRad,
@@ -113,6 +125,10 @@ private:
     std::atomic<float> mTargetYawDeg{0.0f};
     std::atomic<float> mTargetPitchDeg{0.0f};
     std::atomic<float> mTargetRollDeg{0.0f};
+    // Physical orientation derived from camRoll snap (placement-time): 0=PORTRAIT, 1=LANDSCAPE_CW,
+    // 2=LANDSCAPE_CCW. Read by ArkTS via getOrientation() NAPI to decide how to rotate the JPEG
+    // before sending to da3 (so the generated reference image matches the user's physical framing).
+    std::atomic<int32_t> mOrientation{0};
 
     // Off-screen target guidance (computed each tracked frame from the view/proj matrices, targeting
     // the beacon top). Default "in view" so guidance stays hidden until a beacon is placed.
@@ -139,6 +155,22 @@ private:
     // kWayfinderTopHeight = 0.9f so PlaceRing / PlaceRingWithOrientation render identically to
     // before. PlaceRingAt overrides this from its y parameter at placement time.
     std::atomic<float> mRingHeight{0.9f};
+
+    // v13 digital zoom: 1.0 = native, 5.0 = 5x. OnUpdate maps this to glViewport so the entire
+    // GL output (camera background quad + AR meshes) scales together at the framebuffer level;
+    // AR tracking (SetDisplayGeometry) stays at native mWidth/mHeight so pose/alignment math is
+    // unaffected. Clamped [1.0, 5.0] in SetZoom().
+    std::atomic<float> mZoom{1.0f};
+
+    // Da3 capture state. mCaptureRequested set true by ArkTS, cleared after the next render fills
+    // the buffer. mFrameReady gates ArkTS reads. mFrameMutex guards mLastFrameRGBA across the
+    // GL-thread producer and the ArkTS-thread consumer.
+    std::atomic<bool> mCaptureRequested{false};
+    std::atomic<bool> mFrameReady{false};
+    std::vector<uint8_t> mLastFrameRGBA;
+    int mLastFrameW = 0;
+    int mLastFrameH = 0;
+    mutable std::mutex mFrameMutex;
 };
 
 } // namespace ARObject

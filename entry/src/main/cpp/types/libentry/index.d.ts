@@ -86,5 +86,27 @@ export const placeRingWithOrientation: (id: string, yawDeg: number, pitchDeg: nu
 // Returns objectId (>=0) or -1 on failure (not ready / bad args).
 export const placeRingAt: (id: string, x: number, y: number, z: number,
   yawDeg: number, pitchDeg: number, rollDeg: number) => number;
+// v13: digital zoom — set GL viewport scale [1.0, 5.0]. 1.0 = native; clamped silently.
+export const setZoom: (id: string, level: number) => void;
+// ArkTS 监听 display.on('change') 后回喂 rotation(display.getDefaultDisplaySync().rotation: 0/1/2/3)。
+// native 端更新 mDisplayRotation 并重调 SetDisplayGeometry,让 AR Engine 知晓新方向。
+export const setDisplayRotation: (id: string, rotation: number) => void;
+// 物理手机朝向(每帧从 cam.viewMat 推算的 camRoll snap 结果)。
+// 0 = PORTRAIT, 1 = LANDSCAPE_CW(顺时针横), 2 = LANDSCAPE_CCW(逆时针横)
+// ArkTS 抓帧后读这个,决定是否旋转 JPEG 再发 da3。
+export const getOrientation: (id: string) => number;
 export const resetRing: (id: string) => void;
 export const getRingState: (id: string) => RingState;
+
+// Da3 capture (request/poll). captureFrame flips a request flag; the next render fills the buffer.
+// Poll isFrameReady every ~50ms then takeFrameRGBA — moves the bytes out (clearing readiness),
+// returns {buffer, width, height} with origin = top-left (renderer Y-flipped for ArkTS consumers).
+// Returns null if no frame is ready.
+export interface CapturedFrame {
+  buffer: ArrayBuffer;
+  width: number;
+  height: number;
+}
+export const captureFrame: (id: string) => void;
+export const isFrameReady: (id: string) => boolean;
+export const takeFrameRGBA: (id: string) => CapturedFrame | null;

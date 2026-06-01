@@ -17,7 +17,9 @@
 #define APP_NAPI_H_
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 class AppNapi {
 public:
@@ -98,7 +100,34 @@ public:
         (void)rollDeg;
         return -1;
     }
+    // v13 digital zoom: 1.0 native, up to 5.0. Scales the GL viewport at render time so the
+    // entire frame (camera background + AR overlays) is uniformly enlarged. AR tracking is not
+    // affected. Default stub no-ops.
+    virtual void SetZoom(float level) { (void)level; }
     virtual void ResetRing() {}
+
+    // Forward the display rotation (0/1/2/3 from display.getDefaultDisplaySync().rotation) so the
+    // AR session can re-call SetDisplayGeometry. Default stub no-op for scenes that don't care.
+    virtual void SetDisplayRotation(int32_t rotation) { (void)rotation; }
+
+    // Report physical phone orientation derived from camRoll snap (computed at placement time):
+    // 0 = PORTRAIT, 1 = LANDSCAPE_CW (camRoll≤-45°), 2 = LANDSCAPE_CCW (camRoll≥+45°).
+    // ArkTS reads this to decide whether to rotate the captured JPEG before sending to da3.
+    virtual int32_t GetOrientation() const { return 0; }
+
+    // Da3 capture hand-off. Default stubs are no-ops / "not ready" so non-RingHunt scenes do not
+    // need to opt in. RequestCapture flips a flag the render path drains on its next frame;
+    // IsFrameReady reports whether a captured RGBA buffer is waiting; TakeFrameRGBA moves the bytes
+    // out (and clears the ready flag).
+    virtual void RequestCapture() {}
+    virtual bool IsFrameReady() const { return false; }
+    virtual bool TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH)
+    {
+        (void)outRGBA;
+        (void)outW;
+        (void)outH;
+        return false;
+    }
     // The Wayfinder beacon exposes its distance, placement, the off-screen guidance fields, and
     // (Stage 11D) the 6DoF alignment challenge: huntPhase (0=APPROACHING 1=ALIGNING 2=LOCKED),
     // the yaw/pitch diff to the alignment frame, and instantaneous/held alignment flags.

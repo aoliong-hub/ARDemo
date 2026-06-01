@@ -21,7 +21,9 @@
 #include "graphic/RenderSurface.h"
 #include "wayfinder_renderer.h"
 #include "world/world_background_renderer.h" // reused camera background (NOT modified)
+#include <cstdint>
 #include <glm.hpp>
+#include <vector>
 
 namespace ARObject {
 
@@ -46,10 +48,16 @@ public:
     // Draws background + (if a beacon is placed and its anchor is tracking) the Wayfinder beacon at
     // the anchor: ground ring + pillar core/fog + spinning top + phone icon. color drives the
     // ring/pillar tint (Stage 11A: fixed red), animTime spins the top ring. Fills *outCam.
+    // Da3 capture: if wantCapture && outCaptureRGBA != nullptr, the renderer calls glReadPixels
+    // immediately before SwapBuffers (Y-flipped to image origin = top-left) and fills the buffer
+    // + outW/outH with the current viewport contents (mWidth x mHeight from the app). Returns
+    // true on the success path only; the early-return "not tracking" path skips capture.
     bool OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
                      AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color, float distance,
                      int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
-                     float deltaTime, float ringHeight, RingCameraInfo *outCam);
+                     float deltaTime, float ringHeight, RingCameraInfo *outCam,
+                     bool wantCapture, int captureW, int captureH,
+                     std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH);
     void DrawBlack();
 
     GLuint GetPreviewTextureId() { return mBackgroundRenderer.GetTextureId(); }

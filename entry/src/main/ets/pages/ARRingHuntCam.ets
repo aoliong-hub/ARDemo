@@ -7,17 +7,34 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { display, PathShape } from '@kit.ArkUI';
+import { display, window, PathShape } from '@kit.ArkUI';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
+import { image } from '@kit.ImageKit';
+import { fileIo } from '@kit.CoreFileKit';
+import { util } from '@kit.ArkTS';
 import arEngineDemo from 'libentry.so';
-import { RingState } from 'libentry.so';
+import { RingState, CapturedFrame } from 'libentry.so';
 import { Logger } from '../utils/Logger';
 import { Palette, FontSize, Spacing, Radius } from '../styles/Theme';
 import { CameraChrome } from '../components/CameraChrome';
-import { ReferencePanel } from '../components/ReferencePanel';
+import { ReferencePanel, RefImageHolder } from '../components/ReferencePanel';
+import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, GuideData as Da3GuideData } from '../services/Da3Service';
+
+// v13 (c): da3 机位服务返回的 guideData — 全 string,由 applyGuide 转 number 并喂给
+// placeRingAt + applyZoom。语义跟 placeRingAt 一致:x=右(米)/ y=圆环离地高度(米)/ z=前(米),
+// pitch/yaw/roll 度,zoom 变焦倍率。
+interface GuideData {
+  x: string;
+  y: string;
+  z: string;
+  pitch: string;
+  yaw: string;
+  roll: string;
+  zoom: string;
+}
 
 @Builder
 export function ARRingHuntCamBuilder() {
@@ -80,6 +97,32 @@ struct ARRingHuntCam {
 
   // Mode-switch fade.
   @State private fadeOpacity: number = 1.0;
+
+  // v13 digital zoom. Pinch on the viewport overlay drives continuous 1.0–5.0 via zoomBase × scale;
+  // ZoomBar buttons jump to 1/2/5x. applyZoom is the single entry: clamps, writes mZoom in C++
+  // via setZoom NAPI, pulses the central "Nx" indicator (auto-hides 900ms after the last input).
+  @State zoom: number = 1.0;
+  @State zoomIndicatorVisible: boolean = false;
+  private readonly zoomStops: number[] = [1.0, 2.0, 5.0];
+  private zoomBase: number = 1.0;
+  private zoomHideTimer: number = -1;
+
+  // v13 (d) — Da3 two-stage flow state. refHolder.image = generated target PixelMap (rendered in
+  // ReferencePanel); refLoading drives the spinner; targetJpeg caches the JPEG bytes for step2.
+  // Two flags (busyGenerate / busyGuide) are reentrancy guards so multiple taps don't pile up
+  // overlapping requests.
+  @State refHolder: RefImageHolder = new RefImageHolder();
+  @State refLoading: boolean = false;
+  private targetJpeg?: ArrayBuffer;
+  private busyGenerate: boolean = false;
+  private busyGuide: boolean = false;
+  // 会话级 task_id — 每次点炫彩球重生成,generate + getGuide 共用,服务端靠这个把
+  // "先前生成的目标图"和"现在算机位"两次请求关联起来。da3 demo 对齐:UuidUtil.getUuid()。
+  private sessionTaskId: string = '';
+  // CALIB 调试面板 — 暴露最近一次 applyGuide 的"云端原值"和"实际送进 placeRingAt 的数字",
+  // 演示时一眼对照信标实际位置/姿态,校准 da3 坐标系/符号约定。
+  @State calibRaw: string = '';
+  @State calibParsed: string = '';
 
 
   // Stage 12B-1 bottom reference-shot panel. Two INDEPENDENT states drive the layout:
@@ -258,8 +301,8 @@ struct ARRingHuntCam {
     this.animatePanelTo(target, target > 0 ? this.chromeUpliftTotal() : 0);
   }
 
-  // AI sphere tap → enter AI mode (chrome compacts) AND open the card. Called from placeBeacon
-  // after a successful native placement.
+  // AI sphere tap → enter AI mode (chrome compacts) AND open the card. Called from onBeaconTap
+  // when step1 (capture + Da3 generate) begins.
   private enterAiModeAndOpenCard(): void {
     this.panelExpanded = true;
     this.cardExpanded = true;
@@ -291,6 +334,25 @@ struct ARRingHuntCam {
   private dotOffsetY(): number {
     let pitchDeg: number = this.clamp(this.pitchDiffRad * 180 / Math.PI, -30, 30);
     return (pitchDeg / 30) * this.kMaxOffset;
+  }
+
+  // 准星 dot 的 translate 按 native 报告的物理朝向旋转坐标。屏幕坐标系是竖布局,横拿时头歪 90°
+  // → 屏右=视角下,会让 yaw/pitch 串轴。按朝向把屏 (x,y) 转换到"用户视角 (x,y)"。
+  // 方向(ori===1 用 (y,-x) 还是 (-y,x))不能纯推理确定,首版按 LANDSCAPE_CW=(y,-x) 装,
+  // 实测反了再翻 LANDSCAPE_CW 和 LANDSCAPE_CCW 的符号。
+  private dotTranslate(): TranslateOptions {
+    const xv: number = this.dotOffsetX();
+    const yv: number = this.dotOffsetY();
+    const ori: number = arEngineDemo.getOrientation(this.idStr);
+    const out: TranslateOptions = { x: xv, y: yv };
+    if (ori === 1) {        // LANDSCAPE_CW
+      out.x = yv;
+      out.y = -xv;
+    } else if (ori === 2) { // LANDSCAPE_CCW
+      out.x = -yv;
+      out.y = xv;
+    }
+    return out;
   }
 
   // Stage 12C-redesign batch 1 fix — bracket / crosshair line builder. Off-aim = single white60
@@ -357,11 +419,35 @@ struct ARRingHuntCam {
     }
   }
 
-  // AI 机位 action: place a wayfinder beacon (random 6DoF target). Repeated taps cause native to
-  // replace the prior beacon, so we also wipe the local UI state to keep guidance in sync.
-  private placeBeacon(): void {
+  // v13 (c) — guideData → AR end-to-end glue. Parses the 7 string fields, validates, then routes
+  // to the existing placeRingAt + applyZoom paths. Designed to be the SINGLE entry the da3
+  // pose-calc backend (or any other producer) calls; UI flow mirrors placeBeaconAt (reset prior
+  // ring state → place → open AI panel) plus a zoom write at the end.
+  private readonly fakeGuide: GuideData = {
+    x: '0', y: '1.2', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '2'
+  };
+
+  private applyGuide(g: GuideData): void {
+    Logger.info(`ARDA3-CALIB raw guide=${JSON.stringify(g)}`);
+    // 调试面板:云端原值(可能是中文友好串,也可能是裸数字 — 看是 da3 真实链路还是 6 个 dev chips)。
+    this.calibRaw = `x=${g.x} y=${g.y} z=${g.z}\nyaw=${g.yaw} pitch=${g.pitch} roll=${g.roll}\nzoom=${g.zoom}`;
+
+    let x: number = Number(g.x);
+    let y: number = Number(g.y);
+    let z: number = Number(g.z);
+    let yaw: number = Number(g.yaw);
+    // 实测:da3"俯拍"经 parse 为正,但 placeRingAt 渲染时正 pitch = 仰(L177 pitchMat 约定),
+    // 直接透传方向反。取负让 "俯拍 N°" 真正朝下倾。camPitch 补偿在 native 端保留。
+    let pitch: number = -Number(g.pitch);
+    let roll: number = Number(g.roll);
+    let zoom: number = Number(g.zoom);
+    if (Number.isNaN(x) || Number.isNaN(y) || Number.isNaN(z) ||
+        Number.isNaN(yaw) || Number.isNaN(pitch) || Number.isNaN(roll)) {
+      Logger.warn(`[applyGuide] NaN in pose fields, skip: x=${g.x} y=${g.y} z=${g.z} yaw=${g.yaw} pitch=${g.pitch} roll=${g.roll}`);
+      this.calibParsed = 'NaN (skip)';
+      return;
+    }
     if (this.ringPlaced) {
-      // Tear down stale guidance overlays first so the new placement reads fresh.
       this.distance = 99;
       this.huntPhase = 0;
       this.isAligned = false;
@@ -369,14 +455,221 @@ struct ARRingHuntCam {
       this.prevLocked = false;
       this.resetGuidance();
     }
-    let id: number = arEngineDemo.placeRing(this.idStr);
-    Logger.info(`[ARRingHuntCam] placeRing -> ${id}`);
+    Logger.info(`ARDA3-CALIB toPlaceRingAt x=${x} y=${y} z=${z} yaw=${yaw} pitch=${pitch} roll=${roll} zoom=${zoom}`);
+    this.calibParsed = `x=${x} y=${y} z=${z}\nyaw=${yaw} pitch=${pitch} roll=${roll}\nzoom=${zoom}`;
+    // 实测裁决:da3 输出已是世界坐标系(y=worldUp 高度,x=世界水平右,z=世界水平前),
+    // 横竖拍 da3 都按 worldUp 锚定。之前的 xyRemap 是基于"da3 输出画布坐标"的错误假设,
+    // rotate 修对后暴露:横拍下 xyRemap 把"高度"错塞进"横向"导致信标飞偏。删除,直接透传。
+    Logger.info(`ARDA3-CALIB noRemap da3(x=${x},y=${y},z=${z}) 直传 placeRingAt`);
+    let id: number = arEngineDemo.placeRingAt(this.idStr, x, y, z, yaw, pitch, roll);
+    Logger.info(`ARDA3-CALIB placeRingAt returned id=${id}`);
+    Logger.info(`[applyGuide] placeRingAt(x=${x} y=${y} z=${z} yaw=${yaw} pitch=${pitch} roll=${roll}) -> ${id}, zoom=${zoom}`);
     if (id < 0) {
       this.toast('请稳住手机等待跟踪稳定');
-    } else {
-      this.ringPlaced = true;
-      // Stage 12B-1: successful placement opens the reference panel.
+      return;
+    }
+    this.ringPlaced = true;
+    this.enterAiModeAndOpenCard();
+    // 相机焦距暂不自动调整(da3 zoom 先不生效)。ZoomBar / 捏合手动变焦不受影响。
+    Logger.info(`ARDA3-CALIB zoom parsed=${zoom} (auto-zoom disabled)`);
+    // if (!Number.isNaN(zoom) && zoom > 0) {
+    //   this.applyZoom(Math.min(5.0, Math.max(1.0, zoom)));
+    // }
+  }
+
+  // AI 机位 action: place a wayfinder beacon (random 6DoF target). Repeated taps cause native to
+  // replace the prior beacon, so we also wipe the local UI state to keep guidance in sync.
+  // v13 single zoom entry: clamp [1, 5], push to native (setZoom NAPI → mZoom atomic → next
+  // OnUpdate's glViewport), show/refresh the central "Nx" indicator. Called by both the pinch
+  // gesture (continuous) and ZoomBar (button taps).
+  private applyZoom(z: number): void {
+    let nz: number = Math.min(5.0, Math.max(1.0, z));
+    this.zoom = nz;
+    arEngineDemo.setZoom(this.idStr, nz);
+    this.zoomIndicatorVisible = true;
+    if (this.zoomHideTimer >= 0) {
+      clearTimeout(this.zoomHideTimer);
+    }
+    this.zoomHideTimer = setTimeout(() => {
+      this.zoomIndicatorVisible = false;
+      this.zoomHideTimer = -1;
+    }, 900);
+  }
+
+  // v13 (d) — request a single frame from native, poll isFrameReady every 50ms (cap 1s), then
+  // wrap the RGBA bytes in a PixelMap and pack JPEG q92. Persists a copy under filesDir for
+  // post-hoc verification ("hdc file recv files/cap_*.jpg .").
+  private captureJpeg(): Promise<ArrayBuffer | null> {
+    return new Promise<ArrayBuffer | null>((resolve: (v: ArrayBuffer | null) => void) => {
+      arEngineDemo.captureFrame(this.idStr);
+      let tries: number = 0;
+      let reFired: boolean = false;
+      const maxTries: number = 60;   // 50ms * 60 = 3s 总等待
+      const reFireAt: number = 20;   // 1s 仍无帧 → 重发一次 captureFrame(覆盖 surface 抖动 / tracking 暂掉)
+      const timerId: number = setInterval(() => {
+        tries = tries + 1;
+        if (!arEngineDemo.isFrameReady(this.idStr)) {
+          if (tries === reFireAt && !reFired) {
+            reFired = true;
+            Logger.warn(`ARDA3-CAP no frame after 1s — re-firing captureFrame (try ${tries}/${maxTries})`);
+            arEngineDemo.captureFrame(this.idStr);
+          }
+          if (tries >= maxTries) {
+            clearInterval(timerId);
+            Logger.error(`ARDA3-CAP timeout (no frame after 3s, retry=${reFired})`);
+            resolve(null);
+          }
+          return;
+        }
+        clearInterval(timerId);
+        const cap: CapturedFrame | null = arEngineDemo.takeFrameRGBA(this.idStr);
+        if (cap === null) {
+          Logger.error('ARDA3-CAP takeFrameRGBA returned null');
+          resolve(null);
+          return;
+        }
+        Logger.info(`ARDA3-CAP RGBA taken w=${cap.width} h=${cap.height} bytes=${cap.buffer.byteLength}`);
+        const opts: image.InitializationOptions = {
+          size: { width: cap.width, height: cap.height },
+          srcPixelFormat: image.PixelMapFormat.RGBA_8888,
+          pixelFormat: image.PixelMapFormat.RGBA_8888,
+          editable: true
+        };
+        image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
+          // 按 native 报告的物理朝向把图旋正,让 da3 收到的图和用户视觉构图一致。
+          // 0=PORTRAIT(不转), 1=LANDSCAPE_CW(顺时针横拿,把图逆时针 90° → da3 看到横画布), 2=LANDSCAPE_CCW(反向)。
+          const ori: number = arEngineDemo.getOrientation(this.idStr);
+          try {
+            // 实测对调:存档图证实 LANDSCAPE_CW 用 rotate(270) 会得到倒置图 → 改 90;
+            // LANDSCAPE_CCW 对称翻成 270。HarmonyOS pm.rotate(angle) 的实际旋转方向跟之前推理反。
+            if (ori === 1) {
+              await pm.rotate(90);
+              Logger.info('ARDA3-CAP rotate 90 (LANDSCAPE_CW)');
+            } else if (ori === 2) {
+              await pm.rotate(270);
+              Logger.info('ARDA3-CAP rotate 270 (LANDSCAPE_CCW)');
+            } else {
+              Logger.info('ARDA3-CAP no rotate (PORTRAIT)');
+            }
+          } catch (e) {
+            const err: BusinessError = e as BusinessError;
+            Logger.error(`ARDA3-CAP rotate failed code=${err.code} msg=${err.message}`);
+          }
+          packPixelMapToJpeg(pm).then((jpeg: ArrayBuffer | null) => {
+            pm.release().catch((e: BusinessError) => { Logger.warn(`ARDA3-CAP pm.release: ${e.message}`); });
+            if (jpeg === null) {
+              resolve(null);
+              return;
+            }
+            Logger.info(`ARDA3-CAP jpeg ready bytes=${jpeg.byteLength}`);
+            try {
+              const path: string = `${this.context.filesDir}/cap_${systemDateTime.getTime(false)}.jpg`;
+              const f: fileIo.File = fileIo.openSync(path,
+                fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+              fileIo.writeSync(f.fd, jpeg);
+              fileIo.closeSync(f.fd);
+              Logger.info(`ARDA3-CAP jpeg saved path=${path}`);
+            } catch (e) {
+              const err: BusinessError = e as BusinessError;
+              Logger.warn(`ARDA3-CAP save failed code=${err.code} msg=${err.message}`);
+            }
+            resolve(jpeg);
+          });
+        }).catch((e: BusinessError) => {
+          Logger.error(`ARDA3-CAP createPixelMap failed code=${e.code} msg=${e.message}`);
+          resolve(null);
+        });
+      }, 50);
+    });
+  }
+
+  // v13 (d) — step1: AI sphere tap. (1) open the reference panel + spinner, (2) capture the
+  // current frame, (3) call Da3 generate → target PixelMap, (4) display + re-pack to JPEG so
+  // step2 (target tap) has the bytes ready. Reentrancy-guarded.
+  private async onBeaconTap(): Promise<void> {
+    if (this.busyGenerate) {
+      Logger.warn('ARDA3-FLOW step1 ignored (busy)');
+      return;
+    }
+    this.busyGenerate = true;
+    try {
+      // 每次点炫彩球开启一次新会话 — generate + getGuide 共享同一个 task_id。
+      this.sessionTaskId = util.generateRandomUUID();
+      Logger.info(`ARDA3-FLOW new sessionTaskId=${this.sessionTaskId}`);
+      Logger.info('ARDA3-FLOW step1 beacon tap → capture+generate');
       this.enterAiModeAndOpenCard();
+      this.refHolder.image = undefined;
+      this.targetJpeg = undefined;
+      this.refLoading = true;
+      const jpeg: ArrayBuffer | null = await this.captureJpeg();
+      if (jpeg === null) {
+        this.refLoading = false;
+        this.toast('抓帧失败');
+        Logger.error('ARDA3-FLOW step1 capture fail');
+        return;
+      }
+      const target: image.PixelMap | null = await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
+      this.refLoading = false;
+      if (target === null) {
+        this.toast('生成失败');
+        Logger.error('ARDA3-FLOW step1 generate fail');
+        return;
+      }
+      this.refHolder.image = target;
+      // Re-pack target PixelMap → JPEG for step2's getGuide call.
+      const targetJpeg: ArrayBuffer | null = await packPixelMapToJpeg(target);
+      if (targetJpeg === null) {
+        Logger.error('ARDA3-FLOW step1 target re-pack to jpeg failed');
+        // Target image still shown; user can re-tap beacon to retry.
+      } else {
+        this.targetJpeg = targetJpeg;
+        Logger.info(`ARDA3-FLOW step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
+      }
+    } finally {
+      this.busyGenerate = false;
+    }
+  }
+
+  // v13 (d) — step2: target image tap. Capture current frame again, send (target, current) to
+  // Da3 getGuide, route the result through applyGuide (which clamps zoom and applies the pitch
+  // sign correction). Reentrancy-guarded.
+  private async onTargetTap(): Promise<void> {
+    if (this.busyGuide) {
+      Logger.warn('ARDA3-FLOW step2 ignored (busy)');
+      return;
+    }
+    if (this.targetJpeg === undefined) {
+      this.toast('请先生成目标图');
+      Logger.warn('ARDA3-FLOW step2 no targetJpeg cached');
+      return;
+    }
+    this.busyGuide = true;
+    try {
+      Logger.info('ARDA3-FLOW step2 target tap → capture+getGuide');
+      this.toast('正在计算机位…');
+      // 计算机位前强制恢复到 1.0× 原生焦距 — da3 的空间推理基于原生 FOV,变焦后的帧
+      // 会让 guide 的位置/角度计算偏掉。短延时等 GL 渲完一帧再 capture,确保抓到 1.0× 的画面。
+      if (this.zoom !== 1.0) {
+        Logger.info(`ARDA3-CALIB step2 force zoom → 1.0 (was ${this.zoom}) before capture`);
+        this.applyZoom(1.0);
+        await new Promise<void>((resolve: () => void) => { setTimeout(resolve, 150); });
+      }
+      const current: ArrayBuffer | null = await this.captureJpeg();
+      if (current === null) {
+        this.toast('抓帧失败');
+        Logger.error('ARDA3-FLOW step2 capture fail');
+        return;
+      }
+      const guide: Da3GuideData | null = await da3GetGuide(this.targetJpeg as ArrayBuffer, current, this.sessionTaskId, this.context.filesDir);
+      if (guide === null) {
+        this.toast('机位计算失败');
+        Logger.error('ARDA3-FLOW step2 getGuide fail');
+        return;
+      }
+      Logger.info(`ARDA3-FLOW step2 guide=${JSON.stringify(guide)} → applyGuide`);
+      this.applyGuide(guide as GuideData);
+    } finally {
+      this.busyGuide = false;
     }
   }
 
@@ -679,7 +972,7 @@ struct ARRingHuntCam {
           //   isBehind  → drawn 60vp arc + arrowhead (mask = Path) gradient-filled; centered on
           //               the viewport with a "转向目标" label below.
           Stack({ alignContent: Alignment.TopStart }) {
-            if (this.guidanceMounted && !this.isBehind) {
+            if (this.guidanceMounted && !this.isBehind && this.zoom < 1.05) {
               // Concentric ring is now a baked iridescent PNG sequence (guide_ring_*) instead of
               // Circle.stroke + inner Column gradient — same reason as the triangle: glyph/Shape
               // can't carry real multi-hue iridescence on this device. The ring stays STATIC at
@@ -866,7 +1159,7 @@ struct ARRingHuntCam {
                 .shadow({ radius: this.isAligned ? 12 : 6,
                           color: this.isAligned ? '#CCFFFFFF' : '#80FFFFFF',
                           offsetX: 0, offsetY: 0 })
-                .translate({ x: this.dotOffsetX(), y: this.dotOffsetY() })
+                .translate(this.dotTranslate())
             }
             .id('alignHud')
             .hitTestBehavior(HitTestMode.None)
@@ -883,12 +1176,35 @@ struct ARRingHuntCam {
               .borderRadius(14)
               .id('lockedBanner')
           }
+
+          // v13 central zoom-value indicator. Pulses on every pinch / ZoomBar tap, auto-hides
+          // 900ms after last input. Sits low in the viewport (offset from center +200vp) so it
+          // floats just above the ZoomBar / shutter row in the chrome below — out of the way of
+          // the AR composition the user is framing.
+          if (this.zoomIndicatorVisible) {
+            Text((Math.abs(this.zoom - Math.round(this.zoom)) < 0.05
+                  ? Math.round(this.zoom).toString()
+                  : this.zoom.toFixed(1)) + 'x')
+              .fontSize(24)
+              .fontColor(Color.White)
+              .fontWeight(FontWeight.Bold)
+              .textShadow({ radius: 8, color: 'rgba(0,0,0,0.5)' })
+              .offset({ x: 0, y: 200 })
+              .hitTestBehavior(HitTestMode.None)
+          }
         }
         .width('100%')
         .height(this.viewportH())
         .position({ x: 0, y: this.viewportTop })
         .clip(true)
         .hitTestBehavior(HitTestMode.Transparent)
+        // v13 pinch zoom. zoomBase captured at onActionStart; each onActionUpdate multiplies it by
+        // e.scale and routes through applyZoom (clamp + native setZoom + central indicator pulse).
+        .gesture(
+          PinchGesture()
+            .onActionStart(() => { this.zoomBase = this.zoom; })
+            .onActionUpdate((e: GestureEvent) => { this.applyZoom(this.zoomBase * e.scale); })
+        )
 
         // (3) Top black bar — opaque mask from page top down to viewportTop.
         Column()
@@ -911,21 +1227,21 @@ struct ARRingHuntCam {
               .backgroundColor('#80000000')
               .borderRadius(8)
               .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 0, 0, 0, '前2高1.2'); })
+              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, 0, 0, '前2高1.2'); })
             Text('前2高0.5')
               .fontSize(11)
               .fontColor(Palette.white)
               .backgroundColor('#80000000')
               .borderRadius(8)
               .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 0.5, 2, 0, 0, 0, '前2高0.5'); })
+              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, 0, 0, '前2高0.5'); })
             Text('右1前1高1.2')
               .fontSize(11)
               .fontColor(Palette.white)
               .backgroundColor('#80000000')
               .borderRadius(8)
               .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(1, 1.2, 1, 0, 0, 0, '右1前1高1.2'); })
+              .onClick(() => { this.placeBeaconAt(1, 0, 1, 0, 0, 0, '右1前1高1.2'); })
           }
           Row({ space: 6 }) {
             Text('前2转右30')
@@ -934,21 +1250,70 @@ struct ARRingHuntCam {
               .backgroundColor('#80000000')
               .borderRadius(8)
               .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 30, 0, 0, '前2转右30'); })
+              .onClick(() => { this.placeBeaconAt(0, 0, 2, 30, 0, 0, '前2转右30'); })
             Text('前2俯30')
               .fontSize(11)
               .fontColor(Palette.white)
               .backgroundColor('#80000000')
               .borderRadius(8)
               .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 0, -30, 0, '前2俯30'); })
+              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, -30, 0, '前2俯30'); })
             Text('前2斜45')
               .fontSize(11)
               .fontColor(Palette.white)
               .backgroundColor('#80000000')
               .borderRadius(8)
               .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 1.2, 2, 0, 0, 45, '前2斜45'); })
+              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, 0, 45, '前2斜45'); })
+          }
+          // v13 (c) — 6 fake-guideData chips routed through applyGuide() (string fields like the
+          // real da3 response). 2 rows of 3 to fit phone width. Each chip is a self-contained
+          // GuideData literal so the labels stay short and what-you-see-is-what-fires.
+          Row({ space: 6 }) {
+            Text('G:前2高1.2 2x')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '2' }); })
+            Text('G:右1前2')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.applyGuide({ x: '1', y: '0', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '1' }); })
+            Text('G:左1前2')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.applyGuide({ x: '-1', y: '0', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '1' }); })
+          }
+          Row({ space: 6 }) {
+            Text('G:前2转右30')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '2', pitch: '0', yaw: '30', roll: '0', zoom: '1' }); })
+            Text('G:前2俯30')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '2', pitch: '30', yaw: '0', roll: '0', zoom: '1' }); })
+            Text('G:前3 5x')
+              .fontSize(11)
+              .fontColor(Palette.white)
+              .backgroundColor('#80000000')
+              .borderRadius(8)
+              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '3', pitch: '0', yaw: '0', roll: '0', zoom: '5' }); })
           }
         }
         .alignItems(HorizontalAlign.Start)
@@ -975,7 +1340,10 @@ struct ARRingHuntCam {
             panelHeight: this.panelHeight,
             cardExpanded: this.cardExpanded,
             horizontalMargin: this.kCardHorizontalMargin,
-            onToggle: (): void => { this.toggleCard(); }
+            refHolder: this.refHolder,
+            loading: this.refLoading,
+            onToggle: (): void => { this.toggleCard(); },
+            onImageTap: (): void => { this.onTargetTap(); }
           })
             .width('100%')
             .position({ x: 0, y: this.cardY() })
@@ -988,8 +1356,10 @@ struct ARRingHuntCam {
             // Chrome compact mode tracks cardExpanded — when collapsed via chevron, chrome
             // restores to its full-size layout.
             panelExpanded: this.cardExpanded,
-            onSphereTap: (): void => { this.placeBeacon(); },
-            onSettingsLongPress: (): void => { this.openDevSelector(); }
+            onSphereTap: (): void => { this.onBeaconTap(); },
+            onSettingsLongPress: (): void => { this.openDevSelector(); },
+            currentZoom: this.zoom,
+            onZoomChange: (z: number): void => { this.applyZoom(z); }
           })
         }
         .id('chromeRingCam')
@@ -1018,6 +1388,26 @@ struct ARRingHuntCam {
           .alignItems(VerticalAlign.Center)
           .onClick(() => { this.toggleCard(); })
         }
+
+        // ARDA3-CALIB 调试面板 — 最近一次 applyGuide 的"云端原值 / 解析后数字 / 当前距离",
+        // 演示时一眼对照信标实际位置,校准 da3 坐标系。仅在 applyGuide 跑过后显示。
+        // hit-test transparent,不挡下面的相机/按钮点击。
+        if (this.calibRaw.length > 0) {
+          Column({ space: 2 }) {
+            Text('ARDA3-CALIB').fontSize(9).fontColor('#FFCCCCCC')
+            Text('da3 raw:').fontSize(9).fontColor('#FFFFA94D')
+            Text(this.calibRaw).fontSize(10).fontColor('#FFFFFFFF').fontFamily('monospace')
+            Text('parsed → placeRingAt:').fontSize(9).fontColor('#FFFFA94D')
+            Text(this.calibParsed).fontSize(10).fontColor('#FFFFFFFF').fontFamily('monospace')
+            Text(`dist: ${this.distance.toFixed(2)}m`).fontSize(10).fontColor('#FF99FF99').fontFamily('monospace')
+          }
+          .position({ x: 8, y: 300 })
+          .padding(8)
+          .backgroundColor('#A0000000')
+          .borderRadius(6)
+          .alignItems(HorizontalAlign.Start)
+          .hitTestBehavior(HitTestMode.Transparent)
+        }
       }
       .width('100%')
       .height('100%')
@@ -1034,8 +1424,59 @@ struct ARRingHuntCam {
       arEngineDemo.init(this.resMgr);
       let config: Int32Array = new Int32Array([1, this.rotation]);
       arEngineDemo.start(this.idStr, config);
+      // 产品最终要求:UI 锁竖屏,AR 感知物理横竖(用 camRoll snap)。
+      // 离开页面 onWillDisappear 还原 UNSPECIFIED。
+      try {
+        window.getLastWindow(this.context, (err: BusinessError, win: window.Window) => {
+          if (err.code) {
+            Logger.error(`ARDA3-CALIB getLastWindow failed code=${err.code} msg=${err.message}`);
+            return;
+          }
+          win.setPreferredOrientation(window.Orientation.PORTRAIT, (err2: BusinessError) => {
+            if (err2.code) {
+              Logger.error(`ARDA3-CALIB setPreferredOrientation PORTRAIT failed code=${err2.code} msg=${err2.message}`);
+            } else {
+              Logger.info('ARDA3-CALIB setPreferredOrientation PORTRAIT ok');
+            }
+          });
+        });
+      } catch (e) {
+        Logger.error(`ARDA3-CALIB setPreferredOrientation threw: ${JSON.stringify(e)}`);
+      }
+      // 锁竖后 display.on('change') 理论上不会触发(系统不再转屏)。但万一仍触发,
+      // 不要把 rotation 喂进 native——保持 mDisplayRotation=0,让 GetDisplayOrientedPose
+      // 始终按"竖屏"校正,camRoll 才会真实反映物理姿态(横拿→±90°)。
+      try {
+        display.on('change', (id: number) => {
+          const r: number = display.getDefaultDisplaySync().rotation;
+          // DISABLED: 锁竖屏下保持 native mDisplayRotation=0,让 camRoll 暴露物理横竖。
+          // if (r !== this.rotation) {
+          //   this.rotation = r;
+          //   arEngineDemo.setDisplayRotation(this.idStr, r);
+          // }
+          Logger.info(`ARDA3-CALIB display change displayId=${id} -> rotation=${r}, NOT fed to native (UI locked PORTRAIT)`);
+        });
+      } catch (e) {
+        Logger.error(`ARDA3-CALIB display.on failed: ${JSON.stringify(e)}`);
+      }
     })
     .onWillDisappear(() => {
+      try {
+        display.off('change');
+      } catch (e) {
+        Logger.warn(`ARDA3-CALIB display.off failed: ${JSON.stringify(e)}`);
+      }
+      // 还原朝向 UNSPECIFIED,其他页面不受 AUTO_ROTATION 污染。
+      try {
+        window.getLastWindow(this.context, (err: BusinessError, win: window.Window) => {
+          if (err.code) {
+            return;
+          }
+          win.setPreferredOrientation(window.Orientation.UNSPECIFIED, () => {});
+        });
+      } catch (e) {
+        Logger.warn(`ARDA3-CALIB restore orientation failed: ${JSON.stringify(e)}`);
+      }
       arEngineDemo.stop(this.idStr);
     })
     .onShown(() => {

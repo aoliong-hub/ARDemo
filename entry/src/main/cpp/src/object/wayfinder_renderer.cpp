@@ -508,6 +508,16 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     float pillarYScale = ringHeight / kWayfinderTopHeight;
     const glm::mat4 mvpPillar = vp * wayfinderToWorld * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, pillarYScale, 1.0f));
 
+    // === DIAG: 只在 huntPhase 切换时打印一次,让用户知道当前看到的是哪个视觉阶段。
+    //   0 = APPROACHING(显示 badge+phone+pillar,billboard+spin 自转,frame 不渲染)
+    //   1 = ALIGNING   (显示对齐框 alignFrame,吃 frameOrientation,roll 反应在这里)
+    //   2 = LOCKED     (同 ALIGNING,姿态冻结)
+    static int sLastHuntPhase = -1;
+    if (huntPhase != sLastHuntPhase) {
+        LOGI("ARDA3-CALIB huntPhase change %{public}d -> %{public}d", sLastHuntPhase, huntPhase);
+        sLastHuntPhase = huntPhase;
+    }
+
     // ALIGNING (1) / LOCKED (2): hide the pillar/badge/ripple; show only the ground ring (with a
     // stronger, faster breath) + the 6DoF alignment frame at the beacon top. The frame's hue is
     // driven by frameHueTime, which the caller freezes once LOCKED.

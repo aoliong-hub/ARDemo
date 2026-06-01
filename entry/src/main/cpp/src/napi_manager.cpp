@@ -25,9 +25,11 @@
 #include "world/world_ar_application.h"
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <vector>
 
 enum class ContextType {
     APP_LIFECYCLE = 0,
@@ -761,6 +763,134 @@ napi_value NapiManager::NapiPlaceRingAt(napi_env env, napi_callback_info info)
         static_cast<float>(vals[3]), static_cast<float>(vals[4]), static_cast<float>(vals[5]));
     napi_create_int32(env, objectId, &result);
     return result;
+}
+
+// v13: setZoom(id, level). level is a number in [1.0, 5.0]; non-number → silent no-op (matches
+// the placeRing* family's silent-failure NAPI style). Returns undefined.
+napi_value NapiManager::NapiSetZoom(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiSetZoom");
+    size_t argc = 2;
+    napi_value args[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    napi_valuetype t1 = napi_undefined;
+    if (argc >= 2) {
+        napi_typeof(env, args[1], &t1);
+    }
+    if (app == nullptr || argc < 2 || t1 != napi_number) {
+        return nullptr;
+    }
+    double level = 1.0;
+    napi_get_value_double(env, args[1], &level);
+    app->SetZoom(static_cast<float>(level));
+    return nullptr;
+}
+
+// setDisplayRotation(id, rotation): ArkTS 监听 display.on('change') 后回喂当前的 rotation 值
+// (display.getDefaultDisplaySync().rotation: 0/1/2/3)。非 number → silent no-op。
+napi_value NapiManager::NapiSetDisplayRotation(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiSetDisplayRotation");
+    size_t argc = 2;
+    napi_value args[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    napi_valuetype t1 = napi_undefined;
+    if (argc >= 2) {
+        napi_typeof(env, args[1], &t1);
+    }
+    if (app == nullptr || argc < 2 || t1 != napi_number) {
+        return nullptr;
+    }
+    double r = 0.0;
+    napi_get_value_double(env, args[1], &r);
+    app->SetDisplayRotation(static_cast<int32_t>(r));
+    return nullptr;
+}
+
+// getOrientation(id) → number(0=PORTRAIT, 1=LANDSCAPE_CW, 2=LANDSCAPE_CCW)。
+// 用于 ArkTS 在抓帧后按物理朝向旋转 JPEG,让 da3 收到与用户构图一致的图。
+napi_value NapiManager::NapiGetOrientation(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    int32_t ori = (app == nullptr) ? 0 : app->GetOrientation();
+    napi_value out = nullptr;
+    napi_create_int32(env, ori, &out);
+    return out;
+}
+
+// Da3 capture: captureFrame(id) — set the request flag; the next render fills the buffer.
+napi_value NapiManager::NapiCaptureFrame(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiCaptureFrame");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    if (app != nullptr) {
+        app->RequestCapture();
+    }
+    return nullptr;
+}
+
+// Da3 capture: isFrameReady(id) -> boolean.
+napi_value NapiManager::NapiIsFrameReady(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    napi_value result = nullptr;
+    bool ready = (app != nullptr) && app->IsFrameReady();
+    napi_get_boolean(env, ready, &result);
+    return result;
+}
+
+// Da3 capture: takeFrameRGBA(id) -> {buffer:ArrayBuffer, width:number, height:number} | null.
+// Moves the cached RGBA bytes out (clearing readiness) and returns them to ArkTS.
+napi_value NapiManager::NapiTakeFrameRGBA(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiTakeFrameRGBA");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    if (app == nullptr) {
+        return nullptr;
+    }
+    std::vector<uint8_t> rgba;
+    int w = 0;
+    int h = 0;
+    if (!app->TakeFrameRGBA(rgba, w, h) || rgba.empty() || w <= 0 || h <= 0) {
+        return nullptr;
+    }
+    void *bufData = nullptr;
+    napi_value arrayBuffer = nullptr;
+    if (napi_create_arraybuffer(env, rgba.size(), &bufData, &arrayBuffer) != napi_ok || bufData == nullptr) {
+        LOGE("ARDA3-CAP napi_create_arraybuffer failed bytes=%{public}zu", rgba.size());
+        return nullptr;
+    }
+    std::memcpy(bufData, rgba.data(), rgba.size());
+    napi_value obj = nullptr;
+    napi_create_object(env, &obj);
+    napi_value wv = nullptr;
+    napi_value hv = nullptr;
+    napi_create_int32(env, w, &wv);
+    napi_create_int32(env, h, &hv);
+    napi_set_named_property(env, obj, "buffer", arrayBuffer);
+    napi_set_named_property(env, obj, "width", wv);
+    napi_set_named_property(env, obj, "height", hv);
+    return obj;
 }
 
 napi_value NapiManager::NapiResetRing(napi_env env, napi_callback_info info)

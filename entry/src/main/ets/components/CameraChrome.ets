@@ -32,6 +32,10 @@ import { CameraBottomBar } from './CameraBottomBar';
 export struct CameraChrome {
   onSphereTap: () => void = (): void => {};
   onSettingsLongPress: () => void = (): void => {};
+  // v13 zoom: host page (ARRingHuntCam) owns the live zoom level and the applyZoom entry point.
+  // Chrome forwards both straight through to ZoomBar.
+  @Prop currentZoom: number;
+  onZoomChange: (z: number) => void = (z: number): void => {};
   // Stage 12B-1 panel-expanded mode: the reference panel is up, so the chrome compacts itself
   // (ZoomBar fades out, AI sphere shrinks + slides toward the right edge like the native camera's
   // 调色 position when in retouch mode, and the album/shutter/flip row scales to 0.75). All three
@@ -60,7 +64,10 @@ export struct CameraChrome {
         // the AI sphere's translation math stays consistent). The AI sphere scales down + slides
         // right via translate, matching the native camera's "compact" tool layout.
         Row({ space: Spacing.M }) {
-          ZoomBar()
+          ZoomBar({
+            currentZoom: this.currentZoom,
+            onZoomChange: (z: number): void => { this.onZoomChange(z); }
+          })
             .opacity(this.panelExpanded ? 0 : 1)
             .animation({ duration: 250, curve: Curve.EaseOut })
           AiBeaconButton({ onTap: (): void => { this.onSphereTap(); } })

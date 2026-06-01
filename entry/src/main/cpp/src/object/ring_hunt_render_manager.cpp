@@ -61,7 +61,9 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
                                         AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color,
                                         float distance, int huntPhase, const glm::quat &frameOrientation,
                                         float frameHueTime, bool isAligned, float deltaTime, float ringHeight,
-                                        RingCameraInfo *outCam)
+                                        RingCameraInfo *outCam,
+                                        bool wantCapture, int captureW, int captureH,
+                                        std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH)
 {
     if (!isInited) {
         LOGE("RingHuntRenderManager not ready!");
@@ -131,6 +133,29 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
             mWayfinderRenderer.Render(viewMat, projectionMat, wayfinderToWorld, cameraPos, color, animTime, distance,
                                       huntPhase, frameOrientation, frameHueTime, isAligned, deltaTime, ringHeight);
         }
+    }
+
+    // Da3 capture hook: glReadPixels before SwapBuffers, on the success path only (after camera
+    // background quad + beacon overlay). zoom>1 enlarges glViewport off-screen, so reading
+    // (0,0,W,H) returns exactly the user-visible region — zoom comes through automatically.
+    if (wantCapture && outCaptureRGBA != nullptr && captureW > 0 && captureH > 0) {
+        size_t bytes = static_cast<size_t>(captureW) * static_cast<size_t>(captureH) * 4u;
+        outCaptureRGBA->resize(bytes);
+        glReadPixels(0, 0, captureW, captureH, GL_RGBA, GL_UNSIGNED_BYTE, outCaptureRGBA->data());
+        // Y flip: glReadPixels origin is bottom-left; image consumers (encoders, PixelMap) want
+        // top-left. Swap row 0<->H-1, 1<->H-2, ... in-place.
+        size_t rowStride = static_cast<size_t>(captureW) * 4u;
+        std::vector<uint8_t> tmp(rowStride);
+        for (int y = 0; y < captureH / 2; ++y) {
+            uint8_t *top = outCaptureRGBA->data() + y * rowStride;
+            uint8_t *bot = outCaptureRGBA->data() + (captureH - 1 - y) * rowStride;
+            std::memcpy(tmp.data(), top, rowStride);
+            std::memcpy(top, bot, rowStride);
+            std::memcpy(bot, tmp.data(), rowStride);
+        }
+        if (outCapW != nullptr) { *outCapW = captureW; }
+        if (outCapH != nullptr) { *outCapH = captureH; }
+        LOGI("ARDA3-CAP glReadPixels done %{public}dx%{public}d", captureW, captureH);
     }
 
     mRenderContext.SwapBuffers(&mRenderSurface);

@@ -5,13 +5,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "REPLACE_WITH_YOUR_CERT_PATH.cer",
+          "certpath": "C:\\Users\\ldkji\\.ohos\\config\\default_ARDemo_rBaEMKPrV6VyWxXx3MQsorr1IoOYuZA0VIcmBPseqLk=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "REPLACE_WITH_YOUR_KEY_PASSWORD",
-          "profile": "REPLACE_WITH_YOUR_PROFILE_PATH.p7b",
+          "keyPassword": "0000001B434F02A2D15DFC363FBD2D56B7B7D1441E28A94724E78BF86081F6C98D7646BC392CBBAE4DE0CE",
+          "profile": "C:\\Users\\ldkji\\.ohos\\config\\default_ARDemo_rBaEMKPrV6VyWxXx3MQsorr1IoOYuZA0VIcmBPseqLk=.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "REPLACE_WITH_YOUR_STORE_PATH.p12",
-          "storePassword": "REPLACE_WITH_YOUR_STORE_PASSWORD"
+          "storeFile": "C:\\Users\\ldkji\\.ohos\\config\\default_ARDemo_rBaEMKPrV6VyWxXx3MQsorr1IoOYuZA0VIcmBPseqLk=.p12",
+          "storePassword": "0000001B792B4CB0D24721E2A620B088486D6AF44F0CCF9962428E2B1EF2899DCF879D07F35433774D403A"
         }
       }
     ],

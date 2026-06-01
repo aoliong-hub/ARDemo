@@ -9,21 +9,34 @@
 
 import { Palette, Spacing, FontSize } from '../styles/Theme';
 
-// HarmonyOS-native camera-style zoom strip (Stage 12A redo). W / 1x / 2x / 4x / 10x in a single
-// dark glass capsule, the selected level wrapped in a small white pill. Tap = swap selection
-// (visual only — real zoom is out of scope; see reports/zoom-research.md for why AR Engine offers
-// no runtime zoom API). Default selection: 1x.
+// v13 digital-zoom strip: 1x / 2x / 5x. Highlighted stop = closest to currentZoom (argmin
+// |stop - currentZoom|), so e.g. continuous pinch to 3.9x highlights "5x". Tap a stop → invoke
+// onZoomChange callback so the host page can drive applyZoom (which writes mZoom in C++ +
+// shows the central indicator).
 @Component
 export struct ZoomBar {
-  // The host can override the initial selection, but typically the bar manages its own state.
-  @State private selected: string = '1x';
-  private readonly levels: string[] = ['W', '1x', '2x', '4x', '10x'];
+  @Prop currentZoom: number;
+  onZoomChange: (z: number) => void = (z: number): void => {};
+  private readonly stops: number[] = [1.0, 2.0, 5.0];
 
-  // Selected cell: white filled circle with black text. Unselected: translucent white text on glass.
+  private selectedStop(): number {
+    let best: number = this.stops[0];
+    let bestDist: number = Math.abs(best - this.currentZoom);
+    for (let i = 1; i < this.stops.length; i = i + 1) {
+      let s: number = this.stops[i];
+      let d: number = Math.abs(s - this.currentZoom);
+      if (d < bestDist) {
+        bestDist = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
   @Builder
-  cell(level: string): void {
-    if (this.selected === level) {
-      Text(level)
+  cell(stop: number): void {
+    if (stop === this.selectedStop()) {
+      Text(stop.toString() + 'x')
         .fontSize(FontSize.hud - 1)
         .fontColor('#FF000000')
         .fontWeight(FontWeight.Bold)
@@ -32,23 +45,23 @@ export struct ZoomBar {
         .textAlign(TextAlign.Center)
         .backgroundColor(Palette.white)
         .borderRadius(17)
-        .onClick(() => { this.selected = level; })
+        .onClick(() => { this.onZoomChange(stop); })
     } else {
-      Text(level)
+      Text(stop.toString() + 'x')
         .fontSize(FontSize.hud - 1)
         .fontColor(Palette.white80)
         .width(34)
         .height(34)
         .textAlign(TextAlign.Center)
-        .onClick(() => { this.selected = level; })
+        .onClick(() => { this.onZoomChange(stop); })
     }
   }
 
   build(): void {
     Row({ space: Spacing.XS }) {
-      ForEach(this.levels, (level: string) => {
-        this.cell(level);
-      }, (level: string) => level)
+      ForEach(this.stops, (stop: number) => {
+        this.cell(stop);
+      }, (stop: number) => stop.toString())
     }
     .padding({ left: Spacing.S, right: Spacing.S, top: 4, bottom: 4 })
     .backgroundColor(Palette.glass)

@@ -135,6 +135,19 @@ void RingHuntApp::OnUpdate()
             return;
         }
 
+        // v13 digital zoom: enlarge glViewport so the camera background quad (clip-space full-
+        // screen) and all AR meshes get sampled from a SMALLER center rectangle of the original
+        // framebuffer space. Offset is negative (-w*(z-1)/2) so the center stays put. AR Engine's
+        // SetDisplayGeometry above keeps using mWidth/mHeight so tracking is unaffected.
+        {
+            float z = mZoom.load();
+            float w = static_cast<float>(mWidth) * z;
+            float h = static_cast<float>(mHeight) * z;
+            int ox = static_cast<int>((static_cast<float>(mWidth) - w) * 0.5f);
+            int oy = static_cast<int>((static_cast<float>(mHeight) - h) * 0.5f);
+            glViewport(ox, oy, static_cast<int>(w), static_cast<int>(h));
+        }
+
         // Frame delta time (clamped) to advance the spinner clock.
         auto now = std::chrono::steady_clock::now();
         float dt = 0.0f;
@@ -166,9 +179,33 @@ void RingHuntApp::OnUpdate()
         glm::quat targetQ = glm::quat_cast(yawMat * pitchMat * rollMat);
 
         RingCameraInfo cam;
+        // Da3 capture: drain mCaptureRequested for this frame, hand a temp buffer to OnDrawFrame.
+        // If filled, lock + move into the member buffer + set mFrameReady. Capture size = mWidth/
+        // mHeight (the visible viewport — same as what SetDisplayGeometry sees).
+        bool wantCap = mCaptureRequested.exchange(false);
+        std::vector<uint8_t> capBuf;
+        int capW = 0;
+        int capH = 0;
         mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mAnimTime, color, lastDist,
                                    mHuntPhase.load(), targetQ, mFrameHueTime, mIsAligned.load(), dt,
-                                   mRingHeight.load(), &cam);
+                                   mRingHeight.load(), &cam,
+                                   wantCap, static_cast<int>(mWidth), static_cast<int>(mHeight),
+                                   &capBuf, &capW, &capH);
+        if (wantCap && !capBuf.empty() && capW > 0 && capH > 0) {
+            {
+                std::lock_guard<std::mutex> lk(mFrameMutex);
+                mLastFrameRGBA = std::move(capBuf);
+                mLastFrameW = capW;
+                mLastFrameH = capH;
+            }
+            mFrameReady.store(true);
+            LOGI("ARDA3-CAP frame cached %{public}dx%{public}d bytes=%{public}zu", capW, capH,
+                 static_cast<size_t>(capW) * static_cast<size_t>(capH) * 4u);
+        } else if (wantCap) {
+            // Capture requested but the render path skipped (e.g. tracking dropped, surface change).
+            // Drop the request silently — ArkTS will time out and surface a toast.
+            LOGW("ARDA3-CAP frame request dropped (no fill); tracking=%{public}d", cam.tracking ? 1 : 0);
+        }
 
         mCameraTracking.store(cam.tracking);
         if (!cam.tracking) {
@@ -177,6 +214,28 @@ void RingHuntApp::OnUpdate()
         if (!mReady.load()) {
             mReady.store(true);
             LOGI("[RingHunt] tracking ready.");
+        }
+
+        // 每帧从 cam.viewMat 算出物理朝向,store 到 mOrientation。ArkTS 抓帧前会读这个判断旋转方向。
+        // viewMat 已是 GetDisplayOrientedPose 推出的(renderer 用同一来源,见 render_manager:91),
+        // 与 PlaceBeaconInternal 的 camRoll 公式一致。
+        {
+            glm::vec3 camFwd = -glm::vec3(cam.viewMat[2], cam.viewMat[6], cam.viewMat[10]);
+            glm::vec3 camUp(cam.viewMat[1], cam.viewMat[5], cam.viewMat[9]);
+            glm::vec3 camRight(cam.viewMat[0], cam.viewMat[4], cam.viewMat[8]);
+            float dotR = camRight.y; // worldUp=(0,1,0) dot camRight = camRight.y
+            float dotU = camUp.y;
+            float frameCamRoll = std::atan2(dotR, dotU);
+            constexpr float kRad45 = 0.785398f;
+            int32_t ori;
+            if (frameCamRoll <= -kRad45) {
+                ori = 1;
+            } else if (frameCamRoll >= kRad45) {
+                ori = 2;
+            } else {
+                ori = 0;
+            }
+            mOrientation.store(ori);
         }
 
         if (!mHasRing.load() || mRingAnchor == nullptr) {
@@ -386,7 +445,20 @@ int32_t RingHuntApp::PlaceRingAt(float x, float y, float z, float yawDeg, float 
     float pitchRad = 0.0f;
     float rollRad = 0.0f;
     ClampOrientationDegToRad(yawDeg, pitchDeg, rollDeg, yawRad, pitchRad, rollRad);
-    mRingHeight.store(y);
+    // da3 的 y 是"目标机位相对当前手机的垂直偏移"(米,+=上抬)。基座 anchor 永远在
+    // camPos.y - kGroundDrop(写死地面假设),灰盘/对齐框渲染时位于 anchor.y + mRingHeight。
+    // 让灰盘落到 camPos.y + y:
+    //   anchor.y + mRingHeight = camPos.y + y
+    //   (camPos.y - kGroundDrop) + mRingHeight = camPos.y + y
+    //   ∴ mRingHeight = y + kGroundDrop
+    // 防御:y 为负(da3"向下")或过小时,光柱高度不能 ≤ 0 → 最小 5cm。
+    float ringVisualHeight = y + kGroundDrop;
+    if (ringVisualHeight < 0.05f) {
+        ringVisualHeight = 0.05f;
+    }
+    mRingHeight.store(ringVisualHeight);
+    LOGI("ARDA3-CALIB ringVisualHeight=%{public}f (y=%{public}f + groundDrop=%{public}f)",
+         ringVisualHeight, y, kGroundDrop);
     return PlaceBeaconInternal(true, yawRad, pitchRad, rollRad, true, x, z, y);
 }
 
@@ -413,7 +485,11 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
         CHECK(HMS_AREngine_ARFrame_AcquireCamera(mArSession, mArFrame, &cam));
         AREngine_ARPose *camPose = nullptr;
         CHECK(HMS_AREngine_ARPose_Create(mArSession, nullptr, 0, &camPose));
-        CHECK(HMS_AREngine_ARCamera_GetPose(mArSession, cam, camPose));
+        // v13 (e): 用 GetDisplayOrientedPose,与 renderer (ring_hunt_render_manager.cpp:91) 对齐。
+        // GetPose 返回 sensor 物理姿态(因 sensor 物理 90° 横装,竖屏端平时给出 camRoll≈-90° 脏值);
+        // GetDisplayOrientedPose 吃当前 mDisplayRotation 做校正,给"用户视角"姿态,camRoll/Pitch/Yaw
+        // 提取出来的都是真实的"用户手机姿态"(端平时 camRoll≈0,camUp≈worldUp)。
+        CHECK(HMS_AREngine_ARCamera_GetDisplayOrientedPose(mArSession, cam, camPose));
         float raw[7] = {0.0f};
         HMS_AREngine_ARPose_GetPoseRaw(mArSession, camPose, raw, 7);
         HMS_AREngine_ARPose_Destroy(camPose);
@@ -430,6 +506,31 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
         float camForward[3];
         ARObject::ComputeArrowDirection(camQuat, camForward);
         float camYaw = std::atan2(camForward[0], -camForward[2]);
+        // 相机俯仰:forward.y 反正弦。相机抬头 → forward.y>0 → camPitch>0(仰为正,和 mTargetPitch
+        // 的约定一致:L177 pitchMat=rotate(I, mTargetPitch, (1,0,0)),正=仰)。实测若叠加方向反,
+        // 把 +std::asin 改成 -std::asin。
+        float camPitch = std::asin(camForward[1]);
+        // 相机绕自身视线轴(forward)的扭转 = roll。在"垂直于 forward 的平面内"取
+        // 相机 up 相对世界 up 的夹角。稳健公式:roll = atan2(dot(worldUp, camRight), dot(worldUp, camUp))。
+        // 相机不歪 → camUp≈worldUp → dotR≈0 → camRoll≈0。
+        // 符号方向(顺/逆 vs L177 rollMat=rotate(I, mTargetRoll, (0,0,1)))无法纯推理,实测反了改 -std::atan2。
+        const float upLocal[3] = {0.0f, 1.0f, 0.0f};
+        const float rightLocal[3] = {1.0f, 0.0f, 0.0f};
+        float camUp[3];
+        float camRight[3];
+        ARObject::RotateVectorByQuatXYZW(camQuat, upLocal, camUp);
+        ARObject::RotateVectorByQuatXYZW(camQuat, rightLocal, camRight);
+        const float worldUp[3] = {0.0f, 1.0f, 0.0f};
+        float dotR = worldUp[0] * camRight[0] + worldUp[1] * camRight[1] + worldUp[2] * camRight[2];
+        float dotU = worldUp[0] * camUp[0]    + worldUp[1] * camUp[1]    + worldUp[2] * camUp[2];
+        float camRoll = std::atan2(dotR, dotU);
+        LOGI("ARDA3-CALIB rollDbg camUp=(%{public}f,%{public}f,%{public}f) "
+             "camRight=(%{public}f,%{public}f,%{public}f) camFwd=(%{public}f,%{public}f,%{public}f) "
+             "dotR=%{public}f dotU=%{public}f displayRotation=%{public}d",
+             camUp[0], camUp[1], camUp[2],
+             camRight[0], camRight[1], camRight[2],
+             camForward[0], camForward[1], camForward[2],
+             dotR, dotU, static_cast<int>(mDisplayRotation));
 
         float relYaw = 0.0f;
         float relPitch = 0.0f;
@@ -448,10 +549,43 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
             relPitch = -(kPitchDownMinRad + u01(rng) * kPitchDownSpan); // -30..-10 deg (always down)
             relRoll = u11(rng) * kRandRollRad;                          // +/-15 deg
         }
-        // mTargetYaw is ABSOLUTE world yaw (relative + camYaw); pitch/roll are camera-independent.
+        // yaw / pitch 是 relative,加 cam* 映射到世界绝对值。
         mTargetYaw = relYaw + camYaw;
-        mTargetPitch = relPitch;
-        mTargetRoll = relRoll;
+        mTargetPitch = relPitch + camPitch;
+        // roll 不做斜构图:只用 camRoll 判断横竖,吸附到最近的标准端正姿态。da3 relRoll 不使用。
+        // |camRoll|<45° → 竖拍 → 端正(0);camRoll≤-45° → 顺时针横 → -90°;camRoll≥+45° → 逆时针横 → +90°。
+        // |camRoll|>135° 倒置不特殊处理,会落入 ±90 分支(可接受)。
+        constexpr float kRad45 = 0.785398f;   // 45°
+        constexpr float kRad90 = 1.570796f;   // 90°
+        float snapRoll;
+        const char *orientation;
+        int32_t orientationCode;
+        if (camRoll <= -kRad45) {
+            snapRoll = -kRad90;
+            orientation = "LANDSCAPE_CW";
+            orientationCode = 1;
+        } else if (camRoll >= kRad45) {
+            snapRoll = +kRad90;
+            orientation = "LANDSCAPE_CCW";
+            orientationCode = 2;
+        } else {
+            snapRoll = 0.0f;
+            orientation = "PORTRAIT";
+            orientationCode = 0;
+        }
+        mTargetRoll = snapRoll;
+        mOrientation.store(orientationCode);
+        LOGI("ARDA3-CALIB camPitch=%{public}f relPitch=%{public}f mTargetPitch=%{public}f",
+             camPitch, relPitch, mTargetPitch);
+        LOGI("ARDA3-CALIB rollSnap camRoll=%{public}f -> orientation=%{public}s mTargetRoll=%{public}f",
+             camRoll, orientation, mTargetRoll);
+        LOGI("ARDA3-CALIB POSE-SUMMARY camYaw=%{public}f camPitch=%{public}f camRoll=%{public}f | "
+             "relYaw=%{public}f relPitch=%{public}f relRoll=%{public}f | "
+             "mYaw=%{public}f mPitch=%{public}f mRoll=%{public}f",
+             camYaw, camPitch, camRoll,
+             relYaw, relPitch, relRoll,
+             mTargetYaw, mTargetPitch, mTargetRoll);
+        LOGI("ARDA3-CALIB placeRotation mDisplayRotation=%{public}d", static_cast<int>(mDisplayRotation));
         // getRingState reports the RELATIVE target (what the caller requested / the random range).
         mTargetYawDeg.store(glm::degrees(relYaw));
         mTargetPitchDeg.store(glm::degrees(relPitch));
@@ -523,6 +657,69 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
              objectId, targetPos[0], targetPos[1], targetPos[2], mTargetYaw, mTargetPitch, mTargetRoll);
     });
     return objectId;
+}
+
+void RingHuntApp::SetZoom(float level)
+{
+    // v13 digital zoom — atomically store clamped level. OnUpdate reads it next frame and uses it
+    // to widen glViewport (background quad + AR overlays scale together at the framebuffer level).
+    // AR tracking still gets the native mWidth/mHeight via SetDisplayGeometry, so distance/yaw/
+    // pitch/placeRingAt math is untouched.
+    float z = level;
+    if (z < 1.0f) {
+        z = 1.0f;
+    }
+    if (z > 5.0f) {
+        z = 5.0f;
+    }
+    mZoom.store(z);
+}
+
+void RingHuntApp::SetDisplayRotation(int32_t rotation)
+{
+    // ArkTS 监听 display.on('change') 后回喂新的 rotation。push 到 GL/AR 任务队列里跑,确保
+    // 和 SetDisplayGeometry 的其他调用在同一线程,避免和渲染 race。
+    mTaskQueue.Push([this, rotation] {
+        mDisplayRotation = ArEngineRotateType(rotation);
+        if (mArSession != nullptr) {
+            HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight);
+        }
+        LOGI("ARDA3-CALIB setDisplayRotation rotation=%{public}d -> mDisplayRotation updated, "
+             "w=%{public}d h=%{public}d",
+             rotation, static_cast<int>(mWidth), static_cast<int>(mHeight));
+    });
+}
+
+void RingHuntApp::RequestCapture()
+{
+    mCaptureRequested.store(true);
+    LOGI("ARDA3-CAP requested");
+}
+
+bool RingHuntApp::IsFrameReady() const
+{
+    return mFrameReady.load();
+}
+
+bool RingHuntApp::TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH)
+{
+    if (!mFrameReady.load()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lk(mFrameMutex);
+    if (mLastFrameRGBA.empty() || mLastFrameW <= 0 || mLastFrameH <= 0) {
+        mFrameReady.store(false);
+        return false;
+    }
+    outRGBA = std::move(mLastFrameRGBA);
+    outW = mLastFrameW;
+    outH = mLastFrameH;
+    mLastFrameRGBA.clear();
+    mLastFrameW = 0;
+    mLastFrameH = 0;
+    mFrameReady.store(false);
+    LOGI("ARDA3-CAP frame taken %{public}dx%{public}d", outW, outH);
+    return true;
 }
 
 void RingHuntApp::ResetRing()
