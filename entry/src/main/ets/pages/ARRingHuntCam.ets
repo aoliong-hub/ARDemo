@@ -8,15 +8,19 @@
  */
 
 import { display, window, PathShape } from '@kit.ArkUI';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { common } from '@kit.AbilityKit';
+import { media } from '@kit.MediaKit';
+import { audio } from '@kit.AudioKit';
 import { resourceManager } from '@kit.LocalizationKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
 import { image } from '@kit.ImageKit';
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import arEngineDemo from 'libentry.so';
-import { RingState, CapturedFrame } from 'libentry.so';
+import { RingState, CapturedFrame, CamPose } from 'libentry.so';
 import { Logger } from '../utils/Logger';
 import { Palette, FontSize, Spacing, Radius } from '../styles/Theme';
 import { CameraChrome } from '../components/CameraChrome';
@@ -71,6 +75,14 @@ struct ARRingHuntCam {
   @State isAligned: boolean = false;
   @State isLocked: boolean = false;
   private prevLocked: boolean = false;
+  // 进 30cm 边缘检测:huntPhase 上一帧值。0→1 切换时触发一次短震(第一阶段完成,进对齐阶段)。
+  private prevHuntPhase: number = 0;
+  // LOCKED banner 显示控制:进 LOCKED 时 opacity=1,2s 后 animateTo 淡出到 0。reset/离开 LOCKED
+  // 清掉计时器和 opacity。再次进 LOCKED 计时重置(重新显示 2s)。
+  @State lockedBannerOpacity: number = 0;
+  private lockedBannerTimer: number = -1;
+  // 拍照快门黑闪:点快门时短暂全屏黑覆盖,类似系统相机的拍照反馈。150ms 总时长。
+  @State shutterFlashOpacity: number = 0;
 
   // Off-screen target guidance.
   @State isTargetInView: boolean = true;
@@ -121,8 +133,27 @@ struct ARRingHuntCam {
   private sessionTaskId: string = '';
   // CALIB 调试面板 — 暴露最近一次 applyGuide 的"云端原值"和"实际送进 placeRingAt 的数字",
   // 演示时一眼对照信标实际位置/姿态,校准 da3 坐标系/符号约定。
-  @State calibRaw: string = '';
-  @State calibParsed: string = '';
+  // 物理朝向(每 62ms 从 native 轮询):0=PORTRAIT, 1=LANDSCAPE_CW, 2=LANDSCAPE_CCW, 3=FLIP(预留)
+  // 驱动炫彩球 / ReferencePanel 文字+chevron / ZoomBar 倍率数字 原位自转,让横拿/倒置时视觉正。
+  @State orientation: number = 0;
+
+  // ===== 标定工具状态(完全旁路) =====
+  // 标定模式总开关。true 时显示标定 overlay,其它正常 UI 不受影响。
+  @State calibMode: boolean = false;
+  // 当前步骤:0 = 采基准 A,1-10 = 采 10 个动作的 B
+  @State calibStep: number = 0;
+  // 当前手机朝向标签(用户手动指定):'portrait' | 'landscape'
+  @State calibOrientationLabel: string = 'portrait';
+  // 已完成会话编号(每完成一轮 10 步后递增,用于文件命名分组)
+  @State calibGroupIdx: number = 1;
+  // 状态文字(idle / capturing / done / running-da3 / error 等)
+  @State calibStatus: string = '等待开始';
+  // 上次采集的 A 帧 jpeg + 姿态(用于送 da3 + 写文件)
+  private calibA_jpeg?: ArrayBuffer;
+  private calibA_raw?: string;    // 姿态 raw 字符串(用于 meta)
+  private calibA_disp?: string;
+  private calibA_ori?: number;
+  private calibA_ts?: number;
 
 
   // Stage 12B-1 bottom reference-shot panel. Two INDEPENDENT states drive the layout:
@@ -393,45 +424,39 @@ struct ARRingHuntCam {
     }
   }
 
-  // Stage 12C dev path: place a beacon at a CAMERA-RELATIVE position + 6DoF target via placeRingAt.
-  //   x = right (horizontal, perpendicular to user's heading)
-  //   y = up    (height of the ring/badge above the ground base — what the user aims at)
-  //   z = forward (horizontal, user's heading at call time)
-  //   yaw/pitch/roll degrees: yaw composes with the camera's current world yaw (so 0 = facing
-  //   along the user's gaze, back of the frame toward the user); pitch/roll are absolute world.
-  private placeBeaconAt(x: number, y: number, z: number, yawDeg: number, pitchDeg: number, rollDeg: number,
-                        label: string): void {
-    if (this.ringPlaced) {
-      this.distance = 99;
-      this.huntPhase = 0;
-      this.isAligned = false;
-      this.isLocked = false;
-      this.prevLocked = false;
-      this.resetGuidance();
-    }
-    let id: number = arEngineDemo.placeRingAt(this.idStr, x, y, z, yawDeg, pitchDeg, rollDeg);
-    Logger.info(`[ARRingHuntCam] placeRingAt(${label}: x=${x} y=${y} z=${z} yaw=${yawDeg} pitch=${pitchDeg} roll=${rollDeg}) -> ${id}`);
-    if (id < 0) {
-      this.toast('请稳住手机等待跟踪稳定');
-    } else {
-      this.ringPlaced = true;
-      this.enterAiModeAndOpenCard();
-    }
+  // 清 AR 场景 + 流程状态(不含 da3 会话/参考图,供 onBeaconTap 和 applyGuide 共用)。
+  // 关键:arEngineDemo.resetRing 会让 native 端 detach+release 上次的 ringAnchor(信标/灰盘/
+  // 炫彩圈/对齐框这些视觉效果都是从 mRingAnchor 当前 pose 渲染出来的,anchor 一去全消失),并把
+  // mHasRing/mHuntPhase/mDistance 等 atomic 状态归零。ets 端这里再手动把对应 @State 归零是为了
+  // 当前帧立即更新 UI,不等下一个 62ms stateTimer tick。
+  private resetSceneOnly(): void {
+    arEngineDemo.resetRing(this.idStr);
+    this.ringPlaced = false;
+    this.huntPhase = 0;
+    this.distance = 99;
+    this.isTargetInView = true;
+    this.screenEdgeX = 0.5;
+    this.screenEdgeY = 0.5;
+    this.isBehind = false;
+    this.indicatorAngleDeg = 0;
+    this.ndcX = 0;
+    this.ndcY = 0;
+    this.yawDiffRad = 0;
+    this.pitchDiffRad = 0;
+    this.rollDiffRad = 0;
+    this.isAligned = false;
+    this.isLocked = false;
+    this.prevLocked = false;
+    this.prevHuntPhase = 0;
+    this.hideLockedBanner();
+    this.resetGuidance();
   }
 
   // v13 (c) — guideData → AR end-to-end glue. Parses the 7 string fields, validates, then routes
   // to the existing placeRingAt + applyZoom paths. Designed to be the SINGLE entry the da3
-  // pose-calc backend (or any other producer) calls; UI flow mirrors placeBeaconAt (reset prior
-  // ring state → place → open AI panel) plus a zoom write at the end.
-  private readonly fakeGuide: GuideData = {
-    x: '0', y: '1.2', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '2'
-  };
-
+  // pose-calc backend (or any other producer) calls: reset prior ring state → place → open AI
+  // panel, plus a zoom write at the end.
   private applyGuide(g: GuideData): void {
-    Logger.info(`ARDA3-CALIB raw guide=${JSON.stringify(g)}`);
-    // 调试面板:云端原值(可能是中文友好串,也可能是裸数字 — 看是 da3 真实链路还是 6 个 dev chips)。
-    this.calibRaw = `x=${g.x} y=${g.y} z=${g.z}\nyaw=${g.yaw} pitch=${g.pitch} roll=${g.roll}\nzoom=${g.zoom}`;
-
     let x: number = Number(g.x);
     let y: number = Number(g.y);
     let z: number = Number(g.z);
@@ -444,34 +469,32 @@ struct ARRingHuntCam {
     if (Number.isNaN(x) || Number.isNaN(y) || Number.isNaN(z) ||
         Number.isNaN(yaw) || Number.isNaN(pitch) || Number.isNaN(roll)) {
       Logger.warn(`[applyGuide] NaN in pose fields, skip: x=${g.x} y=${g.y} z=${g.z} yaw=${g.yaw} pitch=${g.pitch} roll=${g.roll}`);
-      this.calibParsed = 'NaN (skip)';
       return;
     }
-    if (this.ringPlaced) {
-      this.distance = 99;
-      this.huntPhase = 0;
-      this.isAligned = false;
-      this.isLocked = false;
-      this.prevLocked = false;
-      this.resetGuidance();
-    }
-    Logger.info(`ARDA3-CALIB toPlaceRingAt x=${x} y=${y} z=${z} yaw=${yaw} pitch=${pitch} roll=${roll} zoom=${zoom}`);
-    this.calibParsed = `x=${x} y=${y} z=${z}\nyaw=${yaw} pitch=${pitch} roll=${roll}\nzoom=${zoom}`;
-    // 实测裁决:da3 输出已是世界坐标系(y=worldUp 高度,x=世界水平右,z=世界水平前),
-    // 横竖拍 da3 都按 worldUp 锚定。之前的 xyRemap 是基于"da3 输出画布坐标"的错误假设,
-    // rotate 修对后暴露:横拍下 xyRemap 把"高度"错塞进"横向"导致信标飞偏。删除,直接透传。
-    Logger.info(`ARDA3-CALIB noRemap da3(x=${x},y=${y},z=${z}) 直传 placeRingAt`);
+    // 清场景(含 native 锚点 detach+release)+ 流程状态。da3 会话/参考图不动 —— applyGuide
+    // 是同一会话内的 step2,sessionTaskId 和 targetJpeg 后续可能还要用。
+    this.resetSceneOnly();
+    // === 符号约定(扶正图标定铁证,横竖屏一致)===
+    //   da3 输出 = 从当前 B 走到目标 A 的位移向量,用户视角(相机本地):
+    //     x:+ =用户右  y:+ =用户上(垂直 delta)  z:+ =用户前
+    //     yaw:+ =右转  pitch:+ =俯  roll:+ =左滚
+    //   placeRingAt 同语义:x/y/z=用户右/上/前(米),yaw=+右转,pitch=+仰(L177 约定)。
+    //   ∴ x/y/z/yaw/roll 直传;pitch 反向(da3+俯 vs placeRingAt+仰)→ 取负。
+    //   roll:native 会丢弃(用 camRoll 自动 snap 横竖),传啥都无效。
+    //   横竖屏统一:captureJpeg 按 ori 旋转扶正后送 da3,标定工具同套旋转
+    //   (10 步 × 3 朝向标定主导轴+符号完全一致),故此处不做 orientation 分支。
     let id: number = arEngineDemo.placeRingAt(this.idStr, x, y, z, yaw, pitch, roll);
-    Logger.info(`ARDA3-CALIB placeRingAt returned id=${id}`);
     Logger.info(`[applyGuide] placeRingAt(x=${x} y=${y} z=${z} yaw=${yaw} pitch=${pitch} roll=${roll}) -> ${id}, zoom=${zoom}`);
     if (id < 0) {
       this.toast('请稳住手机等待跟踪稳定');
       return;
     }
     this.ringPlaced = true;
-    this.enterAiModeAndOpenCard();
+    // 注意:不调 enterAiModeAndOpenCard()。applyGuide 是 step2(点参考图)的产物,onTargetTap
+    // 已主动收起卡片栏让出取景空间;此处再展开会和功能②冲突。panelExpanded(AI 模式)在
+    // onBeaconTap 时已设好,这里无需重设。卡片保持 onTargetTap 收起的状态,用户点 chevron 可
+    // 手动展开看参考图。
     // 相机焦距暂不自动调整(da3 zoom 先不生效)。ZoomBar / 捏合手动变焦不受影响。
-    Logger.info(`ARDA3-CALIB zoom parsed=${zoom} (auto-zoom disabled)`);
     // if (!Number.isNaN(zoom) && zoom > 0) {
     //   this.applyZoom(Math.min(5.0, Math.max(1.0, zoom)));
     // }
@@ -593,13 +616,17 @@ struct ARRingHuntCam {
     }
     this.busyGenerate = true;
     try {
-      // 每次点炫彩球开启一次新会话 — generate + getGuide 共享同一个 task_id。
+      // 点炫彩球 = 完全重置 + 开新会话。
+      // (1) 清 AR 场景 + 流程状态:detach+release 上次的 native ringAnchor(信标/灰盘/炫彩圈/
+      //     对齐框都跟着 anchor 走),@State 流程标志归零,引导浮动元素停。
+      this.resetSceneOnly();
+      // (2) 清 da3 会话级缓存:作废上次 sessionTaskId / 生成图 / 缓存 JPEG,参考图面板回 spinner。
+      this.refHolder.image = undefined;
+      this.targetJpeg = undefined;
       this.sessionTaskId = util.generateRandomUUID();
       Logger.info(`ARDA3-FLOW new sessionTaskId=${this.sessionTaskId}`);
       Logger.info('ARDA3-FLOW step1 beacon tap → capture+generate');
       this.enterAiModeAndOpenCard();
-      this.refHolder.image = undefined;
-      this.targetJpeg = undefined;
       this.refLoading = true;
       const jpeg: ArrayBuffer | null = await this.captureJpeg();
       if (jpeg === null) {
@@ -645,12 +672,17 @@ struct ARRingHuntCam {
     }
     this.busyGuide = true;
     try {
+      // 点参考图触发引导的同时,自动收起卡片栏,让出取景空间看 AR 引导。复用现有 toggleCard
+      // 动画(panelHeight 从 panelExpandedHeight 动画到 0)。用户想再看参考图 → 点 chevron 展开 →
+      // 再点图又自动收起,循环。AI 模式(panelExpanded)不变,只是卡片本身收起。
+      if (this.cardExpanded) {
+        this.toggleCard();
+      }
       Logger.info('ARDA3-FLOW step2 target tap → capture+getGuide');
       this.toast('正在计算机位…');
       // 计算机位前强制恢复到 1.0× 原生焦距 — da3 的空间推理基于原生 FOV,变焦后的帧
       // 会让 guide 的位置/角度计算偏掉。短延时等 GL 渲完一帧再 capture,确保抓到 1.0× 的画面。
       if (this.zoom !== 1.0) {
-        Logger.info(`ARDA3-CALIB step2 force zoom → 1.0 (was ${this.zoom}) before capture`);
         this.applyZoom(1.0);
         await new Promise<void>((resolve: () => void) => { setTimeout(resolve, 150); });
       }
@@ -673,7 +705,267 @@ struct ARRingHuntCam {
     }
   }
 
-  private triggerLockVibration(): void {
+  // 拍照纯净帧抓取(无 AR 物体):captureCleanFrame 触发 → poll isCleanFrameReady → takeCleanFrameRGBA。
+  // 流程几乎同 captureJpeg(da3 用),区别:用 clean 系列 NAPI,拿到的 framebuffer 在 wayfinder
+  // 渲染前 glReadPixels,所以不含信标/炫彩圈/对齐框等。其余 createPixelMap + 按 orientation 旋转
+  // 扶正 + packJpeg 完全一致。
+  private captureCleanJpeg(): Promise<ArrayBuffer | null> {
+    return new Promise<ArrayBuffer | null>((resolve: (v: ArrayBuffer | null) => void) => {
+      arEngineDemo.captureCleanFrame(this.idStr);
+      let tries: number = 0;
+      const maxTries: number = 60;
+      const timerId: number = setInterval(() => {
+        tries++;
+        if (!arEngineDemo.isCleanFrameReady(this.idStr)) {
+          if (tries >= maxTries) {
+            clearInterval(timerId);
+            Logger.error('ARDA3-CAPTURE clean frame timeout (3s)');
+            resolve(null);
+          }
+          return;
+        }
+        clearInterval(timerId);
+        const cap: CapturedFrame | null = arEngineDemo.takeCleanFrameRGBA(this.idStr);
+        if (cap === null) {
+          Logger.error('ARDA3-CAPTURE takeCleanFrameRGBA returned null');
+          resolve(null);
+          return;
+        }
+        Logger.info(`ARDA3-CAPTURE clean RGBA taken ${cap.width}x${cap.height} bytes=${cap.buffer.byteLength}`);
+        const opts: image.InitializationOptions = {
+          size: { width: cap.width, height: cap.height },
+          srcPixelFormat: image.PixelMapFormat.RGBA_8888,
+          pixelFormat: image.PixelMapFormat.RGBA_8888,
+          editable: true
+        };
+        image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
+          const ori: number = arEngineDemo.getOrientation(this.idStr);
+          try {
+            if (ori === 1) { await pm.rotate(90); }
+            else if (ori === 2) { await pm.rotate(270); }
+            else if (ori === 3) { await pm.rotate(180); }
+          } catch (e) {
+            const err: BusinessError = e as BusinessError;
+            Logger.error(`ARDA3-CAPTURE rotate failed code=${err.code} msg=${err.message}`);
+          }
+          packPixelMapToJpeg(pm).then((jpeg: ArrayBuffer | null) => {
+            pm.release().catch((e: BusinessError) => { Logger.warn(`pm.release: ${e.message}`); });
+            resolve(jpeg);
+          });
+        }).catch((e: BusinessError) => {
+          Logger.error(`ARDA3-CAPTURE createPixelMap failed code=${e.code} msg=${e.message}`);
+          resolve(null);
+        });
+      }, 50);
+    });
+  }
+
+  // 存图库(免权限路径):
+  //   1) JPEG 字节先写到 app 沙箱 filesDir/photo_<ts>.jpg
+  //   2) 拼 file:// 沙箱 uri
+  //   3) photoAccessHelper.showAssetsCreationDialog 弹系统确认窗,用户点保存 → 入库
+  // 这条路径不需 WRITE_IMAGEVIDEO(WRITE_IMAGEVIDEO 是 system_grant 第三方拿不到);每次拍照
+  // 会弹一次"是否保存到图库",用户授权 = 入库。第一次拍后系统可能记忆选择(各机型表现不同)。
+  private async savePhotoToGallery(jpeg: ArrayBuffer): Promise<boolean> {
+    let stage: string = 'init';
+    try {
+      stage = 'sandbox-write';
+      const ts: number = systemDateTime.getTime(false);
+      const sandboxPath: string = `${this.context.filesDir}/photo_${ts}.jpg`;
+      const f: fileIo.File = fileIo.openSync(sandboxPath,
+        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      fileIo.writeSync(f.fd, jpeg);
+      fileIo.closeSync(f.fd);
+      Logger.info(`ARDA3-CAPTURE sandbox written path=${sandboxPath} bytes=${jpeg.byteLength}`);
+
+      stage = 'sandbox-uri';
+      const sandboxUri: string = fileUri.getUriFromPath(sandboxPath);
+
+      stage = 'showAssetsCreationDialog';
+      const ctx: common.UIAbilityContext = this.context as common.UIAbilityContext;
+      const helper: photoAccessHelper.PhotoAccessHelper = photoAccessHelper.getPhotoAccessHelper(ctx);
+      const config: photoAccessHelper.PhotoCreationConfig = {
+        title: `AR_${ts}`,
+        fileNameExtension: 'jpg',
+        photoType: photoAccessHelper.PhotoType.IMAGE
+      };
+      const galleryUris: string[] = await helper.showAssetsCreationDialog([sandboxUri], [config]);
+      Logger.info(`ARDA3-CAPTURE showAssetsCreationDialog returned ${galleryUris.length} uri(s)`);
+      if (galleryUris.length === 0) {
+        Logger.warn('ARDA3-CAPTURE user cancelled gallery save dialog');
+        return false;
+      }
+
+      // showAssetsCreationDialog 返回的是相册中【预创建的空 asset slot uri】,必须把 JPEG 字节
+      // 写入这个 uri 才算真正存图。否则相册里会显示一个空 asset(用户看不到图)。
+      stage = 'gallery-write';
+      const galleryUri: string = galleryUris[0];
+      const gf: fileIo.File = fileIo.openSync(galleryUri, fileIo.OpenMode.WRITE_ONLY);
+      fileIo.writeSync(gf.fd, jpeg);
+      fileIo.closeSync(gf.fd);
+      Logger.info(`ARDA3-CAPTURE saved to gallery uri=${galleryUri} bytes=${jpeg.byteLength}`);
+      return true;
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.error(`ARDA3-CAPTURE save FAIL at stage=${stage} code=${err.code} msg=${err.message}`);
+      return false;
+    }
+  }
+
+  // 底部大白圈快门 onClick:tiny 震 + 咔嚓音(fire-and-forget,不阻塞)→ 抓纯净帧 → 存图库。
+  // 重入锁:连续点击时,前一次未完成的直接 ignore(避免多个 poll 抢帧导致"抓帧失败")。
+  // native 端 tracking 丢失时会自动重试下一帧(re-arm),所以 3s poll 期间瞬时跟踪丢失不会失败。
+  private async onCapturePhoto(): Promise<void> {
+    if (this.busyCapture) {
+      Logger.warn('ARDA3-CAPTURE shutter ignored (busy)');
+      this.toast('正在处理...');
+      return;
+    }
+    this.busyCapture = true;
+    try {
+      Logger.info('ARDA3-CAPTURE shutter tapped');
+      this.triggerTinyVibration();
+      this.playShutterSound();
+      this.triggerShutterFlash();
+      const jpeg: ArrayBuffer | null = await this.captureCleanJpeg();
+      if (jpeg === null) {
+        Logger.error('ARDA3-CAPTURE captureCleanJpeg returned null');
+        this.toast('抓帧失败');
+        return;
+      }
+      const saved: boolean = await this.savePhotoToGallery(jpeg);
+      if (saved) {
+        this.toast('已保存到相册');
+      } else {
+        this.toast('保存失败,查日志');
+      }
+    } finally {
+      this.busyCapture = false;
+    }
+  }
+
+  // 拍照 SoundPool(快门音)。lazy init,失败/资源缺失静默,不影响拍照本身。
+  private shutterSoundPool: media.SoundPool | undefined = undefined;
+  private shutterSoundId: number = -1;
+  private shutterSoundLoading: boolean = false;
+  // 拍照重入锁:连续快速点击时,前一次还在抓帧/存图,后续点击直接忽略,避免多个 captureCleanJpeg
+  // 同时 poll 互相抢同一帧导致"抓帧失败"。
+  private busyCapture: boolean = false;
+
+  // LOCKED banner:显示 → 2s 后开始 500ms 淡出。再次调用会清旧计时器,重新显示 2s。
+  private showLockedBanner(): void {
+    if (this.lockedBannerTimer >= 0) {
+      clearTimeout(this.lockedBannerTimer);
+      this.lockedBannerTimer = -1;
+    }
+    this.lockedBannerOpacity = 1;
+    this.lockedBannerTimer = setTimeout(() => {
+      animateTo({ duration: 500, curve: Curve.EaseOut }, () => {
+        this.lockedBannerOpacity = 0;
+      });
+      this.lockedBannerTimer = -1;
+    }, 2000);
+  }
+
+  // 即时隐藏 banner(reset 或离开 LOCKED 时调)。清计时器 + opacity=0,不走动画。
+  private hideLockedBanner(): void {
+    if (this.lockedBannerTimer >= 0) {
+      clearTimeout(this.lockedBannerTimer);
+      this.lockedBannerTimer = -1;
+    }
+    this.lockedBannerOpacity = 0;
+  }
+
+  // 拍照黑闪:opacity 立即拉到 1(覆盖屏幕)→ 80ms 后开始 150ms 淡出。总 230ms 视觉反馈。
+  // 纯 UI 层动画,不影响 native glReadPixels(早在闪之前就抓完了)。
+  private triggerShutterFlash(): void {
+    this.shutterFlashOpacity = 1;
+    setTimeout(() => {
+      animateTo({ duration: 150, curve: Curve.EaseOut }, () => {
+        this.shutterFlashOpacity = 0;
+      });
+    }, 80);
+  }
+
+  // 30ms 极短震 — 拍照触觉反馈,比 triggerShortVibration(80ms) 更轻,纯按键回弹感。
+  private triggerTinyVibration(): void {
+    try {
+      vibrator.startVibration({ type: 'time', duration: 30 }, { usage: 'notification' })
+        .catch((err: BusinessError) => {
+          Logger.warn(`tiny vibrate failed: code=${err.code} msg=${err.message}`);
+        });
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.warn(`tiny vibrate exception: ${err.message}`);
+    }
+  }
+
+  // SoundPool 懒加载(第一次拍照时初始化),返回是否就绪。失败一次就放弃(不阻塞拍照)。
+  private async ensureShutterSoundReady(): Promise<boolean> {
+    if (this.shutterSoundPool !== undefined && this.shutterSoundId >= 0) {
+      return true;
+    }
+    if (this.shutterSoundLoading) {
+      return false;
+    }
+    this.shutterSoundLoading = true;
+    try {
+      const rendererInfo: audio.AudioRendererInfo = {
+        usage: audio.StreamUsage.STREAM_USAGE_NOTIFICATION,
+        rendererFlags: 0
+      };
+      const pool: media.SoundPool = await media.createSoundPool(1, rendererInfo);
+      // 监听 load 完成,拿到可播 soundId(media.SoundPool.load 返回的是初步 id,但要 loadComplete
+      // 事件触发后才能 play;这里用一次性 Promise 等事件)。
+      const loaded: Promise<number> = new Promise<number>((resolve, reject) => {
+        pool.on('loadComplete', (id: number) => { resolve(id); });
+        // 容错:5s 内没触发 loadComplete 就当失败。
+        setTimeout(() => { reject(new Error('SoundPool loadComplete timeout 5s')); }, 5000);
+      });
+      const ctx: common.UIAbilityContext = this.context as common.UIAbilityContext;
+      const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd('shutter_click.wav');
+      await pool.load(rawFd.fd, rawFd.offset, rawFd.length);
+      const soundId: number = await loaded;
+      this.shutterSoundPool = pool;
+      this.shutterSoundId = soundId;
+      Logger.info(`ARDA3-CAPTURE shutter SoundPool ready soundId=${soundId}`);
+      return true;
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.warn(`ARDA3-CAPTURE shutter SoundPool init failed code=${err.code} msg=${err.message}`);
+      this.shutterSoundPool = undefined;
+      this.shutterSoundId = -1;
+      return false;
+    } finally {
+      this.shutterSoundLoading = false;
+    }
+  }
+
+  // 播放快门音 — 不 await,fire-and-forget。SoundPool 没就绪就静默跳过。
+  private playShutterSound(): void {
+    this.ensureShutterSoundReady().then((ready: boolean) => {
+      if (!ready || this.shutterSoundPool === undefined || this.shutterSoundId < 0) {
+        return;
+      }
+      try {
+        const playParams: media.PlayParameters = {
+          loop: 0,
+          rate: 1.0,
+          leftVolume: 1.0,
+          rightVolume: 1.0,
+          priority: 0
+        };
+        this.shutterSoundPool.play(this.shutterSoundId, playParams)
+          .catch((e: BusinessError) => { Logger.warn(`shutter sound play failed: ${e.message}`); });
+      } catch (e) {
+        const err: BusinessError = e as BusinessError;
+        Logger.warn(`shutter sound play exception: ${err.message}`);
+      }
+    }).catch(() => { /* ensure 已 swallow */ });
+  }
+
+  // 80ms 短震 — 用于阶段切换的触觉反馈(进 30cm phase 0→1,以及 LOCKED phase 1→2)。
+  private triggerShortVibration(): void {
     try {
       vibrator.startVibration({ type: 'time', duration: 80 }, { usage: 'notification' })
         .catch((err: BusinessError) => {
@@ -896,6 +1188,240 @@ struct ARRingHuntCam {
     }
   }
 
+  // ===== 标定工具(完全旁路,不动主流程) =====
+
+  // 11 步描述(0 = 基准,1-10 = 动作)。
+  private readonly kCalibSteps: string[] = [
+    '基准位置(任意稳定位置)',
+    '纯右移 50cm',
+    '纯左移 50cm',
+    '纯前进 50cm',
+    '纯后退 50cm',
+    '纯上抬 30cm',
+    '纯下降 30cm',
+    '回基准位置,纯右转 30°',
+    '回基准位置,纯左转 30°',
+    '回基准位置,纯俯 30°(镜头朝下)',
+    '回基准位置,纯仰 30°(镜头朝上)',
+  ];
+
+  // 把 CamPose 序列化成可读字符串。
+  private calibFmtPose(p: CamPose | null): string {
+    if (p === null) {
+      return 'NULL(tracking not ready)';
+    }
+    return `qx=${p.qx.toFixed(6)} qy=${p.qy.toFixed(6)} qz=${p.qz.toFixed(6)} qw=${p.qw.toFixed(6)} ` +
+           `px=${p.px.toFixed(6)} py=${p.py.toFixed(6)} pz=${p.pz.toFixed(6)}`;
+  }
+
+  // 标定抓帧:按 orientation 旋转(与正常 captureJpeg 一致),扶正后送 da3。
+  // 这样标定喂给 da3 的字节和线上 applyGuide 路径喂的完全一致,得到的 x/y/z/yaw/pitch
+  // 才能直接套到正常流程,不受"原始横躺图 vs 扶正图"差异污染。
+  private captureJpegForCalib(): Promise<ArrayBuffer | null> {
+    return new Promise<ArrayBuffer | null>((resolve: (v: ArrayBuffer | null) => void) => {
+      arEngineDemo.captureFrame(this.idStr);
+      let tries: number = 0;
+      const maxTries: number = 60;
+      const timerId: number = setInterval(() => {
+        tries++;
+        if (!arEngineDemo.isFrameReady(this.idStr)) {
+          if (tries >= maxTries) {
+            clearInterval(timerId);
+            Logger.error('ARDA3-CALIBTOOL capture timeout');
+            resolve(null);
+          }
+          return;
+        }
+        clearInterval(timerId);
+        const cap: CapturedFrame | null = arEngineDemo.takeFrameRGBA(this.idStr);
+        if (cap === null) {
+          resolve(null);
+          return;
+        }
+        const opts: image.InitializationOptions = {
+          size: { width: cap.width, height: cap.height },
+          srcPixelFormat: image.PixelMapFormat.RGBA_8888,
+          pixelFormat: image.PixelMapFormat.RGBA_8888,
+          editable: true
+        };
+        image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
+          // 与正常 captureJpeg 完全同一套旋转策略(实测对调:CW=90,CCW=270;FLIP=180)。
+          const ori: number = arEngineDemo.getOrientation(this.idStr);
+          try {
+            if (ori === 1) {
+              await pm.rotate(90);
+              Logger.info('ARDA3-CALIBTOOL rotate 90 (LANDSCAPE_CW)');
+            } else if (ori === 2) {
+              await pm.rotate(270);
+              Logger.info('ARDA3-CALIBTOOL rotate 270 (LANDSCAPE_CCW)');
+            } else if (ori === 3) {
+              await pm.rotate(180);
+              Logger.info('ARDA3-CALIBTOOL rotate 180 (FLIP)');
+            } else {
+              Logger.info('ARDA3-CALIBTOOL no rotate (PORTRAIT)');
+            }
+          } catch (e) {
+            const err: BusinessError = e as BusinessError;
+            Logger.error(`ARDA3-CALIBTOOL rotate failed code=${err.code} msg=${err.message}`);
+          }
+          packPixelMapToJpeg(pm).then((jpeg: ArrayBuffer | null) => {
+            pm.release().catch((e: BusinessError) => { Logger.warn(`pm.release: ${e.message}`); });
+            resolve(jpeg);
+          });
+        }).catch((e: BusinessError) => {
+          Logger.error(`ARDA3-CALIBTOOL createPixelMap failed: ${e.message}`);
+          resolve(null);
+        });
+      }, 50);
+    });
+  }
+
+  // 把字节流写到标定子目录(filesDir/da3_calib/),目录不存在自动建。
+  private calibSaveBytes(name: string, bytes: ArrayBuffer): void {
+    try {
+      const dir: string = this.context.filesDir + '/da3_calib';
+      if (!fileIo.accessSync(dir)) {
+        fileIo.mkdirSync(dir);
+      }
+      const path: string = dir + '/' + name;
+      const f: fileIo.File = fileIo.openSync(path,
+        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      fileIo.writeSync(f.fd, bytes);
+      fileIo.closeSync(f.fd);
+      Logger.info(`ARDA3-CALIBTOOL saved ${path} bytes=${bytes.byteLength}`);
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.warn(`ARDA3-CALIBTOOL save FAIL ${name}: ${err.message}`);
+    }
+  }
+
+  private calibSaveText(name: string, text: string): void {
+    try {
+      const dir: string = this.context.filesDir + '/da3_calib';
+      if (!fileIo.accessSync(dir)) {
+        fileIo.mkdirSync(dir);
+      }
+      const path: string = dir + '/' + name;
+      const f: fileIo.File = fileIo.openSync(path,
+        fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      const enc: util.TextEncoder = new util.TextEncoder('utf-8');
+      const bytes: Uint8Array = enc.encodeInto(text);
+      const ab: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      fileIo.writeSync(f.fd, ab);
+      fileIo.closeSync(f.fd);
+      Logger.info(`ARDA3-CALIBTOOL saved ${path} text len=${text.length}`);
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.warn(`ARDA3-CALIBTOOL save FAIL ${name}: ${err.message}`);
+    }
+  }
+
+  // 采基准 A:抓帧 + 记录姿态 + 写文件,作为后续 10 步的固定 target。
+  private async calibCaptureA(): Promise<void> {
+    this.calibStatus = '采基准 A 中...';
+    const jpeg: ArrayBuffer | null = await this.captureJpegForCalib();
+    if (jpeg === null) {
+      this.calibStatus = '采 A 失败:抓帧超时';
+      return;
+    }
+    const rawP: CamPose | null = arEngineDemo.getLatestCamRawPose(this.idStr);
+    const dispP: CamPose | null = arEngineDemo.getLatestCamDispPose(this.idStr);
+    const ts: number = systemDateTime.getTime(false);
+    this.calibA_jpeg = jpeg;
+    this.calibA_raw = this.calibFmtPose(rawP);
+    this.calibA_disp = this.calibFmtPose(dispP);
+    this.calibA_ori = arEngineDemo.getOrientation(this.idStr);
+    this.calibA_ts = ts;
+    // 立即存档 A(同步存,后续每步 B 都引用这个 A)
+    const fnameJpeg: string = `calib_${this.calibOrientationLabel}_g${this.calibGroupIdx}_A_ts${ts}.jpg`;
+    this.calibSaveBytes(fnameJpeg, jpeg);
+    this.calibStatus = `基准 A 已采集(ts=${ts},jpeg=${jpeg.byteLength}B,ori=${this.calibA_ori})。下一步:执行 step1 动作`;
+    this.calibStep = 1;  // 自动进 step1
+    Logger.info(`ARDA3-CALIBTOOL captured A group=${this.calibGroupIdx} ori=${this.calibOrientationLabel}`);
+  }
+
+  // 采当前 B + 调 da3 getGuide(target=A, current=B)+ 写文件。
+  private async calibCaptureBandRun(): Promise<void> {
+    if (this.calibA_jpeg === undefined) {
+      this.calibStatus = '请先采基准 A';
+      return;
+    }
+    const step: number = this.calibStep;
+    if (step < 1 || step > 10) {
+      this.calibStatus = '所有动作已完成。按【完成会话】写 group 汇总';
+      return;
+    }
+    this.calibStatus = `采 step${step} B 中...`;
+    const jpegB: ArrayBuffer | null = await this.captureJpegForCalib();
+    if (jpegB === null) {
+      this.calibStatus = `采 step${step} B 失败:抓帧超时`;
+      return;
+    }
+    const rawP: CamPose | null = arEngineDemo.getLatestCamRawPose(this.idStr);
+    const dispP: CamPose | null = arEngineDemo.getLatestCamDispPose(this.idStr);
+    const tsB: number = systemDateTime.getTime(false);
+    const oriB: number = arEngineDemo.getOrientation(this.idStr);
+    const fnameJpeg: string = `calib_${this.calibOrientationLabel}_g${this.calibGroupIdx}_s${step}_B_ts${tsB}.jpg`;
+    this.calibSaveBytes(fnameJpeg, jpegB);
+    this.calibStatus = `step${step} B 已采集,调 da3 中...`;
+    // 调 da3 getGuide(复用现有 Da3Service,新会话 task_id)
+    const calibTaskId: string = util.generateRandomUUID();
+    let da3Raw: string = 'N/A';
+    try {
+      const guide: Da3GuideData | null = await da3GetGuide(
+        this.calibA_jpeg as ArrayBuffer, jpegB, calibTaskId, this.context.filesDir);
+      if (guide !== null) {
+        da3Raw = JSON.stringify(guide);
+      } else {
+        da3Raw = 'NULL(getGuide 失败)';
+      }
+    } catch (e) {
+      da3Raw = `EXCEPTION: ${(e as Error).message}`;
+    }
+    // 写 meta
+    const fnameMeta: string = `calib_${this.calibOrientationLabel}_g${this.calibGroupIdx}_s${step}_meta.txt`;
+    const meta: string =
+      `step: ${step}/10\n` +
+      `action: ${this.kCalibSteps[step]}\n` +
+      `orientation_label: ${this.calibOrientationLabel}\n` +
+      `group: ${this.calibGroupIdx}\n` +
+      `--- A (target / 基准) ---\n` +
+      `ts: ${this.calibA_ts}\n` +
+      `orientation_code: ${this.calibA_ori}\n` +
+      `poseA_getPose:           ${this.calibA_raw}\n` +
+      `poseA_getDisplayOriented:${this.calibA_disp}\n` +
+      `--- B (current / 当前帧) ---\n` +
+      `ts: ${tsB}\n` +
+      `orientation_code: ${oriB}\n` +
+      `poseB_getPose:           ${this.calibFmtPose(rawP)}\n` +
+      `poseB_getDisplayOriented:${this.calibFmtPose(dispP)}\n` +
+      `--- da3 getGuide(target=A, current=B)---\n` +
+      `da3_taskid: ${calibTaskId}\n` +
+      `da3_raw: ${da3Raw}\n`;
+    this.calibSaveText(fnameMeta, meta);
+    this.calibStatus = `step${step} 完成。da3=${da3Raw}`;
+    Logger.info(`ARDA3-CALIBTOOL step${step} done da3=${da3Raw}`);
+    // 进下一步
+    if (step < 10) {
+      this.calibStep = step + 1;
+    } else {
+      this.calibStatus += '\n会话完成!可【新会话】(group++)或【切换横竖】重测';
+    }
+  }
+
+  private calibStartNewGroup(): void {
+    this.calibGroupIdx += 1;
+    this.calibStep = 0;
+    this.calibA_jpeg = undefined;
+    this.calibStatus = `新会话 group ${this.calibGroupIdx}。下一步:采基准 A`;
+  }
+
+  private calibToggleOrientation(): void {
+    this.calibOrientationLabel = this.calibOrientationLabel === 'portrait' ? 'landscape' : 'portrait';
+    this.calibStartNewGroup();
+    this.calibStatus = `已切到 ${this.calibOrientationLabel}。新会话 group ${this.calibGroupIdx}。先采 A`;
+  }
+
   private resetGuidance(): void {
     this.isTargetInView = true;
     this.isBehind = false;
@@ -937,6 +1463,29 @@ struct ARRingHuntCam {
               this.indicatorAngleDeg = s.indicatorAngleDeg;
               this.ndcX = s.ndcX;
               this.ndcY = s.ndcY;
+              // huntPhase 0→1 边缘 = 进 30cm 第一阶段完成 → 短震一下 + 卡片自动弹出展开
+              // (对齐时方便看参考图比对构图)。仅在收起状态下展开,避免冗余 toggle。
+              if (s.huntPhase === 1 && this.prevHuntPhase === 0) {
+                this.triggerShortVibration();
+                if (!this.cardExpanded) {
+                  this.toggleCard();
+                }
+              }
+              // huntPhase 1→0 边缘 = 走出 30cm → 卡片自动收起(回到找信标状态,让出取景空间)。
+              // 仅在展开状态下收起。中间用户手动点 chevron 收/展不受影响,30cm 区间内自由。
+              if (s.huntPhase === 0 && this.prevHuntPhase === 1) {
+                if (this.cardExpanded) {
+                  this.toggleCard();
+                }
+              }
+              // LOCKED banner 边缘:进 2 → 显示 2s 后淡出;离开 2 → 立即隐藏(为下次进 LOCKED 准备)。
+              // 注:phase 1→2(LOCKED)只动 banner,不动卡片(保持对齐时展开状态)。
+              if (s.huntPhase === 2 && this.prevHuntPhase !== 2) {
+                this.showLockedBanner();
+              } else if (s.huntPhase !== 2 && this.prevHuntPhase === 2) {
+                this.hideLockedBanner();
+              }
+              this.prevHuntPhase = s.huntPhase;
               this.huntPhase = s.huntPhase;
               this.yawDiffRad = s.yawDiffRad;
               this.pitchDiffRad = s.pitchDiffRad;
@@ -944,10 +1493,15 @@ struct ARRingHuntCam {
               this.isAligned = s.isAligned;
               this.isLocked = s.isLocked;
               if (this.isLocked && !this.prevLocked) {
-                this.triggerLockVibration();
+                this.triggerShortVibration();
               }
               this.prevLocked = this.isLocked;
               this.reconcileGuidance();
+              // 物理朝向轮询:变化时打 log + 触发依赖控件重渲染(rotate angle)。
+              const newOri: number = arEngineDemo.getOrientation(this.idStr);
+              if (newOri !== this.orientation) {
+                this.orientation = newOri;
+              }
             }, 62)
           })
           .onDestroy(() => {
@@ -1165,16 +1719,26 @@ struct ARRingHuntCam {
             .hitTestBehavior(HitTestMode.None)
           }
 
-          // LOCKED banner — centered on viewport center.
-          if (this.huntPhase === 2) {
-            Text('对齐成功!')
-              .fontSize(FontSize.banner)
-              .fontColor(Palette.primaryGreen)
-              .fontWeight(FontWeight.Bold)
-              .backgroundColor(Palette.glassStrong)
-              .padding({ left: Spacing.L + 4, right: Spacing.L + 4, top: Spacing.M, bottom: Spacing.M })
-              .borderRadius(14)
-              .id('lockedBanner')
+          // LOCKED banner:pearl 两行字玻璃胶囊。进 LOCKED 时显示 2s 后渐变淡出(showLockedBanner
+          // 驱动 lockedBannerOpacity 1→0)。opacity≈0 时跳过渲染省 GPU。
+          if (this.huntPhase === 2 && this.lockedBannerOpacity > 0.01) {
+            Column({ space: 4 }) {
+              Text('对齐成功')
+                .fontSize(22)
+                .fontColor(this.iridescentFlow(this.flowT))
+                .fontWeight(FontWeight.Bold)
+                .textShadow({ radius: 6, color: this.iridescentFlow(this.flowT) })
+              Text('可点底部快门')
+                .fontSize(14)
+                .fontColor(Palette.white80)
+            }
+            .alignItems(HorizontalAlign.Center)
+            .backgroundColor(Palette.glass)
+            .padding({ left: Spacing.L, right: Spacing.L, top: Spacing.M, bottom: Spacing.M })
+            .borderRadius(Radius.M)
+            .opacity(this.lockedBannerOpacity)
+            .hitTestBehavior(HitTestMode.None)
+            .id('lockedBanner')
           }
 
           // v13 central zoom-value indicator. Pulses on every pinch / ZoomBar tap, auto-hides
@@ -1214,110 +1778,74 @@ struct ARRingHuntCam {
           .position({ x: 0, y: 0 })
           .hitTestBehavior(HitTestMode.None)
 
-        // Stage 12C dev chips — placeRingAt test buttons at top-left of the viewport. Row 1 tests
-        // position (x=right, y=ringHeight, z=forward); row 2 tests orientation (yaw composes with
-        // camera yaw — 0 = facing user's gaze, back of frame toward user; pitch/roll absolute).
-        // Tiny, semi-transparent; verifies the contract on every build. Remove only when the 3D
-        // pose-calc pipeline replaces them.
-        Column({ space: 4 }) {
-          Row({ space: 6 }) {
-            Text('前2高1.2')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, 0, 0, '前2高1.2'); })
-            Text('前2高0.5')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, 0, 0, '前2高0.5'); })
-            Text('右1前1高1.2')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(1, 0, 1, 0, 0, 0, '右1前1高1.2'); })
+        // ===== 标定工具入口(屏右上角,完全旁路) =====
+        Text('🛠 标定')
+          .fontSize(11)
+          .fontColor(Palette.white)
+          .backgroundColor('#A0FF6600')
+          .borderRadius(8)
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .position({ x: 8, y: 8 })
+          .onClick(() => {
+            this.calibMode = true;
+            this.calibStatus = `已进入标定模式 - ${this.calibOrientationLabel} - group ${this.calibGroupIdx} - 请采 A`;
+          })
+
+        // ===== 标定 overlay(条件渲染,屏幕居中)=====
+        if (this.calibMode) {
+          Column({ space: 14 }) {
+            // 标题:朝向 + group 进度
+            Text(`标定 · ${this.calibOrientationLabel} · group ${this.calibGroupIdx}`)
+              .fontSize(13).fontColor('#FFFFCC00').fontWeight(FontWeight.Bold)
+            // 进度 + A 状态
+            Text(this.calibA_jpeg !== undefined
+                 ? `✓ 基准 A 已采(无需再采)   step ${this.calibStep} / 10`
+                 : `✗ 请先点【采基准 A】   step ${this.calibStep} / 10`)
+              .fontSize(12)
+              .fontColor(this.calibA_jpeg !== undefined ? '#FF66FF66' : '#FFFFAA66')
+            // 动作提示(大字)
+            Text(`📍 ${this.kCalibSteps[this.calibStep]}`)
+              .fontSize(18).fontColor(Palette.white).fontWeight(FontWeight.Bold)
+              .textAlign(TextAlign.Center).width('100%')
+            // 状态反馈
+            Text(this.calibStatus)
+              .fontSize(11).fontColor('#FFCCCCCC').textAlign(TextAlign.Center).width('100%')
+            // 主操作按钮(大,带视觉权重区分)
+            Row({ space: 12 }) {
+              Text(this.calibA_jpeg !== undefined ? '✓ A 已采' : '采基准 A')
+                .fontSize(14).fontColor(Palette.white)
+                .backgroundColor(this.calibA_jpeg !== undefined ? '#60004400' : '#FF009900')
+                .borderRadius(10).padding({ left: 14, right: 14, top: 10, bottom: 10 })
+                .onClick(() => { this.calibCaptureA(); })
+              Text('采当前 B + da3')
+                .fontSize(14).fontColor(Palette.white).fontWeight(FontWeight.Bold)
+                .backgroundColor('#FF0066CC')
+                .borderRadius(10).padding({ left: 14, right: 14, top: 10, bottom: 10 })
+                .onClick(() => { this.calibCaptureBandRun(); })
+            }
+            // 次操作按钮(小)
+            Row({ space: 8 }) {
+              Text('切换横竖')
+                .fontSize(11).fontColor(Palette.white).backgroundColor('#A0660099')
+                .borderRadius(8).padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .onClick(() => { this.calibToggleOrientation(); })
+              Text('新会话')
+                .fontSize(11).fontColor(Palette.white).backgroundColor('#A0996600')
+                .borderRadius(8).padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .onClick(() => { this.calibStartNewGroup(); })
+              Text('退出标定')
+                .fontSize(11).fontColor(Palette.white).backgroundColor('#A0990000')
+                .borderRadius(8).padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .onClick(() => { this.calibMode = false; })
+            }
           }
-          Row({ space: 6 }) {
-            Text('前2转右30')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 0, 2, 30, 0, 0, '前2转右30'); })
-            Text('前2俯30')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, -30, 0, '前2俯30'); })
-            Text('前2斜45')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.placeBeaconAt(0, 0, 2, 0, 0, 45, '前2斜45'); })
-          }
-          // v13 (c) — 6 fake-guideData chips routed through applyGuide() (string fields like the
-          // real da3 response). 2 rows of 3 to fit phone width. Each chip is a self-contained
-          // GuideData literal so the labels stay short and what-you-see-is-what-fires.
-          Row({ space: 6 }) {
-            Text('G:前2高1.2 2x')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '2' }); })
-            Text('G:右1前2')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.applyGuide({ x: '1', y: '0', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '1' }); })
-            Text('G:左1前2')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.applyGuide({ x: '-1', y: '0', z: '2', pitch: '0', yaw: '0', roll: '0', zoom: '1' }); })
-          }
-          Row({ space: 6 }) {
-            Text('G:前2转右30')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '2', pitch: '0', yaw: '30', roll: '0', zoom: '1' }); })
-            Text('G:前2俯30')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '2', pitch: '30', yaw: '0', roll: '0', zoom: '1' }); })
-            Text('G:前3 5x')
-              .fontSize(11)
-              .fontColor(Palette.white)
-              .backgroundColor('#80000000')
-              .borderRadius(8)
-              .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-              .onClick(() => { this.applyGuide({ x: '0', y: '0', z: '3', pitch: '0', yaw: '0', roll: '0', zoom: '5' }); })
-          }
+          .padding(16)
+          .backgroundColor('#E8000000')
+          .borderRadius(12)
+          .alignItems(HorizontalAlign.Center)
+          .width('86%')
+          .position({ x: '7%', y: '30%' })
         }
-        .alignItems(HorizontalAlign.Start)
-        .position({ x: 12, y: this.viewportTop + 8 })
 
         // (4) Bottom black bar — opaque mask from viewportBottom down to page bottom.
         Column()
@@ -1342,6 +1870,7 @@ struct ARRingHuntCam {
             horizontalMargin: this.kCardHorizontalMargin,
             refHolder: this.refHolder,
             loading: this.refLoading,
+            orientation: this.orientation,
             onToggle: (): void => { this.toggleCard(); },
             onImageTap: (): void => { this.onTargetTap(); }
           })
@@ -1356,8 +1885,10 @@ struct ARRingHuntCam {
             // Chrome compact mode tracks cardExpanded — when collapsed via chevron, chrome
             // restores to its full-size layout.
             panelExpanded: this.cardExpanded,
+            orientation: this.orientation,
             onSphereTap: (): void => { this.onBeaconTap(); },
             onSettingsLongPress: (): void => { this.openDevSelector(); },
+            onShutterTap: (): void => { this.onCapturePhoto(); },
             currentZoom: this.zoom,
             onZoomChange: (z: number): void => { this.applyZoom(z); }
           })
@@ -1389,25 +1920,18 @@ struct ARRingHuntCam {
           .onClick(() => { this.toggleCard(); })
         }
 
-        // ARDA3-CALIB 调试面板 — 最近一次 applyGuide 的"云端原值 / 解析后数字 / 当前距离",
-        // 演示时一眼对照信标实际位置,校准 da3 坐标系。仅在 applyGuide 跑过后显示。
-        // hit-test transparent,不挡下面的相机/按钮点击。
-        if (this.calibRaw.length > 0) {
-          Column({ space: 2 }) {
-            Text('ARDA3-CALIB').fontSize(9).fontColor('#FFCCCCCC')
-            Text('da3 raw:').fontSize(9).fontColor('#FFFFA94D')
-            Text(this.calibRaw).fontSize(10).fontColor('#FFFFFFFF').fontFamily('monospace')
-            Text('parsed → placeRingAt:').fontSize(9).fontColor('#FFFFA94D')
-            Text(this.calibParsed).fontSize(10).fontColor('#FFFFFFFF').fontFamily('monospace')
-            Text(`dist: ${this.distance.toFixed(2)}m`).fontSize(10).fontColor('#FF99FF99').fontFamily('monospace')
-          }
-          .position({ x: 8, y: 300 })
-          .padding(8)
-          .backgroundColor('#A0000000')
-          .borderRadius(6)
-          .alignItems(HorizontalAlign.Start)
-          .hitTestBehavior(HitTestMode.Transparent)
+        // 拍照黑闪 — 最顶层全屏黑色,opacity 由 triggerShutterFlash 驱动 1→淡出 0(总 230ms)。
+        // hitTestBehavior None 让闪现期间下层 UI 仍可点击;opacity≈0 时跳过渲染。
+        if (this.shutterFlashOpacity > 0.01) {
+          Column()
+            .id('shutterFlash')
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#FF000000')
+            .opacity(this.shutterFlashOpacity)
+            .hitTestBehavior(HitTestMode.None)
         }
+
       }
       .width('100%')
       .height('100%')
@@ -1429,19 +1953,11 @@ struct ARRingHuntCam {
       try {
         window.getLastWindow(this.context, (err: BusinessError, win: window.Window) => {
           if (err.code) {
-            Logger.error(`ARDA3-CALIB getLastWindow failed code=${err.code} msg=${err.message}`);
             return;
           }
-          win.setPreferredOrientation(window.Orientation.PORTRAIT, (err2: BusinessError) => {
-            if (err2.code) {
-              Logger.error(`ARDA3-CALIB setPreferredOrientation PORTRAIT failed code=${err2.code} msg=${err2.message}`);
-            } else {
-              Logger.info('ARDA3-CALIB setPreferredOrientation PORTRAIT ok');
-            }
-          });
+          win.setPreferredOrientation(window.Orientation.PORTRAIT, (_err2: BusinessError) => {});
         });
-      } catch (e) {
-        Logger.error(`ARDA3-CALIB setPreferredOrientation threw: ${JSON.stringify(e)}`);
+      } catch (_e) {
       }
       // 锁竖后 display.on('change') 理论上不会触发(系统不再转屏)。但万一仍触发,
       // 不要把 rotation 喂进 native——保持 mDisplayRotation=0,让 GetDisplayOrientedPose
@@ -1454,17 +1970,14 @@ struct ARRingHuntCam {
           //   this.rotation = r;
           //   arEngineDemo.setDisplayRotation(this.idStr, r);
           // }
-          Logger.info(`ARDA3-CALIB display change displayId=${id} -> rotation=${r}, NOT fed to native (UI locked PORTRAIT)`);
         });
-      } catch (e) {
-        Logger.error(`ARDA3-CALIB display.on failed: ${JSON.stringify(e)}`);
+      } catch (_e) {
       }
     })
     .onWillDisappear(() => {
       try {
         display.off('change');
-      } catch (e) {
-        Logger.warn(`ARDA3-CALIB display.off failed: ${JSON.stringify(e)}`);
+      } catch (_e) {
       }
       // 还原朝向 UNSPECIFIED,其他页面不受 AUTO_ROTATION 污染。
       try {
@@ -1474,8 +1987,7 @@ struct ARRingHuntCam {
           }
           win.setPreferredOrientation(window.Orientation.UNSPECIFIED, () => {});
         });
-      } catch (e) {
-        Logger.warn(`ARDA3-CALIB restore orientation failed: ${JSON.stringify(e)}`);
+      } catch (_e) {
       }
       arEngineDemo.stop(this.idStr);
     })

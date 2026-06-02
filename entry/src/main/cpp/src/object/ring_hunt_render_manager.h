@@ -55,9 +55,13 @@ public:
     bool OnDrawFrame(AREngine_ARSession *arSession, AREngine_ARFrame *arFrame, bool hasRing,
                      AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color, float distance,
                      int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
-                     float deltaTime, float ringHeight, RingCameraInfo *outCam,
+                     float deltaTime, float ringHeight, float badgeFadeProgress, float animAge,
+                     RingCameraInfo *outCam,
                      bool wantCapture, int captureW, int captureH,
-                     std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH);
+                     std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH,
+                     // 拍照纯净帧:在 wayfinder.Render 之前 glReadPixels。同 captureW/H。
+                     bool wantCleanCapture,
+                     std::vector<uint8_t> *outCleanRGBA, int *outCleanW, int *outCleanH);
     void DrawBlack();
 
     GLuint GetPreviewTextureId() { return mBackgroundRenderer.GetTextureId(); }

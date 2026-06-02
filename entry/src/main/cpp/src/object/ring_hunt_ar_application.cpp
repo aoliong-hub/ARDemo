@@ -46,7 +46,8 @@ constexpr float kAligningDistMeters = 0.30f; // distance threshold to enter ALIG
 constexpr float kFrameAlignEnterRad = 0.0872665f; // 5 degrees: enter "aligned" (turn green)
 constexpr float kFrameAlignExitRad = 0.1221730f;  // 7 degrees: leave "aligned" (hysteresis, turn red)
 constexpr float kDebounceSec = 0.30f;        // hold time for APPROACHING<->ALIGNING transitions
-constexpr float kLockSec = 5.00f;            // hold time aligned before LOCKED
+constexpr float kLockSec = 2.00f;            // hold time aligned before LOCKED
+constexpr float kFadeDurationSec = 2.0f;     // 灰盘/柱子 ↔ 对齐框 渐变 2.0s 全程
 constexpr float kRandYawRad = 0.3490659f;     // +/-20 deg
 constexpr float kRandRollRad = 0.2617994f;    // +/-15 deg
 constexpr float kPitchDownMinRad = 0.1745329f; // 10 deg minimum downward tilt
@@ -169,6 +170,26 @@ void RingHuntApp::OnUpdate()
         float t = glm::clamp((kColorRedDist - lastDist) / (kColorRedDist - kColorGreenDist), 0.0f, 1.0f);
         glm::vec3 color = glm::mix(kColorRed, kColorGreen, t);
 
+        // 放置序列动画年龄(秒):0..1.3 演序列,≥1.3 稳态(交给 badgeFadeProgress 控制)。
+        // -1 = 等待首次可见(信标已放但用户没看到)→ 给 -1,renderer 早 return 不画任何东西。
+        float animAge = (mBeaconPlacedAnimTime < 0.0f) ? -1.0f : (mAnimTime - mBeaconPlacedAnimTime);
+
+        // 灰盘/柱子 ↔ 对齐框 渐变进度(基于上一帧距离)。distance<30cm → 朝 1(灰盘淡出/对齐框淡入);
+        // ≥30cm → 朝 0(反向)。2.0s 全程。dt 已 clamp ≤0.1s。
+        // 关键:只在动画完成(animAge ≥ 1.3)后才推进 — 否则用户走到 30cm 内放信标的话,
+        // 1.3s 仪式刚结束 progress 已经是 1,直接看到对齐框,放置序列白演。冻在 0 让序列结束后
+        // 再用 2s 平滑过渡到对齐框。
+        {
+            constexpr float kAnimTotalForFade = 1.3f;
+            if (animAge >= kAnimTotalForFade) {
+                bool insideForFade = lastDist < kAligningDistMeters;
+                float step = (insideForFade ? +1.0f : -1.0f) * (dt / kFadeDurationSec);
+                mBadgeFadeProgress = glm::clamp(mBadgeFadeProgress + step, 0.0f, 1.0f);
+            } else {
+                mBadgeFadeProgress = 0.0f;  // 动画期 + pending 期都冻结为 0(完整看到灰盘形态)
+            }
+        }
+
         // 6DoF alignment-frame orientation, built with an EXPLICIT yaw->pitch->roll order (instead of
         // glm::quat(vec3)'s non-intuitive Y*X*Z) so external 6DoF inputs match expectations:
         //   yaw>0 -> frame faces the camera's right (+X), pitch>0 -> up, roll>0 -> clockwise (camera POV).
@@ -183,14 +204,17 @@ void RingHuntApp::OnUpdate()
         // If filled, lock + move into the member buffer + set mFrameReady. Capture size = mWidth/
         // mHeight (the visible viewport — same as what SetDisplayGeometry sees).
         bool wantCap = mCaptureRequested.exchange(false);
+        bool wantCleanCap = mCleanCaptureRequested.exchange(false);
         std::vector<uint8_t> capBuf;
-        int capW = 0;
-        int capH = 0;
+        std::vector<uint8_t> cleanCapBuf;
+        int capW = 0, capH = 0;
+        int cleanCapW = 0, cleanCapH = 0;
         mRenderManager.OnDrawFrame(mArSession, mArFrame, mHasRing.load(), mRingAnchor, mAnimTime, color, lastDist,
                                    mHuntPhase.load(), targetQ, mFrameHueTime, mIsAligned.load(), dt,
-                                   mRingHeight.load(), &cam,
+                                   mRingHeight.load(), mBadgeFadeProgress, animAge, &cam,
                                    wantCap, static_cast<int>(mWidth), static_cast<int>(mHeight),
-                                   &capBuf, &capW, &capH);
+                                   &capBuf, &capW, &capH,
+                                   wantCleanCap, &cleanCapBuf, &cleanCapW, &cleanCapH);
         if (wantCap && !capBuf.empty() && capW > 0 && capH > 0) {
             {
                 std::lock_guard<std::mutex> lk(mFrameMutex);
@@ -202,9 +226,30 @@ void RingHuntApp::OnUpdate()
             LOGI("ARDA3-CAP frame cached %{public}dx%{public}d bytes=%{public}zu", capW, capH,
                  static_cast<size_t>(capW) * static_cast<size_t>(capH) * 4u);
         } else if (wantCap) {
-            // Capture requested but the render path skipped (e.g. tracking dropped, surface change).
-            // Drop the request silently — ArkTS will time out and surface a toast.
-            LOGW("ARDA3-CAP frame request dropped (no fill); tracking=%{public}d", cam.tracking ? 1 : 0);
+            // tracking 丢失/render 跳过 → 这一帧 OnDrawFrame 在 swap 之前早 return,glReadPixels
+            // 没跑。重新置请求,下一帧(~33ms)再试。和 wantCleanCap 同套修复,避免炫彩球抓帧
+            // 在瞬时跟踪丢失时报"抓帧失败"。ArkTS 那 3s poll 期间 tracking 恢复就能抓到。
+            mCaptureRequested.store(true);
+            LOGW("ARDA3-CAP frame skipped (tracking=%{public}d), re-armed for next frame",
+                 cam.tracking ? 1 : 0);
+        }
+
+        if (wantCleanCap && !cleanCapBuf.empty() && cleanCapW > 0 && cleanCapH > 0) {
+            {
+                std::lock_guard<std::mutex> lk(mCleanFrameMutex);
+                mLastCleanRGBA = std::move(cleanCapBuf);
+                mLastCleanW = cleanCapW;
+                mLastCleanH = cleanCapH;
+            }
+            mCleanFrameReady.store(true);
+            LOGI("ARDA3-CAPTURE clean frame cached %{public}dx%{public}d", cleanCapW, cleanCapH);
+        } else if (wantCleanCap) {
+            // tracking 丢失/render 跳过 → 这一帧 OnDrawFrame 在 swap 之前早 return 了,glReadPixels
+            // 根本没跑。把请求重新置上,下一帧(~33ms 后)再试。ArkTS 端 60×50ms=3s poll 期间,
+            // tracking 一恢复就能抓到。避免用户因瞬时晃动看到"抓帧失败"。
+            mCleanCaptureRequested.store(true);
+            LOGW("ARDA3-CAPTURE clean frame skipped (tracking=%{public}d), re-armed for next frame",
+                 cam.tracking ? 1 : 0);
         }
 
         mCameraTracking.store(cam.tracking);
@@ -238,6 +283,47 @@ void RingHuntApp::OnUpdate()
             mOrientation.store(ori);
         }
 
+        // 标定工具:每帧 snapshot 相机姿态(GetPose + GetDisplayOrientedPose)到锁保护成员。
+        // JS 通过 NAPI 同步读取最近一帧的快照(用于标定步骤记录真值)。
+        {
+            AREngine_ARCamera *calibCam = nullptr;
+            if (HMS_AREngine_ARFrame_AcquireCamera(mArSession, mArFrame, &calibCam) == ARENGINE_SUCCESS &&
+                calibCam != nullptr) {
+                AREngine_ARPose *poseRaw = nullptr;
+                AREngine_ARPose *poseDisp = nullptr;
+                float bufRaw[7] = {0, 0, 0, 1, 0, 0, 0};
+                float bufDisp[7] = {0, 0, 0, 1, 0, 0, 0};
+                bool okRaw = false;
+                bool okDisp = false;
+                if (HMS_AREngine_ARPose_Create(mArSession, nullptr, 0, &poseRaw) == ARENGINE_SUCCESS &&
+                    poseRaw != nullptr) {
+                    if (HMS_AREngine_ARCamera_GetPose(mArSession, calibCam, poseRaw) == ARENGINE_SUCCESS) {
+                        HMS_AREngine_ARPose_GetPoseRaw(mArSession, poseRaw, bufRaw, 7);
+                        okRaw = true;
+                    }
+                    HMS_AREngine_ARPose_Destroy(poseRaw);
+                }
+                if (HMS_AREngine_ARPose_Create(mArSession, nullptr, 0, &poseDisp) == ARENGINE_SUCCESS &&
+                    poseDisp != nullptr) {
+                    if (HMS_AREngine_ARCamera_GetDisplayOrientedPose(mArSession, calibCam, poseDisp) ==
+                        ARENGINE_SUCCESS) {
+                        HMS_AREngine_ARPose_GetPoseRaw(mArSession, poseDisp, bufDisp, 7);
+                        okDisp = true;
+                    }
+                    HMS_AREngine_ARPose_Destroy(poseDisp);
+                }
+                HMS_AREngine_ARCamera_Release(calibCam);
+                if (okRaw && okDisp) {
+                    std::lock_guard<std::mutex> lk(mCalibPoseMutex);
+                    for (int i = 0; i < 7; ++i) {
+                        mCalibCamRawPose[i] = bufRaw[i];
+                        mCalibCamDispPose[i] = bufDisp[i];
+                    }
+                    mCalibPoseValid = true;
+                }
+            }
+        }
+
         if (!mHasRing.load() || mRingAnchor == nullptr) {
             mDistance.store(99.0f);
             mIsTargetInView.store(true); // no beacon -> keep guidance hidden
@@ -249,6 +335,8 @@ void RingHuntApp::OnUpdate()
             mToApproachingTimer = 0.0f;
             mLockTimer = 0.0f;
             mWasAligned = false;
+            mBadgeFadeProgress = 0.0f;
+            mBeaconPlacedAnimTime = -1.0f;
             mFrameHueTime = mAnimTime;
             return;
         }
@@ -363,6 +451,11 @@ void RingHuntApp::OnUpdate()
             mIndicatorAngleDeg.store(guide.indicatorAngleDeg);
             mNdcX.store(guide.ndcX);
             mNdcY.store(guide.ndcY);
+            // 放置序列动画首次触发:信标顶端进入屏幕的第一帧记起点。
+            // 之前用户没看到的话,信标隐形等候;一旦看到,1.3s 序列从头演给用户看。
+            if (mBeaconPlacedAnimTime < 0.0f && guide.isInView) {
+                mBeaconPlacedAnimTime = mAnimTime;
+            }
         } else {
             mIsTargetInView.store(true); // hide the droplet in ALIGNING/LOCKED
             mIsBehind.store(false);
@@ -457,8 +550,6 @@ int32_t RingHuntApp::PlaceRingAt(float x, float y, float z, float yawDeg, float 
         ringVisualHeight = 0.05f;
     }
     mRingHeight.store(ringVisualHeight);
-    LOGI("ARDA3-CALIB ringVisualHeight=%{public}f (y=%{public}f + groundDrop=%{public}f)",
-         ringVisualHeight, y, kGroundDrop);
     return PlaceBeaconInternal(true, yawRad, pitchRad, rollRad, true, x, z, y);
 }
 
@@ -524,13 +615,6 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
         float dotR = worldUp[0] * camRight[0] + worldUp[1] * camRight[1] + worldUp[2] * camRight[2];
         float dotU = worldUp[0] * camUp[0]    + worldUp[1] * camUp[1]    + worldUp[2] * camUp[2];
         float camRoll = std::atan2(dotR, dotU);
-        LOGI("ARDA3-CALIB rollDbg camUp=(%{public}f,%{public}f,%{public}f) "
-             "camRight=(%{public}f,%{public}f,%{public}f) camFwd=(%{public}f,%{public}f,%{public}f) "
-             "dotR=%{public}f dotU=%{public}f displayRotation=%{public}d",
-             camUp[0], camUp[1], camUp[2],
-             camRight[0], camRight[1], camRight[2],
-             camForward[0], camForward[1], camForward[2],
-             dotR, dotU, static_cast<int>(mDisplayRotation));
 
         float relYaw = 0.0f;
         float relPitch = 0.0f;
@@ -558,34 +642,19 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
         constexpr float kRad45 = 0.785398f;   // 45°
         constexpr float kRad90 = 1.570796f;   // 90°
         float snapRoll;
-        const char *orientation;
         int32_t orientationCode;
         if (camRoll <= -kRad45) {
             snapRoll = -kRad90;
-            orientation = "LANDSCAPE_CW";
             orientationCode = 1;
         } else if (camRoll >= kRad45) {
             snapRoll = +kRad90;
-            orientation = "LANDSCAPE_CCW";
             orientationCode = 2;
         } else {
             snapRoll = 0.0f;
-            orientation = "PORTRAIT";
             orientationCode = 0;
         }
         mTargetRoll = snapRoll;
         mOrientation.store(orientationCode);
-        LOGI("ARDA3-CALIB camPitch=%{public}f relPitch=%{public}f mTargetPitch=%{public}f",
-             camPitch, relPitch, mTargetPitch);
-        LOGI("ARDA3-CALIB rollSnap camRoll=%{public}f -> orientation=%{public}s mTargetRoll=%{public}f",
-             camRoll, orientation, mTargetRoll);
-        LOGI("ARDA3-CALIB POSE-SUMMARY camYaw=%{public}f camPitch=%{public}f camRoll=%{public}f | "
-             "relYaw=%{public}f relPitch=%{public}f relRoll=%{public}f | "
-             "mYaw=%{public}f mPitch=%{public}f mRoll=%{public}f",
-             camYaw, camPitch, camRoll,
-             relYaw, relPitch, relRoll,
-             mTargetYaw, mTargetPitch, mTargetRoll);
-        LOGI("ARDA3-CALIB placeRotation mDisplayRotation=%{public}d", static_cast<int>(mDisplayRotation));
         // getRingState reports the RELATIVE target (what the caller requested / the random range).
         mTargetYawDeg.store(glm::degrees(relYaw));
         mTargetPitchDeg.store(glm::degrees(relPitch));
@@ -651,6 +720,9 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
         mLockTimer = 0.0f;
         mWasAligned = false;
         mFrameHueTime = mAnimTime;
+        // 放置序列动画延迟到"用户首次看到信标顶端"才开始(否则用户没看就错过了)。
+        // 这里保持 -1 = 等待首次可见;OnUpdate 里用 ComputeOffscreenGuidance 的 isInView 触发。
+        mBeaconPlacedAnimTime = -1.0f;
         mHasRing.store(true);
         LOGI("[RingHunt] Beacon placed id=%{public}d pos=(%{public}f,%{public}f,%{public}f) "
              "yaw=%{public}f pitch=%{public}f roll=%{public}f",
@@ -684,10 +756,31 @@ void RingHuntApp::SetDisplayRotation(int32_t rotation)
         if (mArSession != nullptr) {
             HMS_AREngine_ARSession_SetDisplayGeometry(mArSession, mDisplayRotation, mWidth, mHeight);
         }
-        LOGI("ARDA3-CALIB setDisplayRotation rotation=%{public}d -> mDisplayRotation updated, "
-             "w=%{public}d h=%{public}d",
-             rotation, static_cast<int>(mWidth), static_cast<int>(mHeight));
     });
+}
+
+bool RingHuntApp::GetLatestCamRawPose(float out[7])
+{
+    std::lock_guard<std::mutex> lk(mCalibPoseMutex);
+    if (!mCalibPoseValid) {
+        return false;
+    }
+    for (int i = 0; i < 7; ++i) {
+        out[i] = mCalibCamRawPose[i];
+    }
+    return true;
+}
+
+bool RingHuntApp::GetLatestCamDispPose(float out[7])
+{
+    std::lock_guard<std::mutex> lk(mCalibPoseMutex);
+    if (!mCalibPoseValid) {
+        return false;
+    }
+    for (int i = 0; i < 7; ++i) {
+        out[i] = mCalibCamDispPose[i];
+    }
+    return true;
 }
 
 void RingHuntApp::RequestCapture()
@@ -722,6 +815,38 @@ bool RingHuntApp::TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &o
     return true;
 }
 
+void RingHuntApp::RequestCleanCapture()
+{
+    mCleanCaptureRequested.store(true);
+    LOGI("ARDA3-CAPTURE clean frame requested");
+}
+
+bool RingHuntApp::IsCleanFrameReady() const
+{
+    return mCleanFrameReady.load();
+}
+
+bool RingHuntApp::TakeCleanFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH)
+{
+    if (!mCleanFrameReady.load()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lk(mCleanFrameMutex);
+    if (mLastCleanRGBA.empty() || mLastCleanW <= 0 || mLastCleanH <= 0) {
+        mCleanFrameReady.store(false);
+        return false;
+    }
+    outRGBA = std::move(mLastCleanRGBA);
+    outW = mLastCleanW;
+    outH = mLastCleanH;
+    mLastCleanRGBA.clear();
+    mLastCleanW = 0;
+    mLastCleanH = 0;
+    mCleanFrameReady.store(false);
+    LOGI("ARDA3-CAPTURE clean frame taken %{public}dx%{public}d", outW, outH);
+    return true;
+}
+
 void RingHuntApp::ResetRing()
 {
     mTaskQueue.Push([this] {
@@ -749,6 +874,8 @@ void RingHuntApp::ResetRing()
         mToApproachingTimer = 0.0f;
         mLockTimer = 0.0f;
         mWasAligned = false;
+        mBadgeFadeProgress = 0.0f;
+        mBeaconPlacedAnimTime = -1.0f;
         LOGI("[RingHunt] reset.");
     });
 }

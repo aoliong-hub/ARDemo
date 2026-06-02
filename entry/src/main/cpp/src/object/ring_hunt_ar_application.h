@@ -55,6 +55,10 @@ public:
     void ResetRing() override;
     void SetDisplayRotation(int32_t rotation) override;
     int32_t GetOrientation() const override { return mOrientation.load(); }
+    // 标定工具:同步读取最近一帧 OnUpdate 缓存的相机姿态。out[7] = qx,qy,qz,qw,px,py,pz。
+    // 返回 false 表示尚未跟踪稳定/未拿到姿态(JS 侧应处理 null)。
+    bool GetLatestCamRawPose(float out[7]) override;
+    bool GetLatestCamDispPose(float out[7]) override;
 
     // Da3 capture hand-off (request/poll). RequestCapture flips mCaptureRequested; the next render
     // frame fills mLastFrameRGBA + sets mFrameReady. TakeFrameRGBA moves the bytes out and clears
@@ -62,6 +66,10 @@ public:
     void RequestCapture() override;
     bool IsFrameReady() const override;
     bool TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH) override;
+    // 拍照(纯净帧):glReadPixels 在 wayfinder Render 之前完成,抓到的不含 AR 物体。
+    void RequestCleanCapture() override;
+    bool IsCleanFrameReady() const override;
+    bool TakeCleanFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH) override;
     void GetRingState(float &distance, bool &ringPlaced, int32_t &finishState, bool &isTargetInView,
                       float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg, float &ndcX,
                       float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad, float &rollDiffRad,
@@ -107,6 +115,18 @@ private:
     float mLockTimer = 0.0f;
     bool mWasAligned = false; // previous-frame aligned state, for the 5deg/7deg hysteresis
 
+    // 灰盘/柱子 ↔ 对齐框 之间的时间渐变进度(task thread only)。每帧按 distance 是否 <30cm 推进:
+    //   inside  → 朝 1 走(灰盘+柱子淡出,对齐框淡入)
+    //   outside → 朝 0 走(反向)
+    // 2.0s 走完全程,平滑切换替代原来的 huntPhase 硬切(灰盘瞬间消失/出现)。reset 时归零。
+    float mBadgeFadeProgress = 0.0f;
+
+    // 信标放置时刻(mAnimTime 秒)。-1 = 未放置/无动画。每次 PlaceBeaconInternal 成功放锚点后
+    // 记录为当前 mAnimTime,renderer 据此算 animAge = mAnimTime - mBeaconPlacedAnimTime,驱动
+    // 1.3s 放置序列(灰盘渐入 0.3s → 水滴下落 0.7s → 炫彩圈涌起 0.3s),≥1.3s 后稳态走
+    // mBadgeFadeProgress 距离渐隐。ResetRing 时归 -1,下次 place 重新演。
+    float mBeaconPlacedAnimTime = -1.0f;
+
     // Shared with the ArkTS poll (getRingState).
     std::atomic<bool> mReady{false};
     std::atomic<bool> mHasRing{false};
@@ -129,6 +149,15 @@ private:
     // 2=LANDSCAPE_CCW. Read by ArkTS via getOrientation() NAPI to decide how to rotate the JPEG
     // before sending to da3 (so the generated reference image matches the user's physical framing).
     std::atomic<int32_t> mOrientation{0};
+
+    // Calibration tool: pose snapshot updated each OnUpdate frame (after tracking check).
+    // Both GetPose (sensor raw) and GetDisplayOrientedPose (UI-corrected) recorded so calib
+    // tool can record both in meta.txt for offline mapping analysis.
+    // Layout: [qx,qy,qz,qw, px,py,pz] = same as AR Engine pose raw[7]. Protected by mutex.
+    std::mutex mCalibPoseMutex;
+    bool mCalibPoseValid = false;
+    float mCalibCamRawPose[7] = {0,0,0,1, 0,0,0};
+    float mCalibCamDispPose[7] = {0,0,0,1, 0,0,0};
 
     // Off-screen target guidance (computed each tracked frame from the view/proj matrices, targeting
     // the beacon top). Default "in view" so guidance stays hidden until a beacon is placed.
@@ -171,6 +200,15 @@ private:
     int mLastFrameW = 0;
     int mLastFrameH = 0;
     mutable std::mutex mFrameMutex;
+
+    // Clean capture state(功能 6 拍照):同 mCaptureRequested 套路,但 glReadPixels 时机提前到
+    // mBackgroundRenderer.Draw 之后、mWayfinderRenderer.Render 之前,抓到的是纯相机画面无 AR。
+    std::atomic<bool> mCleanCaptureRequested{false};
+    std::atomic<bool> mCleanFrameReady{false};
+    std::vector<uint8_t> mLastCleanRGBA;
+    int mLastCleanW = 0;
+    int mLastCleanH = 0;
+    mutable std::mutex mCleanFrameMutex;
 };
 
 } // namespace ARObject

@@ -16,8 +16,17 @@ import { Palette, Spacing, FontSize } from '../styles/Theme';
 @Component
 export struct ZoomBar {
   @Prop currentZoom: number;
+  // 物理朝向,驱动 1x/2x/5x 倍率数字绕自身中心旋转(外层胶囊容器/下拉框不动)。
+  @Prop orientation: number = 0;
   onZoomChange: (z: number) => void = (z: number): void => {};
   private readonly stops: number[] = [1.0, 2.0, 5.0];
+
+  private rotateDeg(): number {
+    if (this.orientation === 1) return -90;
+    if (this.orientation === 2) return 90;
+    if (this.orientation === 3) return 180;
+    return 0;
+  }
 
   private selectedStop(): number {
     let best: number = this.stops[0];
@@ -45,6 +54,8 @@ export struct ZoomBar {
         .textAlign(TextAlign.Center)
         .backgroundColor(Palette.white)
         .borderRadius(17)
+        .rotate({ x: 0, y: 0, z: 1, angle: this.rotateDeg(), centerX: '50%', centerY: '50%' })
+        .animation({ duration: 300, curve: Curve.EaseInOut })
         .onClick(() => { this.onZoomChange(stop); })
     } else {
       Text(stop.toString() + 'x')
@@ -53,6 +64,8 @@ export struct ZoomBar {
         .width(34)
         .height(34)
         .textAlign(TextAlign.Center)
+        .rotate({ x: 0, y: 0, z: 1, angle: this.rotateDeg(), centerX: '50%', centerY: '50%' })
+        .animation({ duration: 300, curve: Curve.EaseInOut })
         .onClick(() => { this.onZoomChange(stop); })
     }
   }

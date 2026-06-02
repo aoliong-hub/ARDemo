@@ -45,11 +45,6 @@ public:
     // Ground ring: flat annulus in the XZ plane at y=0, normal +Y. 30cm outer dia / 24cm inner.
     static WayfinderMesh CreateGroundRing(float outerRadius = 0.15f, float innerRadius = 0.12f, int segments = 64);
 
-    // Ripple ring: a thin flat annulus in the XZ plane at y=0, normal +Y, used for the expanding
-    // ground "water ripple". uv.y = 0 on the inner edge, 1 on the outer edge, so the solid shader's
-    // alphaBase/alphaTop fade the wave radially (strong inner -> faint outer). Radii animate per frame.
-    static WayfinderMesh CreateRippleRing(float innerRadius, float outerRadius, int segments = 64);
-
     // Main beam: thin "laser line" cylinder side, y in [0, height], 4mm dia. uv.y = y/height.
     static WayfinderMesh CreatePillarCore(float radius = 0.002f, float height = kWayfinderTopHeight, int segments = 24);
 
@@ -98,6 +93,12 @@ public:
     static WayfinderMesh CreateArrow3D(float shaftRadius = 0.0006f, float shaftLength = 0.016f,
                                        float wingSpan = 0.0048f, float wingThickness = 0.0008f,
                                        float headLength = 0.008f, int shaftSegments = 16);
+
+    // Water drop: low-poly UV sphere centered at the origin, ~2.5cm radius (5cm diameter). uv.x =
+    // longitude (0..1), uv.y = 0 bottom (south pole) → 1 top (north pole) so the iridescent FLOW
+    // shader (axis=1) sweeps pearl colors vertically while the drop falls. Used by the placement
+    // sequence animation (stage 2: drop falls from badge to ground).
+    static WayfinderMesh CreateWaterDrop(float radius = 0.025f, int segments = 20, int stacks = 12);
 };
 
 } // namespace ARObject

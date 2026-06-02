@@ -63,6 +63,8 @@ public:
     static napi_value NapiSetZoom(napi_env env, napi_callback_info info);
     static napi_value NapiSetDisplayRotation(napi_env env, napi_callback_info info);
     static napi_value NapiGetOrientation(napi_env env, napi_callback_info info);
+    static napi_value NapiGetLatestCamRawPose(napi_env env, napi_callback_info info);
+    static napi_value NapiGetLatestCamDispPose(napi_env env, napi_callback_info info);
     static napi_value NapiResetRing(napi_env env, napi_callback_info info);
     static napi_value NapiGetRingState(napi_env env, napi_callback_info info);
 
@@ -71,6 +73,10 @@ public:
     static napi_value NapiCaptureFrame(napi_env env, napi_callback_info info);
     static napi_value NapiIsFrameReady(napi_env env, napi_callback_info info);
     static napi_value NapiTakeFrameRGBA(napi_env env, napi_callback_info info);
+    // 拍照纯净帧(功能 6):同上,但 glReadPixels 在 wayfinder Render 之前完成,抓到的不含 AR 物体。
+    static napi_value NapiCaptureCleanFrame(napi_env env, napi_callback_info info);
+    static napi_value NapiIsCleanFrameReady(napi_env env, napi_callback_info info);
+    static napi_value NapiTakeCleanFrameRGBA(napi_env env, napi_callback_info info);
 
     // Napi export
     bool Export(napi_env env, napi_value exports);

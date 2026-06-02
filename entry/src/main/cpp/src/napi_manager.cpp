@@ -826,6 +826,54 @@ napi_value NapiManager::NapiGetOrientation(napi_env env, napi_callback_info info
     return out;
 }
 
+// 标定工具:同步读取最近一帧的相机姿态。返回 Object {qx,qy,qz,qw,px,py,pz} 或 null。
+static napi_value MakePoseObject(napi_env env, const float p[7])
+{
+    napi_value obj = nullptr;
+    napi_create_object(env, &obj);
+    const char *names[7] = {"qx", "qy", "qz", "qw", "px", "py", "pz"};
+    for (int i = 0; i < 7; ++i) {
+        napi_value v = nullptr;
+        napi_create_double(env, static_cast<double>(p[i]), &v);
+        napi_set_named_property(env, obj, names[i], v);
+    }
+    return obj;
+}
+
+napi_value NapiManager::NapiGetLatestCamRawPose(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    if (app == nullptr) {
+        return nullptr;
+    }
+    float p[7] = {0, 0, 0, 1, 0, 0, 0};
+    if (!app->GetLatestCamRawPose(p)) {
+        return nullptr;
+    }
+    return MakePoseObject(env, p);
+}
+
+napi_value NapiManager::NapiGetLatestCamDispPose(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    if (app == nullptr) {
+        return nullptr;
+    }
+    float p[7] = {0, 0, 0, 1, 0, 0, 0};
+    if (!app->GetLatestCamDispPose(p)) {
+        return nullptr;
+    }
+    return MakePoseObject(env, p);
+}
+
 // Da3 capture: captureFrame(id) — set the request flag; the next render fills the buffer.
 napi_value NapiManager::NapiCaptureFrame(napi_env env, napi_callback_info info)
 {
@@ -878,6 +926,71 @@ napi_value NapiManager::NapiTakeFrameRGBA(napi_env env, napi_callback_info info)
     napi_value arrayBuffer = nullptr;
     if (napi_create_arraybuffer(env, rgba.size(), &bufData, &arrayBuffer) != napi_ok || bufData == nullptr) {
         LOGE("ARDA3-CAP napi_create_arraybuffer failed bytes=%{public}zu", rgba.size());
+        return nullptr;
+    }
+    std::memcpy(bufData, rgba.data(), rgba.size());
+    napi_value obj = nullptr;
+    napi_create_object(env, &obj);
+    napi_value wv = nullptr;
+    napi_value hv = nullptr;
+    napi_create_int32(env, w, &wv);
+    napi_create_int32(env, h, &hv);
+    napi_set_named_property(env, obj, "buffer", arrayBuffer);
+    napi_set_named_property(env, obj, "width", wv);
+    napi_set_named_property(env, obj, "height", hv);
+    return obj;
+}
+
+// 拍照纯净帧 NAPI 三件套(对应功能 6):captureCleanFrame 触发,isCleanFrameReady 轮询,
+// takeCleanFrameRGBA 取出 RGBA buffer。返回的纯净帧不含信标/炫彩圈/对齐框等 AR 物体。
+napi_value NapiManager::NapiCaptureCleanFrame(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiCaptureCleanFrame");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    if (app != nullptr) {
+        app->RequestCleanCapture();
+    }
+    return nullptr;
+}
+
+napi_value NapiManager::NapiIsCleanFrameReady(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    napi_value result = nullptr;
+    bool ready = (app != nullptr) && app->IsCleanFrameReady();
+    napi_get_boolean(env, ready, &result);
+    return result;
+}
+
+napi_value NapiManager::NapiTakeCleanFrameRGBA(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiTakeCleanFrameRGBA");
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    if (app == nullptr) {
+        return nullptr;
+    }
+    std::vector<uint8_t> rgba;
+    int w = 0;
+    int h = 0;
+    if (!app->TakeCleanFrameRGBA(rgba, w, h) || rgba.empty() || w <= 0 || h <= 0) {
+        return nullptr;
+    }
+    void *bufData = nullptr;
+    napi_value arrayBuffer = nullptr;
+    if (napi_create_arraybuffer(env, rgba.size(), &bufData, &arrayBuffer) != napi_ok || bufData == nullptr) {
+        LOGE("ARDA3-CAPTURE napi_create_arraybuffer failed bytes=%{public}zu", rgba.size());
         return nullptr;
     }
     std::memcpy(bufData, rgba.data(), rgba.size());

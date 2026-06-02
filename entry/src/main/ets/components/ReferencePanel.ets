@@ -33,8 +33,36 @@ export struct ReferencePanel {
   // v13 (d) — three-state body.
   @ObjectLink @Watch('onRefChanged') refHolder: RefImageHolder;
   @Prop loading: boolean = false;
+  // 物理朝向。驱动 chevron / 三处文字 / LoadingProgress 原位自转。
+  // 参考图 Image 本轮暂不动(下轮单独加 rotate+scale 适配)。
+  @Prop orientation: number = 0;
   onToggle: () => void = (): void => {};
   onImageTap: () => void = (): void => {};
+
+  private rotateDeg(): number {
+    if (this.orientation === 1) return -90;
+    if (this.orientation === 2) return 90;
+    if (this.orientation === 3) return 180;
+    return 0;
+  }
+
+  // loading 态:LoadingProgress 永远居中固定,只有 Text("生成中…")相对中心 offset 到
+  // 图标的"用户视角下方"。offset + rotate 都加 animation,平滑过渡。
+  // GAP = 文字相对图标中心的距离(图标半径 28 + 间隙 6 = 34vp,文字紧挨图标)。
+  // ArkUI offset:+y = 向下(标准屏幕坐标),所以 PORTRAIT 用 y=+34 让文字在图标下方。
+  private readonly kLoadingTextGap: number = 34;
+
+  // CW/CCW 的 x 符号:对调后 CW→x 正(屏幕右=用户视角下) / CCW→x 负(屏幕左=用户视角下)。
+  private loadingTextOffsetX(): number {
+    if (this.orientation === 1) return this.kLoadingTextGap;
+    if (this.orientation === 2) return -this.kLoadingTextGap;
+    return 0;
+  }
+  private loadingTextOffsetY(): number {
+    if (this.orientation === 0) return this.kLoadingTextGap;   // PORTRAIT: 文字屏幕下方(y 正)
+    if (this.orientation === 3) return -this.kLoadingTextGap;  // FLIP: 文字屏幕上方(y 负)
+    return 0;
+  }
 
   // Tracks whether refHolder.image has flipped since last render — used only to force a UI
   // refresh through @ObjectLink (ArkUI auto-rerenders when the watched ref changes).
@@ -51,6 +79,7 @@ export struct ReferencePanel {
             .width(36)
             .height(12)
             .objectFit(ImageFit.Contain)
+            // 不转:chevron 是相对卡片的"折叠把手",方向感固定(▼=收起),不该跟 orientation 转。
         }
         .width('100%')
         .height(28)
@@ -61,8 +90,10 @@ export struct ReferencePanel {
         // Body — fills the remaining card area. Three-state.
         Stack({ alignContent: Alignment.Center }) {
           if (this.loading) {
-            // Loading: progress spinner + label.
-            Column({ space: 12 }) {
+            // Stack 居中:LoadingProgress 永远在中心(图标圆形对称,不动不转),
+            // 文字相对中心 offset 到图标的"用户视角下方"。offset + rotate 都加 animation,
+            // 朝向切换时文字平滑滑动+旋转过去,图标位置完全不变。
+            Stack({ alignContent: Alignment.Center }) {
               LoadingProgress()
                 .width(56)
                 .height(56)
@@ -70,9 +101,12 @@ export struct ReferencePanel {
               Text('生成中…')
                 .fontSize(FontSize.hud)
                 .fontColor(Palette.white60)
+                .rotate({ x: 0, y: 0, z: 1, angle: this.rotateDeg(), centerX: '50%', centerY: '50%' })
+                .offset({ x: this.loadingTextOffsetX(), y: this.loadingTextOffsetY() })
+                .animation({ duration: 300, curve: Curve.EaseInOut })
             }
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
+            .width('100%')
+            .height('100%')
           } else if (this.refHolder.image !== undefined) {
             // Target image + tap-to-guide hint pinned to the bottom.
             Image(this.refHolder.image)
@@ -87,6 +121,7 @@ export struct ReferencePanel {
                 .backgroundColor('#80000000')
                 .padding({ left: 10, right: 10, top: 4, bottom: 4 })
                 .borderRadius(10)
+              // 不转:这条 hint 跟下方参考图 Image(触发按钮)同一对,用户接受横拿时它躺着。
             }
             .width('100%')
             .height('100%')
@@ -99,6 +134,8 @@ export struct ReferencePanel {
             Text('参考构图')
               .fontSize(FontSize.hud)
               .fontColor(Palette.white60)
+              .rotate({ x: 0, y: 0, z: 1, angle: this.rotateDeg(), centerX: '50%', centerY: '50%' })
+            .animation({ duration: 300, curve: Curve.EaseInOut })
           }
         }
         .layoutWeight(1)

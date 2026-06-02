@@ -20,6 +20,18 @@ import { Logger } from '../utils/Logger';
 @Component
 export struct CameraBottomBar {
   @State private shutterPressed: boolean = false;
+  // 物理朝向。驱动左右两侧的 album / flip 原位自转(快门中间对称圆,不转)。
+  @Prop orientation: number = 0;
+  // 快门点击回调 — host 接管拍照流程(纯净帧抓取 + 存图库 + 短震 + 咔嚓音)。默认空函数兜底,
+  // host 不传时回退到 toast 提示(老占位行为)。
+  onShutterTap: () => void = (): void => {};
+
+  private rotateDeg(): number {
+    if (this.orientation === 1) return -90;
+    if (this.orientation === 2) return 90;
+    if (this.orientation === 3) return 180;
+    return 0;
+  }
 
   private toast(msg: string): void {
     try {
@@ -43,6 +55,8 @@ export struct CameraBottomBar {
     }
     .width(56)
     .height(56)
+    .rotate({ x: 0, y: 0, z: 1, angle: this.rotateDeg(), centerX: '50%', centerY: '50%' })
+    .animation({ duration: 300, curve: Curve.EaseInOut })
     .onClick(() => { this.toast('相册开发中'); })
   }
 
@@ -69,7 +83,7 @@ export struct CameraBottomBar {
         this.shutterPressed = false;
       }
     })
-    .onClick(() => { this.toast('拍照功能开发中'); })
+    .onClick(() => { this.onShutterTap(); })
   }
 
   @Builder
@@ -86,6 +100,8 @@ export struct CameraBottomBar {
     }
     .width(56)
     .height(56)
+    .rotate({ x: 0, y: 0, z: 1, angle: this.rotateDeg(), centerX: '50%', centerY: '50%' })
+    .animation({ duration: 300, curve: Curve.EaseInOut })
     .onClick(() => { this.toast('翻转开发中'); })
   }
 

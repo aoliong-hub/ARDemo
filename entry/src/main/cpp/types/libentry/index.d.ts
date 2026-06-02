@@ -95,6 +95,14 @@ export const setDisplayRotation: (id: string, rotation: number) => void;
 // 0 = PORTRAIT, 1 = LANDSCAPE_CW(顺时针横), 2 = LANDSCAPE_CCW(逆时针横)
 // ArkTS 抓帧后读这个,决定是否旋转 JPEG 再发 da3。
 export const getOrientation: (id: string) => number;
+// 标定工具:同步读取最近一帧的相机姿态。返回 null 表示未跟踪稳定。
+// p 7 元素:旋转四元数 (qx,qy,qz,qw) + 位置 (px,py,pz)。世界坐标系。
+export interface CamPose {
+  qx: number; qy: number; qz: number; qw: number;
+  px: number; py: number; pz: number;
+}
+export const getLatestCamRawPose: (id: string) => CamPose | null;
+export const getLatestCamDispPose: (id: string) => CamPose | null;
 export const resetRing: (id: string) => void;
 export const getRingState: (id: string) => RingState;
 
@@ -110,3 +118,9 @@ export interface CapturedFrame {
 export const captureFrame: (id: string) => void;
 export const isFrameReady: (id: string) => boolean;
 export const takeFrameRGBA: (id: string) => CapturedFrame | null;
+
+// 拍照纯净帧(功能 6):glReadPixels 在 wayfinder Render 之前,抓到的不含信标/炫彩圈/对齐框等
+// AR 物体,只有纯相机背景画面。同一组 request/poll/take 套路,共用 CapturedFrame 类型。
+export const captureCleanFrame: (id: string) => void;
+export const isCleanFrameReady: (id: string) => boolean;
+export const takeCleanFrameRGBA: (id: string) => CapturedFrame | null;

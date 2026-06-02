@@ -61,9 +61,11 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
                                         AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color,
                                         float distance, int huntPhase, const glm::quat &frameOrientation,
                                         float frameHueTime, bool isAligned, float deltaTime, float ringHeight,
-                                        RingCameraInfo *outCam,
+                                        float badgeFadeProgress, float animAge, RingCameraInfo *outCam,
                                         bool wantCapture, int captureW, int captureH,
-                                        std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH)
+                                        std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH,
+                                        bool wantCleanCapture,
+                                        std::vector<uint8_t> *outCleanRGBA, int *outCleanW, int *outCleanH)
 {
     if (!isInited) {
         LOGE("RingHuntRenderManager not ready!");
@@ -115,6 +117,27 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
         return false;
     }
 
+    // 拍照纯净帧:这一刻 framebuffer 只含相机背景画面,wayfinder(信标/炫彩圈/对齐框)还没画。
+    // glReadPixels 抓出来的就是不带任何 AR 物体的纯相机照片。Y-flip 同 da3 路径(GL 原点左下 →
+    // 图像消费者左上)。共用 captureW/captureH 作为读取尺寸。
+    if (wantCleanCapture && outCleanRGBA != nullptr && captureW > 0 && captureH > 0) {
+        size_t bytes = static_cast<size_t>(captureW) * static_cast<size_t>(captureH) * 4u;
+        outCleanRGBA->resize(bytes);
+        glReadPixels(0, 0, captureW, captureH, GL_RGBA, GL_UNSIGNED_BYTE, outCleanRGBA->data());
+        size_t rowStride = static_cast<size_t>(captureW) * 4u;
+        std::vector<uint8_t> tmp(rowStride);
+        for (int y = 0; y < captureH / 2; ++y) {
+            uint8_t *top = outCleanRGBA->data() + y * rowStride;
+            uint8_t *bot = outCleanRGBA->data() + (captureH - 1 - y) * rowStride;
+            std::memcpy(tmp.data(), top, rowStride);
+            std::memcpy(top, bot, rowStride);
+            std::memcpy(bot, tmp.data(), rowStride);
+        }
+        if (outCleanW != nullptr) { *outCleanW = captureW; }
+        if (outCleanH != nullptr) { *outCleanH = captureH; }
+        LOGI("ARDA3-CAPTURE clean glReadPixels done %{public}dx%{public}d", captureW, captureH);
+    }
+
     if (hasRing && ringAnchor != nullptr) {
         AREngine_ARTrackingState anchorTracking = ARENGINE_TRACKING_STATE_STOPPED;
         CHECK(HMS_AREngine_ARAnchor_GetTrackingState(arSession, ringAnchor, &anchorTracking));
@@ -131,7 +154,8 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
             // rotation), so the ground ring lies flat on the floor and the pillar rises straight up.
             glm::mat4 wayfinderToWorld = glm::translate(glm::mat4(1.0f), ringPos);
             mWayfinderRenderer.Render(viewMat, projectionMat, wayfinderToWorld, cameraPos, color, animTime, distance,
-                                      huntPhase, frameOrientation, frameHueTime, isAligned, deltaTime, ringHeight);
+                                      huntPhase, frameOrientation, frameHueTime, isAligned, deltaTime, ringHeight,
+                                      badgeFadeProgress, animAge);
         }
     }
 

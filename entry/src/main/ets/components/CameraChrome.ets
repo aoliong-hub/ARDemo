@@ -32,6 +32,7 @@ import { CameraBottomBar } from './CameraBottomBar';
 export struct CameraChrome {
   onSphereTap: () => void = (): void => {};
   onSettingsLongPress: () => void = (): void => {};
+  onShutterTap: () => void = (): void => {};
   // v13 zoom: host page (ARRingHuntCam) owns the live zoom level and the applyZoom entry point.
   // Chrome forwards both straight through to ZoomBar.
   @Prop currentZoom: number;
@@ -41,13 +42,18 @@ export struct CameraChrome {
   // 调色 position when in retouch mode, and the album/shutter/flip row scales to 0.75). All three
   // changes share a single 250ms ease-out so the chrome reads as one coordinated re-layout.
   @Prop panelExpanded: boolean = false;
+  // 物理朝向(从 host 传入),用于驱动炫彩球 + ZoomBar 倍率文字原位自转。
+  // 0=PORTRAIT 1=CW 2=CCW 3=FLIP
+  @Prop orientation: number = 0;
 
   // The AI sphere shift when the panel is expanded. The expanded layout pulls it down-and-left:
   // smaller right shift (was 48 → 30) keeps it from drifting too far toward the edge, and the new
   // y shift (24vp) drops it closer to the shutter row so the cluster reads as one tucked-away
   // tool group instead of a floating dot above the shutter.
-  private readonly kAiRightShift: number = 30;
-  private readonly kAiDownShift: number = 24;
+  // panel 展开时炫彩球往右上挪:从原 (30, 24) 调到 (58, 7) — 右 +0.5 球径,上 +0.3 球径(球径 56vp)。
+  // 经过历次实测调整:先 +1.5/+0.3,再 -1 球径左。最终落在 +0.5 球径右。
+  private readonly kAiRightShift: number = 58;
+  private readonly kAiDownShift: number = 7;
 
   build(): void {
     Column() {
@@ -66,11 +72,12 @@ export struct CameraChrome {
         Row({ space: Spacing.M }) {
           ZoomBar({
             currentZoom: this.currentZoom,
+            orientation: this.orientation,
             onZoomChange: (z: number): void => { this.onZoomChange(z); }
           })
             .opacity(this.panelExpanded ? 0 : 1)
             .animation({ duration: 250, curve: Curve.EaseOut })
-          AiBeaconButton({ onTap: (): void => { this.onSphereTap(); } })
+          AiBeaconButton({ onTap: (): void => { this.onSphereTap(); }, orientation: this.orientation })
             .scale({ x: this.panelExpanded ? 0.7 : 1.0, y: this.panelExpanded ? 0.7 : 1.0 })
             .translate({
               x: this.panelExpanded ? this.kAiRightShift : 0,
@@ -84,7 +91,10 @@ export struct CameraChrome {
         // Album/shutter/flip — scaled to 0.75 when panel is up so it tucks under the smaller AI
         // sphere row. Wrapped in a Column so .scale() applies cleanly (custom struct + animation).
         Column() {
-          CameraBottomBar()
+          CameraBottomBar({
+            orientation: this.orientation,
+            onShutterTap: (): void => { this.onShutterTap(); }
+          })
         }
         .scale({ x: this.panelExpanded ? 0.75 : 1.0, y: this.panelExpanded ? 0.75 : 1.0 })
         .animation({ duration: 250, curve: Curve.EaseOut })

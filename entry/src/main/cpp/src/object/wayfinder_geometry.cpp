@@ -129,39 +129,6 @@ WayfinderMesh WayfinderGeometry::CreateGroundRing(float outerRadius, float inner
     return m;
 }
 
-WayfinderMesh WayfinderGeometry::CreateRippleRing(float innerRadius, float outerRadius, int segments)
-{
-    WayfinderMesh m;
-    if (segments < 8) {
-        segments = 8;
-    }
-    // Flat annulus in the XZ plane at y=0, normal +Y. uv.y encodes the radial position so the solid
-    // shader fades alpha from the inner edge (uv.y=0) to the outer edge (uv.y=1).
-    // Stage 12C: same seam-closing fix as CreateGroundRing — emit segments+1 pairs and drop
-    // modulo indexing so the final quad doesn't reverse-scan the spectrum. uv.x is constant 0 here
-    // (ripples don't currently use circumferential color), but the geometry stays consistent.
-    for (int i = 0; i <= segments; ++i) {
-        float a = kTwoPi * i / segments;
-        float cu = std::cos(a);
-        float su = std::sin(a);
-        PushVtx(m, outerRadius * cu, 0.0f, outerRadius * su, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f); // outer = 2i
-        PushVtx(m, innerRadius * cu, 0.0f, innerRadius * su, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f); // inner = 2i+1
-    }
-    for (int i = 0; i < segments; ++i) {
-        uint16_t o0 = static_cast<uint16_t>(2 * i);
-        uint16_t i0 = static_cast<uint16_t>(2 * i + 1);
-        uint16_t o1 = static_cast<uint16_t>(2 * (i + 1));
-        uint16_t i1 = static_cast<uint16_t>(2 * (i + 1) + 1);
-        m.indices.push_back(o0);
-        m.indices.push_back(i0);
-        m.indices.push_back(i1);
-        m.indices.push_back(o0);
-        m.indices.push_back(i1);
-        m.indices.push_back(o1);
-    }
-    return m;
-}
-
 // Shared cylinder-side builder for the pillar core/fog: axis along +Y, y in [0,height].
 static WayfinderMesh BuildCylinderSide(float radius, float height, int segments)
 {
@@ -409,6 +376,53 @@ WayfinderMesh WayfinderGeometry::CreateAlignmentFrame(float width, float height,
         m.indices.push_back(o0);
         m.indices.push_back(i1);
         m.indices.push_back(o1);
+    }
+    return m;
+}
+
+// Water drop: low-poly UV sphere centered at origin, radius `radius`. (segments+1) longitude
+// vertices × (stacks+1) latitude rings (poles included). uv.x = longitude (0..1, seam-aware via
+// the duplicated segments+1 column), uv.y = latitude with 0 at the south pole / 1 at the north
+// pole so the FLOW shader's vertical sweep paints pearl colors from bottom up.
+WayfinderMesh WayfinderGeometry::CreateWaterDrop(float radius, int segments, int stacks)
+{
+    WayfinderMesh m;
+    if (segments < 6) {
+        segments = 6;
+    }
+    if (stacks < 4) {
+        stacks = 4;
+    }
+    for (int i = 0; i <= stacks; ++i) {
+        // phi = 0 at south pole → kPi at north pole. y = -radius..+radius.
+        float v = static_cast<float>(i) / static_cast<float>(stacks);
+        float phi = v * kPi;
+        float y = -std::cos(phi) * radius;
+        float r = std::sin(phi) * radius;
+        for (int j = 0; j <= segments; ++j) {
+            float u = static_cast<float>(j) / static_cast<float>(segments);
+            float theta = u * kTwoPi;
+            float x = r * std::cos(theta);
+            float z = r * std::sin(theta);
+            // Normal = position / radius (outward). uv.y = v (0 bottom → 1 top), uv.x = u (seam).
+            float invR = (radius > 1e-6f) ? (1.0f / radius) : 1.0f;
+            PushVtx(m, x, y, z, x * invR, y * invR, z * invR, u, v);
+        }
+    }
+    int stride = segments + 1;
+    for (int i = 0; i < stacks; ++i) {
+        for (int j = 0; j < segments; ++j) {
+            uint16_t a = static_cast<uint16_t>(i * stride + j);
+            uint16_t b = static_cast<uint16_t>((i + 1) * stride + j);
+            uint16_t c = static_cast<uint16_t>(i * stride + j + 1);
+            uint16_t d = static_cast<uint16_t>((i + 1) * stride + j + 1);
+            m.indices.push_back(a);
+            m.indices.push_back(b);
+            m.indices.push_back(c);
+            m.indices.push_back(c);
+            m.indices.push_back(b);
+            m.indices.push_back(d);
+        }
     }
     return m;
 }

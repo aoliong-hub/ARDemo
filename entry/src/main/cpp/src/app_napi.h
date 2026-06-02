@@ -114,6 +114,9 @@ public:
     // 0 = PORTRAIT, 1 = LANDSCAPE_CW (camRoll≤-45°), 2 = LANDSCAPE_CCW (camRoll≥+45°).
     // ArkTS reads this to decide whether to rotate the captured JPEG before sending to da3.
     virtual int32_t GetOrientation() const { return 0; }
+    // 标定工具:同步读取最近一帧的相机姿态。out[7] = qx,qy,qz,qw,px,py,pz。默认 stub 返回 false。
+    virtual bool GetLatestCamRawPose(float out[7]) { (void)out; return false; }
+    virtual bool GetLatestCamDispPose(float out[7]) { (void)out; return false; }
 
     // Da3 capture hand-off. Default stubs are no-ops / "not ready" so non-RingHunt scenes do not
     // need to opt in. RequestCapture flips a flag the render path drains on its next frame;
@@ -122,6 +125,17 @@ public:
     virtual void RequestCapture() {}
     virtual bool IsFrameReady() const { return false; }
     virtual bool TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH)
+    {
+        (void)outRGBA;
+        (void)outW;
+        (void)outH;
+        return false;
+    }
+    // 拍照"纯净帧"抓取:同 RequestCapture 套路,但 glReadPixels 在 wayfinder Render 之前,所以
+    // 抓到的 framebuffer 只含相机背景,没有信标/炫彩圈/对齐框等 AR 物体。功能 6 拍照入相册用。
+    virtual void RequestCleanCapture() {}
+    virtual bool IsCleanFrameReady() const { return false; }
+    virtual bool TakeCleanFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH)
     {
         (void)outRGBA;
         (void)outW;

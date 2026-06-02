@@ -35,14 +35,17 @@ public:
     void Init();
     void Release();
 
-    // Render the beacon. huntPhase 0 = APPROACHING (full wayfinder); 1/2 = ALIGNING/LOCKED (ground
-    // ring with stronger breathing + the 6DoF alignment frame at the beacon top, oriented by
-    // frameOrientation). frameHueTime drives the frame's hue rotation (frozen by the caller when
-    // LOCKED). Other params as before: color (distance red->mint), animTime (s), distance (m).
+    // Render the beacon. badgeFadeProgress ∈ [0, 1] smoothly crossfades the badge/pillar group out
+    // and the alignment-frame/arrow group in as the user approaches (<30cm) — caller advances it
+    // over 2s on both directions, replacing the old huntPhase 0↔1 hard switch. huntPhase still
+    // drives the alignment frame's hue freeze (LOCKED) via frameHueTime.
+    // animAge: seconds since placeRingAt fired this beacon's anchor. <1.3 plays the staged drop
+    // sequence (badge fade-in / water drop falling / ground ring popping in); ≥1.3 is steady state
+    // (badgeFadeProgress takes over).
     void Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                 const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance, int huntPhase,
                 const glm::quat &frameOrientation, float frameHueTime, bool isAligned, float deltaTime,
-                float ringHeight);
+                float ringHeight, float badgeFadeProgress, float animAge);
 
 private:
     void DrawSolid(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase,
@@ -50,10 +53,13 @@ private:
     void DrawLines(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alpha);
     // Volumetric-noise fog: alphaBase is the fog's base alpha; time scrolls the noise upward.
     void DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase, float time);
-    // Alignment frame: pink->purple->blue gradient along uv.x, hue-rotated by hueTime.
-    void DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime);
+    // Alignment frame: pink->purple->blue gradient along uv.x, hue-rotated by hueTime. alphaMult
+    // multiplies the shader's baked 0.85 alpha (1.0 = full, 0 = invisible) so the caller can
+    // crossfade with the badge group.
+    void DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime, float alphaMult);
     // 3D arrow: lengthwise pink->purple->blue gradient + hue rotation; fades to green by aligned (0..1).
-    void DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned);
+    // alphaMult multiplies the shader's baked 1.0 alpha (used to crossfade with the badge group).
+    void DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned, float alphaMult);
     // Stage 12C iridescent flow: pearl orange/pink/purple/blue closed-loop swept by time along one
     // axis. axis=0 sweeps uv.x (circumferential — ground ring); axis=1 sweeps uv.y (vertical —
     // pillar core). alphaBase/alphaTop drive the per-vertex alpha gradient along uv.y.
@@ -85,6 +91,7 @@ private:
     GLuint mFrameProgram = 0;
     GLint mFrameMvp = -1;
     GLint mFrameTime = -1;
+    GLint mFrameAlphaMult = -1;
     GLint mFramePos = -1;
     GLint mFrameUv = -1;
 
@@ -93,6 +100,7 @@ private:
     GLint mArrowTime = -1;
     GLint mArrowAligned = -1;
     GLint mArrowOverride = -1;
+    GLint mArrowAlphaMult = -1;
     GLint mArrowPos = -1;
     GLint mArrowUv = -1;
 
@@ -120,6 +128,7 @@ private:
     WayfinderMesh mPhone;
     WayfinderMesh mAlignFrame;
     WayfinderMesh mArrow;
+    WayfinderMesh mWaterDrop;
 };
 
 } // namespace ARObject

@@ -173,6 +173,7 @@ constexpr char FRAME_FS[] = R"(
     precision mediump float;
     varying vec2 v_uv;
     uniform float u_time;
+    uniform float u_alphaMult;
     vec3 pearl(float t) {
         t = fract(t);
         vec3 c0 = vec3(1.00, 0.87, 0.76);
@@ -187,7 +188,7 @@ constexpr char FRAME_FS[] = R"(
     }
     void main() {
         vec3 col = pearl(v_uv.x + u_time * 0.15);
-        gl_FragColor = vec4(col, 0.85);
+        gl_FragColor = vec4(col, 0.85 * u_alphaMult);
     }
 )";
 
@@ -209,6 +210,7 @@ constexpr char ARROW_FS[] = R"(
     uniform float u_time;
     uniform float u_aligned;
     uniform vec3 u_override;
+    uniform float u_alphaMult;
     vec3 pearl(float t) {
         t = fract(t);
         vec3 c0 = vec3(1.00, 0.87, 0.76);
@@ -224,7 +226,7 @@ constexpr char ARROW_FS[] = R"(
     void main() {
         vec3 base = pearl(v_uv.y + u_time * 0.15);
         vec3 finalColor = mix(base, u_override, u_aligned);
-        gl_FragColor = vec4(finalColor, 1.0);
+        gl_FragColor = vec4(finalColor, u_alphaMult);
     }
 )";
 
@@ -232,7 +234,6 @@ const glm::vec3 kBadgeRingColor(0.70f, 0.70f, 0.74f); // gray rim
 const glm::vec3 kBadgeDiskColor(0.45f, 0.45f, 0.48f); // darker semi-transparent medallion
 const glm::vec3 kPhoneColor(1.0f, 1.0f, 1.0f);        // white wireframe
 constexpr float kBadgeSpinDegPerSec = 90.0f;          // badge rotation: 4s per revolution
-constexpr int kRippleCount = 3;                       // staggered expanding ground waves
 constexpr float kTwoPi = 6.28318530717958647692f;
 constexpr float kHalfPi = 1.57079632679489661923f;
 } // namespace
@@ -274,6 +275,7 @@ void WayfinderRenderer::Init()
     if (mFrameProgram) {
         mFrameMvp = glGetUniformLocation(mFrameProgram, "u_mvp");
         mFrameTime = glGetUniformLocation(mFrameProgram, "u_time");
+        mFrameAlphaMult = glGetUniformLocation(mFrameProgram, "u_alphaMult");
         mFramePos = glGetAttribLocation(mFrameProgram, "a_pos");
         mFrameUv = glGetAttribLocation(mFrameProgram, "a_uv");
     } else {
@@ -286,6 +288,7 @@ void WayfinderRenderer::Init()
         mArrowTime = glGetUniformLocation(mArrowProgram, "u_time");
         mArrowAligned = glGetUniformLocation(mArrowProgram, "u_aligned");
         mArrowOverride = glGetUniformLocation(mArrowProgram, "u_override");
+        mArrowAlphaMult = glGetUniformLocation(mArrowProgram, "u_alphaMult");
         mArrowPos = glGetAttribLocation(mArrowProgram, "a_pos");
         mArrowUv = glGetAttribLocation(mArrowProgram, "a_uv");
     } else {
@@ -319,6 +322,8 @@ void WayfinderRenderer::Init()
     // line AND a slightly bigger frame".
     mAlignFrame = WayfinderGeometry::CreateAlignmentFrame(0.075f, 0.15f, 0.0025f, 0.005f, 8);
     mArrow = WayfinderGeometry::CreateArrow3D();
+    // 放置序列动画用的水滴(默认 2.5cm 半径 = 5cm 直径)。FLOW shader 沿 uv.y 走 pearl 渐变。
+    mWaterDrop = WayfinderGeometry::CreateWaterDrop();
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
 
@@ -414,7 +419,7 @@ void WayfinderRenderer::DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh,
     glDisableVertexAttribArray(mFogUv);
 }
 
-void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime)
+void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime, float alphaMult)
 {
     if (mesh.indices.empty() || !mFrameProgram) {
         return;
@@ -423,6 +428,7 @@ void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mes
     glUseProgram(mFrameProgram);
     glUniformMatrix4fv(mFrameMvp, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniform1f(mFrameTime, hueTime);
+    glUniform1f(mFrameAlphaMult, alphaMult);
     glEnableVertexAttribArray(mFramePos);
     glEnableVertexAttribArray(mFrameUv);
     glVertexAttribPointer(mFramePos, 3, GL_FLOAT, GL_FALSE, 0, mesh.positions.data());
@@ -432,7 +438,7 @@ void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mes
     glDisableVertexAttribArray(mFrameUv);
 }
 
-void WayfinderRenderer::DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned)
+void WayfinderRenderer::DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned, float alphaMult)
 {
     if (mArrow.indices.empty() || !mArrowProgram) {
         return;
@@ -443,6 +449,7 @@ void WayfinderRenderer::DrawArrow(const glm::mat4 &mvp, float hueTime, float ali
     glUniform1f(mArrowTime, hueTime);
     glUniform1f(mArrowAligned, aligned);
     glUniform3f(mArrowOverride, 0.3f, 1.0f, 0.4f); // solid green when aligned
+    glUniform1f(mArrowAlphaMult, alphaMult);
     glEnableVertexAttribArray(mArrowPos);
     glEnableVertexAttribArray(mArrowUv);
     glVertexAttribPointer(mArrowPos, 3, GL_FLOAT, GL_FALSE, 0, mArrow.positions.data());
@@ -480,9 +487,16 @@ void WayfinderRenderer::DrawFlow(const glm::mat4 &mvp, const WayfinderMesh &mesh
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance,
                                int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
-                               float deltaTime, float ringHeight)
+                               float deltaTime, float ringHeight, float badgeFadeProgress, float animAge)
 {
+    (void)distance;   // 距离不再驱动渲染分支(被 badgeFadeProgress 取代),保留参数以维持 API
+    (void)huntPhase;  // phase 仍在 caller 端用于 frameHueTime/LOCKED 冻结;渲染层不再分支
     if (!mSolidProgram || !mLineProgram) {
+        return;
+    }
+    // animAge < 0 = 信标已放但用户还没看到 → 此帧不画任何东西(信标隐形等候)。一旦用户的相机
+    // 视野中扫到信标顶端,caller 把 animAge 切到 0,放置序列才从头演。这样用户绝不会错过动画。
+    if (animAge < 0.0f) {
         return;
     }
     glEnable(GL_DEPTH_TEST);
@@ -492,7 +506,7 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     glDisable(GL_CULL_FACE);
 
     // Arrow align transition (0 colorful+spinning -> 1 green+stopped over ~0.3s) + spin angle (3s/rev,
-    // slows to a stop as it greens). Advanced every frame; only drawn in ALIGNING/LOCKED below.
+    // slows to a stop as it greens). Advanced every frame; arrow only renders when frameAlpha>0 below.
     float target = isAligned ? 1.0f : 0.0f;
     mAlignedTransition += (target - mAlignedTransition) * (deltaTime / 0.3f);
     mAlignedTransition = glm::clamp(mAlignedTransition, 0.0f, 1.0f);
@@ -501,126 +515,152 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
 
     const glm::mat4 vp = proj * view;
     const glm::mat4 mvp = vp * wayfinderToWorld;
-    // Stage 12C: per-beacon ring height. The pillar meshes (core/fog/bloom) were built with a
-    // fixed kWayfinderTopHeight (0.9m); apply a Y-scale = ringHeight / 0.9 to stretch them so the
-    // glow runs from the floor up to the badge regardless of the requested height. Ground ring,
-    // ripples, badge, frame all use unscaled matrices (their positions are explicit anyway).
+    // Per-beacon ring height: stretch pillar meshes (built at kWayfinderTopHeight 0.9m) so the
+    // glow runs from floor to badge regardless of requested height. Ground ring + badge + frame
+    // use unscaled matrices (their positions are explicit).
     float pillarYScale = ringHeight / kWayfinderTopHeight;
     const glm::mat4 mvpPillar = vp * wayfinderToWorld * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, pillarYScale, 1.0f));
 
-    // === DIAG: 只在 huntPhase 切换时打印一次,让用户知道当前看到的是哪个视觉阶段。
-    //   0 = APPROACHING(显示 badge+phone+pillar,billboard+spin 自转,frame 不渲染)
-    //   1 = ALIGNING   (显示对齐框 alignFrame,吃 frameOrientation,roll 反应在这里)
-    //   2 = LOCKED     (同 ALIGNING,姿态冻结)
-    static int sLastHuntPhase = -1;
-    if (huntPhase != sLastHuntPhase) {
-        LOGI("ARDA3-CALIB huntPhase change %{public}d -> %{public}d", sLastHuntPhase, huntPhase);
-        sLastHuntPhase = huntPhase;
-    }
+    // ── 放置序列动画 0..1.3s + 稳态(≥1.3s)的 alpha/位置 调度 ──────────────────────────
+    //   stage 1 (0..0.3):  灰盘渐入(disk+rim+phone+bloom alpha 0→1)。柱子/水滴/地圈/对齐框不画
+    //   stage 2 (0.3..1.0):灰盘满。水滴从 y=ringHeight 直线下落到 y=0(地面)。柱子(雾+芯)同步淡入
+    //   stage 3 (1.0..1.3):水滴消失。炫彩地圈淡入(alpha 0→1)+ 涌起(scale 0.5→1.0 类水波涟漪)。柱子满
+    //   steady (>=1.3):    炫彩地圈常显;灰盘+柱子 ↔ 对齐框 由 badgeFadeProgress(30cm 距离)双向渐变
+    constexpr float kAnimGraceInSec = 0.30f;
+    constexpr float kAnimDropSec    = 0.70f;
+    constexpr float kAnimRingInSec  = 0.30f;
+    constexpr float kStage1End = kAnimGraceInSec;                                  // 0.30
+    constexpr float kStage2End = kAnimGraceInSec + kAnimDropSec;                   // 1.00
+    constexpr float kAnimTotal = kAnimGraceInSec + kAnimDropSec + kAnimRingInSec;  // 1.30
 
-    // ALIGNING (1) / LOCKED (2): hide the pillar/badge/ripple; show only the ground ring (with a
-    // stronger, faster breath) + the 6DoF alignment frame at the beacon top. The frame's hue is
-    // driven by frameHueTime, which the caller freezes once LOCKED.
-    if (huntPhase != 0) {
-        float bPhase = std::fmod(animTime, 0.8f) / 0.8f;
-        float bAlpha = 0.5f + 0.5f * (0.5f + 0.5f * std::sin(bPhase * kTwoPi - kHalfPi)); // 0.5..1.0
-        DrawSolid(mvp, mGround, color, 0.85f * bAlpha, 0.85f * bAlpha, true);
+    float groundAlphaMult = 1.0f;   // 炫彩地圈乘子
+    float groundScaleMult = 1.0f;   // 炫彩地圈尺度(stage 3 由 0.5→1.0,稳态恒 1)
+    float pillarAlphaMult = 1.0f;   // 柱(雾+芯)乘子
+    float badgeAlphaMult = 1.0f;    // 灰盘 group 乘子(disk+rim+phone+bloom)
+    float dropAlphaMult = 0.0f;     // 水滴乘子(仅 stage 2 出现)
+    float dropY = 0.0f;             // 水滴 y(local space,从 ringHeight 线性落到 0)
+    float frameAlphaMult = 0.0f;    // 对齐框 + 3D 箭头乘子
 
-        glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
-        glm::mat4 frameRot = glm::mat4_cast(frameOrientation);
-        // Stage 12C-batch3: scale the alignment frame by 1.2× on the model matrix (the arrow
-        // stays unscaled). Combined with the halved mesh thickness, the on-screen line is finer
-        // and the frame is slightly bigger.
-        glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot
-                               * glm::scale(glm::mat4(1.0f), glm::vec3(1.2f));
-        DrawFrame(vp * frameModel, mAlignFrame, frameHueTime);
+    if (animAge < kStage1End) {
+        // Stage 1:灰盘渐入
+        float t = (kAnimGraceInSec > 1e-6f) ? (animAge / kAnimGraceInSec) : 1.0f;
+        groundAlphaMult = 0.0f;
+        pillarAlphaMult = 0.0f;
+        badgeAlphaMult = glm::clamp(t, 0.0f, 1.0f);
+        dropAlphaMult = 0.0f;
+        frameAlphaMult = 0.0f;
+    } else if (animAge < kStage2End) {
+        // Stage 2:水滴下落 + 柱子渐入
+        float t = (animAge - kStage1End) / kAnimDropSec;  // 0→1
+        groundAlphaMult = 0.0f;
+        pillarAlphaMult = glm::clamp(t, 0.0f, 1.0f);
+        badgeAlphaMult = 1.0f;
+        dropAlphaMult = 1.0f;
+        dropY = ringHeight * (1.0f - glm::clamp(t, 0.0f, 1.0f));  // 顶端 → 地面
+        frameAlphaMult = 0.0f;
+    } else if (animAge < kAnimTotal) {
+        // Stage 3:炫彩地圈涌起
+        float t = (animAge - kStage2End) / kAnimRingInSec;  // 0→1
+        float tc = glm::clamp(t, 0.0f, 1.0f);
+        groundAlphaMult = tc;
+        groundScaleMult = glm::mix(0.5f, 1.0f, tc);  // 类水波涟漪从 50% → 100%
+        pillarAlphaMult = 1.0f;
+        badgeAlphaMult = 1.0f;
+        dropAlphaMult = 0.0f;
+        frameAlphaMult = 0.0f;
+    } else {
+        // Steady state:距离驱动 badgeFadeProgress(动画期不介入)
+        float ba = 1.0f - badgeFadeProgress;
+        groundAlphaMult = 1.0f;
+        groundScaleMult = 1.0f;
+        pillarAlphaMult = ba;
+        badgeAlphaMult = ba;
+        frameAlphaMult = badgeFadeProgress;
 
-        // 3D arrow protruding from the frame center along its facing normal (frameRot * -Z, baked
-        // into the geometry). It points the same way regardless of the spin; the spin only rotates
-        // the wings about the shaft (its own ±Z axis). Iridescent + spinning when unaligned; eases to
-        // solid green + still as you align.
-        glm::mat4 spinMat = glm::rotate(glm::mat4(1.0f), mSpinAngle, glm::vec3(0.0f, 0.0f, 1.0f));
-        glm::mat4 arrowMvp = vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * spinMat;
-        DrawArrow(arrowMvp, animTime, mAlignedTransition);
-
-        glDepthMask(GL_TRUE);
-        glUseProgram(0);
-        GLUtils::CheckError(__FILE_NAME__, __LINE__);
-        return;
-    }
-
-    // 1. ground ring (writes depth) — pearl iridescent flow swept circumferentially (axis=0). Breath
-    // alpha still pulses 0.7↔1.0 over 1.3s. Per-distance red/mint tint dropped: the pearl spectrum
-    // carries the visual now.
-    float breathPhase = std::fmod(animTime, 1.3f) / 1.3f;
-    float breathAlpha = 0.7f + 0.3f * (0.5f + 0.5f * std::sin(breathPhase * kTwoPi - kHalfPi));
-    DrawFlow(mvp, mGround, 0.85f * breathAlpha, 0.85f * breathAlpha, animTime, 0.0f, 0.25f, true);
-
-    // 2. ground ripple: expanding "water waves" on the floor that draw the eye from a DISTANCE.
-    // Three phase-staggered rings (50->100cm radius over 1.5s), fading as they expand. No depth
-    // write so they blend over the ground/background. Strength grows with distance (the beacon is
-    // already obvious up close): off within 0.5m, ramps 0.5->2m, constant 0.7 beyond.
-    float strength = glm::clamp((distance - 0.5f) / 1.5f, 0.0f, 0.7f);
-    if (strength > 0.01f) {
-        for (int k = 0; k < kRippleCount; ++k) {
-            float phase = std::fmod(animTime / 1.5f + static_cast<float>(k) / kRippleCount, 1.0f);
-            float inner = 0.50f + phase * 0.50f;
-            float outer = inner + 0.03f;
-            float a = strength * (1.0f - phase); // fade as the wave expands outward
-            WayfinderMesh ripple = WayfinderGeometry::CreateRippleRing(inner, outer);
-            DrawSolid(mvp, ripple, color, a, a * 0.25f, false);
+        // 周期性滴水:稳态 2.5s 循环(1.8s 静默 + 0.7s 下落)。drop alpha 跟 badgeAlphaMult,所以
+        // 走近 30cm 灰盘淡出时水滴一起淡出,远离时再恢复滴水。先静默后下落 ── 序列结束后让画面
+        // 喘一下再开始第一次重滴,节奏更自然。
+        constexpr float kDripCyclePeriodSec = 2.5f;
+        constexpr float kDripFallSec = 0.7f;
+        constexpr float kDripGapSec = kDripCyclePeriodSec - kDripFallSec;
+        float steadyAge = animAge - kAnimTotal;
+        float cycleT = std::fmod(steadyAge, kDripCyclePeriodSec);
+        if (cycleT >= kDripGapSec) {
+            float fallT = (cycleT - kDripGapSec) / kDripFallSec;  // 0→1
+            dropAlphaMult = badgeAlphaMult;
+            dropY = ringHeight * (1.0f - glm::clamp(fallT, 0.0f, 1.0f));
+        } else {
+            dropAlphaMult = 0.0f;
         }
     }
 
-    // 3. (pillar bloom halo removed per Stage 12C-batch3 brief — no external glow on pillar.)
-
-    // 4. pillar fog: volumetric noise scrolling upward, now colored by pearl(uv.y + time) inside
-    // the FOG_FS itself (u_color is ignored). DrawFog still passes color for API stability.
-    DrawFog(mvpPillar, mFog, color, 0.16f, animTime);
-
-    // 5. pillar core: pearl iridescent flow swept vertically (axis=1). Bright at base, vaporizes
-    // toward the top via per-vertex alpha gradient (alphaBase 0.60 → alphaTop 0.08).
-    DrawFlow(mvpPillar, mCore, 0.60f, 0.08f, animTime, 1.0f, 0.25f, true);
-
-    // 6. top badge: bloom + disk + rim + phone icon. Hybrid orientation:
-    //   - Y-axis (cylindrical) billboard frame: local +Y locked to worldUp → badge ALWAYS vertical
-    //     (no flipping flat when camera looks down). Local +Z initially points horizontally toward
-    //     the camera so the front face starts facing the user.
-    //   - World-Y spin (4s/revolution): rotates the whole frame around the vertical axis. Because
-    //     spin is applied AFTER billboard in the model matrix, it overrides the "face camera"
-    //     property — at 90°/270° you see the badge's edge, at 180° its back. Intentional: the spin
-    //     reads as "active beacon", trading the always-facing contract for visible motion.
-    glm::vec3 badgeWorldPos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
-    glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
-    glm::vec3 toCamHoriz(cameraPos.x - badgeWorldPos.x, 0.0f, cameraPos.z - badgeWorldPos.z);
-    float thLen = std::sqrt(toCamHoriz.x * toCamHoriz.x + toCamHoriz.z * toCamHoriz.z);
-    if (thLen > 1e-4f) {
-        toCamHoriz /= thLen;
-    } else {
-        // Camera directly above/below the badge — horizontal direction degenerate. Hold a fixed
-        // orientation (badge front along world +Z) so the spin axis stays stable.
-        toCamHoriz = glm::vec3(0.0f, 0.0f, 1.0f);
+    // ── 1. 炫彩地圈 ─────────────────────────────────────────────────────────────────
+    // Pearl iridescent flow, circumferential sweep (axis=0). Calm breath 0.7↔1.0 over 1.3s.
+    // 动画期 stage 3 用 groundScaleMult 涌起;稳态恒 1.0。
+    if (groundAlphaMult > 0.01f) {
+        float breathPhase = std::fmod(animTime, 1.3f) / 1.3f;
+        float breathAlpha = 0.7f + 0.3f * (0.5f + 0.5f * std::sin(breathPhase * kTwoPi - kHalfPi));
+        glm::mat4 groundMvp = vp * wayfinderToWorld
+                              * glm::scale(glm::mat4(1.0f), glm::vec3(groundScaleMult, 1.0f, groundScaleMult));
+        float ga = 0.85f * breathAlpha * groundAlphaMult;
+        DrawFlow(groundMvp, mGround, ga, ga, animTime, 0.0f, 0.25f, true);
     }
-    glm::vec3 right = glm::cross(worldUp, toCamHoriz); // already unit since worldUp ⊥ toCamHoriz
-    glm::mat4 billboard(1.0f); // pure rotation: initial "front faces camera horizontally" frame
-    billboard[0] = glm::vec4(right, 0.0f);
-    billboard[1] = glm::vec4(worldUp, 0.0f);
-    billboard[2] = glm::vec4(toCamHoriz, 0.0f);
-    glm::mat4 translate = glm::translate(glm::mat4(1.0f), badgeWorldPos);
-    glm::mat4 spin = glm::rotate(glm::mat4(1.0f), glm::radians(animTime * kBadgeSpinDegPerSec), glm::vec3(0, 1, 0));
-    const glm::mat4 badgeModel = translate * spin * billboard; // vertical signpost spinning around its Y axis
-    const glm::mat4 badgeMvp = vp * badgeModel;
 
-    // badge ring bloom (faint colored halo around the rim; no depth write)
-    DrawSolid(badgeMvp, mBadgeRingBloom, color, 0.22f, 0.0f, false);
-    // disk background (semi-transparent gray, writes depth so the rim/phone sit cleanly on it)
-    DrawSolid(badgeMvp, mBadgeDisk, kBadgeDiskColor, 0.55f, 0.55f, true);
-    // rim (gray) — rotates together with the disk + phone via the shared badgeMvp
-    DrawSolid(badgeMvp, mBadgeRing, kBadgeRingColor, 0.90f, 0.90f, true);
-    // phone wireframe (white lines), co-planar with the badge
-    DrawLines(badgeMvp, mPhone, kPhoneColor, 1.0f);
+    // ── 2. 柱(雾 + 芯)──────────────────────────────────────────────────────────────
+    if (pillarAlphaMult > 0.01f) {
+        DrawFog(mvpPillar, mFog, color, 0.16f * pillarAlphaMult, animTime);
+        DrawFlow(mvpPillar, mCore, 0.60f * pillarAlphaMult, 0.08f * pillarAlphaMult, animTime, 1.0f, 0.25f, true);
+    }
 
-    glDepthMask(GL_TRUE); // restore for the next frame's clear / other renderers
+    // ── 3. 灰盘 group(disk + rim + phone + bloom)──────────────────────────────────
+    if (badgeAlphaMult > 0.01f) {
+        glm::vec3 badgeWorldPos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
+        glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
+        glm::vec3 toCamHoriz(cameraPos.x - badgeWorldPos.x, 0.0f, cameraPos.z - badgeWorldPos.z);
+        float thLen = std::sqrt(toCamHoriz.x * toCamHoriz.x + toCamHoriz.z * toCamHoriz.z);
+        if (thLen > 1e-4f) {
+            toCamHoriz /= thLen;
+        } else {
+            toCamHoriz = glm::vec3(0.0f, 0.0f, 1.0f);
+        }
+        glm::vec3 right = glm::cross(worldUp, toCamHoriz);
+        glm::mat4 billboard(1.0f);
+        billboard[0] = glm::vec4(right, 0.0f);
+        billboard[1] = glm::vec4(worldUp, 0.0f);
+        billboard[2] = glm::vec4(toCamHoriz, 0.0f);
+        glm::mat4 translate = glm::translate(glm::mat4(1.0f), badgeWorldPos);
+        glm::mat4 spin = glm::rotate(glm::mat4(1.0f), glm::radians(animTime * kBadgeSpinDegPerSec), glm::vec3(0, 1, 0));
+        const glm::mat4 badgeModel = translate * spin * billboard;
+        const glm::mat4 badgeMvp = vp * badgeModel;
+
+        DrawSolid(badgeMvp, mBadgeRingBloom, color, 0.22f * badgeAlphaMult, 0.0f, false);
+        DrawSolid(badgeMvp, mBadgeDisk, kBadgeDiskColor, 0.55f * badgeAlphaMult, 0.55f * badgeAlphaMult, true);
+        DrawSolid(badgeMvp, mBadgeRing, kBadgeRingColor, 0.90f * badgeAlphaMult, 0.90f * badgeAlphaMult, true);
+        DrawLines(badgeMvp, mPhone, kPhoneColor, 1.0f * badgeAlphaMult);
+    }
+
+    // ── 4. 水滴 ─────────────────────────────────────────────────────────────────────
+    // Stage 2 出现,从 (信标基础位置)+(0, ringHeight, 0) 直线落到 (0,0,0)。pearl 沿 uv.y 流动。
+    if (dropAlphaMult > 0.01f) {
+        glm::mat4 dropMvp = vp * wayfinderToWorld * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, dropY, 0.0f));
+        float da = 0.85f * dropAlphaMult;
+        DrawFlow(dropMvp, mWaterDrop, da, da, animTime, 1.0f, 0.40f, true);
+    }
+
+    // ── 5. 对齐框 + 3D 箭头 group ──────────────────────────────────────────────────
+    if (frameAlphaMult > 0.01f) {
+        glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
+        glm::mat4 frameRot = glm::mat4_cast(frameOrientation);
+        glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot
+                               * glm::scale(glm::mat4(1.0f), glm::vec3(1.2f));
+        DrawFrame(vp * frameModel, mAlignFrame, frameHueTime, frameAlphaMult);
+
+        glm::mat4 spinMat = glm::rotate(glm::mat4(1.0f), mSpinAngle, glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::mat4 arrowMvp = vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * spinMat;
+        DrawArrow(arrowMvp, animTime, mAlignedTransition, frameAlphaMult);
+    }
+
+    glDepthMask(GL_TRUE);
     glUseProgram(0);
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
