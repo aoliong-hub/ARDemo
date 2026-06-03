@@ -59,6 +59,7 @@ static napi_value Init(napi_env env, napi_value exports)
          napi_default, nullptr},
         {"placeRingAt", nullptr, NapiManager::NapiPlaceRingAt, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setZoom", nullptr, NapiManager::NapiSetZoom, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setVisibleNdcY", nullptr, NapiManager::NapiSetVisibleNdcY, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setDisplayRotation", nullptr, NapiManager::NapiSetDisplayRotation, nullptr, nullptr, nullptr, napi_default,
          nullptr},
         {"getOrientation", nullptr, NapiManager::NapiGetOrientation, nullptr, nullptr, nullptr, napi_default, nullptr},

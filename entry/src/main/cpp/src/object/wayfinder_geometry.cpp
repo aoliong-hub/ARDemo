@@ -380,6 +380,28 @@ WayfinderMesh WayfinderGeometry::CreateAlignmentFrame(float width, float height,
     return m;
 }
 
+// Snap FX 炫彩薄膜:在 XY 平面 z=0 的填充矩形,与框几何同尺寸。2 三角形,4 顶点,uv (0..1)。
+// MEMBRANE shader 沿 uv.y 流 pearl,触发庆祝特效时从框内"涌出"。
+WayfinderMesh WayfinderGeometry::CreateAlignmentMembrane(float width, float height)
+{
+    WayfinderMesh m;
+    const float hw = width * 0.5f;
+    const float hh = height * 0.5f;
+    // 4 顶点:左下、右下、右上、左上;normal +Z。
+    PushVtx(m, -hw, -hh, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+    PushVtx(m,  hw, -hh, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
+    PushVtx(m,  hw,  hh, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
+    PushVtx(m, -hw,  hh, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f);
+    // 2 三角形(CCW from +Z 看):0-1-2,0-2-3。
+    m.indices.push_back(0);
+    m.indices.push_back(1);
+    m.indices.push_back(2);
+    m.indices.push_back(0);
+    m.indices.push_back(2);
+    m.indices.push_back(3);
+    return m;
+}
+
 // Water drop: low-poly UV sphere centered at origin, radius `radius`. (segments+1) longitude
 // vertices × (stacks+1) latitude rings (poles included). uv.x = longitude (0..1, seam-aware via
 // the duplicated segments+1 column), uv.y = latitude with 0 at the south pole / 1 at the north

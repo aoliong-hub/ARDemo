@@ -788,6 +788,33 @@ napi_value NapiManager::NapiSetZoom(napi_env env, napi_callback_info info)
     return nullptr;
 }
 
+// Phase 2 — ArkTS push 可见区 NDC y 边界(跨机型)。args: (id, centerY, halfExtent)。Renderer 用
+// centerY 做 clip-space 框居中,fillRatio 判据用 halfExtent 做纵向归一。
+napi_value NapiManager::NapiSetVisibleNdcY(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiSetVisibleNdcY");
+    size_t argc = 3;
+    napi_value args[3] = {nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    napi_valuetype t1 = napi_undefined;
+    napi_valuetype t2 = napi_undefined;
+    if (argc >= 3) {
+        napi_typeof(env, args[1], &t1);
+        napi_typeof(env, args[2], &t2);
+    }
+    if (app == nullptr || argc < 3 || t1 != napi_number || t2 != napi_number) {
+        return nullptr;
+    }
+    double centerY = 0.0;
+    double halfExtent = 1.0;
+    napi_get_value_double(env, args[1], &centerY);
+    napi_get_value_double(env, args[2], &halfExtent);
+    app->SetVisibleNdcY(static_cast<float>(centerY), static_cast<float>(halfExtent));
+    return nullptr;
+}
+
 // setDisplayRotation(id, rotation): ArkTS 监听 display.on('change') 后回喂当前的 rotation 值
 // (display.getDefaultDisplaySync().rotation: 0/1/2/3)。非 number → silent no-op。
 napi_value NapiManager::NapiSetDisplayRotation(napi_env env, napi_callback_info info)
@@ -1045,9 +1072,19 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     float targetYawDeg = 0.0f;
     float targetPitchDeg = 0.0f;
     float targetRollDeg = 0.0f;
+    // 重构(2026-06-03)— 新增字段:
+    //   isAngleAligned + fillRatio(Phase 2)
+    //   snapReady + snapHoldSec(1.5s 持续门 — 调试浮层显示倒计时,UI 不依赖)
+    bool isAngleAligned = false;
+    float fillRatio = 0.0f;
+    bool snapReady = false;
+    float snapHoldSec = 0.0f;
+    float cGraceSec = 0.0f;
+    float fillRatioRaw = 0.0f;
     app->GetRingState(distance, ringPlaced, finishState, isTargetInView, screenEdgeX, screenEdgeY, isBehind,
                       indicatorAngleDeg, ndcX, ndcY, huntPhase, yawDiffRad, pitchDiffRad, rollDiffRad, isAligned,
-                      isLocked, targetYawDeg, targetPitchDeg, targetRollDeg);
+                      isLocked, targetYawDeg, targetPitchDeg, targetRollDeg, isAngleAligned, fillRatio,
+                      snapReady, snapHoldSec, cGraceSec, fillRatioRaw);
 
     napi_value result = nullptr;
     napi_create_object(env, &result);
@@ -1108,6 +1145,25 @@ napi_value NapiManager::NapiGetRingState(napi_env env, napi_callback_info info)
     napi_set_named_property(env, result, "targetYawDeg", vTYaw);
     napi_set_named_property(env, result, "targetPitchDeg", vTPitch);
     napi_set_named_property(env, result, "targetRollDeg", vTRoll);
+    // 重构 — 新字段。
+    napi_value vAngleAligned = nullptr;
+    napi_value vFill = nullptr;
+    napi_value vSnapReady = nullptr;
+    napi_value vSnapHoldSec = nullptr;
+    napi_value vCGraceSec = nullptr;
+    napi_value vFillRaw = nullptr;
+    napi_get_boolean(env, isAngleAligned, &vAngleAligned);
+    napi_create_double(env, static_cast<double>(fillRatio), &vFill);
+    napi_get_boolean(env, snapReady, &vSnapReady);
+    napi_create_double(env, static_cast<double>(snapHoldSec), &vSnapHoldSec);
+    napi_create_double(env, static_cast<double>(cGraceSec), &vCGraceSec);
+    napi_create_double(env, static_cast<double>(fillRatioRaw), &vFillRaw);
+    napi_set_named_property(env, result, "isAngleAligned", vAngleAligned);
+    napi_set_named_property(env, result, "fillRatio", vFill);
+    napi_set_named_property(env, result, "snapReady", vSnapReady);
+    napi_set_named_property(env, result, "snapHoldSec", vSnapHoldSec);
+    napi_set_named_property(env, result, "cGraceSec", vCGraceSec);
+    napi_set_named_property(env, result, "fillRatioRaw", vFillRaw);
     return result;
 }
 

@@ -62,6 +62,7 @@ public:
     static napi_value NapiPlaceRingAt(napi_env env, napi_callback_info info);
     static napi_value NapiSetZoom(napi_env env, napi_callback_info info);
     static napi_value NapiSetDisplayRotation(napi_env env, napi_callback_info info);
+    static napi_value NapiSetVisibleNdcY(napi_env env, napi_callback_info info);
     static napi_value NapiGetOrientation(napi_env env, napi_callback_info info);
     static napi_value NapiGetLatestCamRawPose(napi_env env, napi_callback_info info);
     static napi_value NapiGetLatestCamDispPose(napi_env env, napi_callback_info info);

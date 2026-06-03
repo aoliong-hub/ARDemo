@@ -72,11 +72,25 @@ struct ARRingHuntCam {
   @State yawDiffRad: number = 0;
   @State pitchDiffRad: number = 0;
   @State rollDiffRad: number = 0;
+  // 重构(2026-06-03)— isAligned 现在 = (huntPhase == 1) = "吸附会话激活"。
+  //   触发链:snapReady(瞬时) → 持续 1.5s → snapTriggered → phase 0→1 → isAligned 0→1 → 吸附特效 + snappedOnce
+  //   修旧 bug:之前 isAligned=snapReady 比 phase 早 0.3s,ArkTS 的 phase==1 守门永远 miss → HUD 不出
   @State isAligned: boolean = false;
+  @State isAngleAligned: boolean = false;
+  @State fillRatio: number = 0;     // EMA 平滑后,过头提示 (>1.0) 用
   @State isLocked: boolean = false;
   private prevLocked: boolean = false;
   // 进 30cm 边缘检测:huntPhase 上一帧值。0→1 切换时触发一次短震(第一阶段完成,进对齐阶段)。
   private prevHuntPhase: number = 0;
+  // Phase 3 ④ — 吸附 + 两阶段 HUD 时序:
+  //   snappedOnce: 本次进 30cm 是否已经吸附过(isAligned 0→1 边缘 → true,phase 1→0 重置 false)。
+  //   hudOpacity: AlignHUD(L 括 + 炫彩点)的 opacity,吸附后 200ms 延迟淡入,LOCKED 或走出时 200ms 淡出。
+  //   prevIsAligned: 上一帧 isAligned 值,用于检测 0→1 边缘触发 snap。
+  //   hudShowTimer: 200ms 延迟 setTimeout 句柄(用户在延迟期间走开时要 clear 掉,避免乱出 HUD)。
+  @State private snappedOnce: boolean = false;
+  @State private hudOpacity: number = 0;
+  private prevIsAligned: boolean = false;
+  private hudShowTimer: number = -1;
   // LOCKED banner 显示控制:进 LOCKED 时 opacity=1,2s 后 animateTo 淡出到 0。reset/离开 LOCKED
   // 清掉计时器和 opacity。再次进 LOCKED 计时重置(重新显示 2s)。
   @State lockedBannerOpacity: number = 0;
@@ -246,6 +260,30 @@ struct ARRingHuntCam {
     return Math.max(0, this.screenHvp - this.viewportBottom());
   }
 
+  // Phase 2 — 把"可见区 NDC y 边界"算出来 push 给 native。
+  //   render 帧 y 映射到 NDC:y=0(FB 顶)→ ndc=+1;y=screenHvp×density(FB 底)→ ndc=-1。
+  //   可见区上下边在 vp:vp_top=viewportTop;vp_bot=viewportTop+viewportH。
+  //   用 vp 比例 → NDC y(不用 density,直接 vp/screenHvp 算分数,等价同除以 density)。
+  // Native 用:center → renderer clip-space y shift(框居中可见区);halfExtent → fillRatio 判据归一。
+  // 每次 onAreaChange 后调用(布局变化自适应跨机型 / 折叠屏 / 系统 UI 变化)。
+  private pushVisibleNdcY(): void {
+    const sh: number = Math.max(1, this.screenHvp);
+    const topFrac: number = this.viewportTop / sh;
+    const bottomFrac: number = (this.viewportTop + this.viewportH()) / sh;
+    const topNdc: number = 1 - 2 * topFrac;
+    const bottomNdc: number = 1 - 2 * bottomFrac;
+    const centerY: number = (topNdc + bottomNdc) / 2;
+    const halfExtent: number = (topNdc - bottomNdc) / 2;
+    try {
+      arEngineDemo.setVisibleNdcY(this.idStr, centerY, halfExtent);
+      Logger.info(`ARDA3-LAYOUT setVisibleNdcY center=${centerY.toFixed(4)} halfExt=${halfExtent.toFixed(4)} ` +
+                  `sh=${sh}vp viewportTop=${this.viewportTop} viewportH=${this.viewportH()}`);
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.warn(`ARDA3-LAYOUT setVisibleNdcY FAIL: code=${err.code} msg=${err.message}`);
+    }
+  }
+
   private clamp(v: number, lo: number, hi: number): number {
     if (v < lo) {
       return lo;
@@ -393,7 +431,9 @@ struct ARRingHuntCam {
   // gradient is the actual fix the brief asked for.
   @Builder
   private bracketLine(w: number, h: number, tx: number, ty: number): void {
-    if (this.isAligned) {
+    // 重构(2026-06-03)— HUD 视觉的 "in gate" 反馈用 angleAligned(yaw+pitch 5°↔7°),不再用 isAligned
+    // (现 isAligned 指 snapReady,框填满就 true,但角度可能还没对)。HUD 引导的是角度,所以视觉用角度门。
+    if (this.isAngleAligned) {
       Column()
         .width(w).height(h)
         .linearGradient({
@@ -445,9 +485,16 @@ struct ARRingHuntCam {
     this.pitchDiffRad = 0;
     this.rollDiffRad = 0;
     this.isAligned = false;
+    this.isAngleAligned = false;
+    this.fillRatio = 0;
     this.isLocked = false;
     this.prevLocked = false;
     this.prevHuntPhase = 0;
+    // Phase 3 ④ — 重置 snap + HUD 状态(beacon reset 时立即清,不走动画)。
+    this.snappedOnce = false;
+    this.prevIsAligned = false;
+    this.clearHudShowTimer();
+    this.hudOpacity = 0;
     this.hideLockedBanner();
     this.resetGuidance();
   }
@@ -522,6 +569,41 @@ struct ARRingHuntCam {
   // v13 (d) — request a single frame from native, poll isFrameReady every 50ms (cap 1s), then
   // wrap the RGBA bytes in a PixelMap and pack JPEG q92. Persists a copy under filesDir for
   // post-hoc verification ("hdc file recv files/cap_*.jpg .").
+  // Phase 3(2026-06-02)统一 crop:把抓的完整渲染帧(1256×2526,1:2)裁成用户实际看到的可见区
+  // (1256×1680,3:4),去掉顶 147px + 底 700px(ArkUI 黑条遮罩位置)。所有出图(da3 generate /
+  // da3 getGuide / 拍照存图库 / 标定工具)都走这一层,保证发出去的图 = 用户看到的画面。
+  //
+  // ★ 必须在 pm.rotate(扶正)之前调用!理由:可见区 strip 在"App XComponent 竖屏坐标系"里是固定
+  //   的(顶 147 + 底 700),不随物理朝向变。先 crop(始终同一对边)再 rotate 扶正,数学最简
+  //   单也不会算错。crop+rotate 后,各朝向产生的可见区相对最终图像的边:
+  //     ori=0 (PORTRAIT,不旋转):       裁 raw 顶 147 + 底 700 → 1256×1680 输出
+  //     ori=1 (LANDSCAPE_CW,旋 90°):    底带 700 → 输出 LEFT,顶带 147 → 输出 RIGHT,输出 1680×1256
+  //     ori=2 (LANDSCAPE_CCW,旋 270°):  顶带 147 → 输出 LEFT,底带 700 → 输出 RIGHT,输出 1680×1256
+  //     ori=3 (FLIP 180°,旋 180°):     底带 700 → 输出 TOP,顶带 147 → 输出 BOTTOM,输出 1256×1680
+  //   ↑ 所有朝向最终图都是 3:4 的可见区内容(da3/相册看到的就是用户看到的)。
+  //
+  // 边界比例从 ArkUI 布局推:viewportTop / viewportH 都是 vp;screenHvp 是 XComponent 的 vp 高;
+  // 把"vp 比例"乘以 rawH(px)就拿到 px 坐标。不依赖具体 density,只用比例,跨机型自适应。
+  private async cropToVisibleRegion(pm: image.PixelMap): Promise<void> {
+    try {
+      const info: image.ImageInfo = await pm.getImageInfo();
+      const rawW: number = info.size.width;
+      const rawH: number = info.size.height;
+      const screenH_vp: number = Math.max(1, this.screenHvp);
+      const visTop_px: number = Math.round((this.viewportTop / screenH_vp) * rawH);
+      const visH_px: number = Math.round((this.viewportH() / screenH_vp) * rawH);
+      if (visH_px <= 0 || visTop_px < 0 || visTop_px + visH_px > rawH) {
+        Logger.warn(`ARDA3-CROP region invalid top=${visTop_px} h=${visH_px} raw=${rawW}x${rawH} — skip`);
+        return;
+      }
+      await pm.crop({ x: 0, y: visTop_px, size: { width: rawW, height: visH_px } });
+      Logger.info(`ARDA3-CROP visible y=${visTop_px} h=${visH_px} → ${rawW}x${visH_px} (raw ${rawW}x${rawH})`);
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.warn(`ARDA3-CROP failed code=${err.code} msg=${err.message}`);
+    }
+  }
+
   private captureJpeg(): Promise<ArrayBuffer | null> {
     return new Promise<ArrayBuffer | null>((resolve: (v: ArrayBuffer | null) => void) => {
       arEngineDemo.captureFrame(this.idStr);
@@ -559,6 +641,8 @@ struct ARRingHuntCam {
           editable: true
         };
         image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
+          // Phase 3 — 先裁到可见区(去掉黑条遮挡的顶 + 底),再按朝向扶正。详见 cropToVisibleRegion。
+          await this.cropToVisibleRegion(pm);
           // 按 native 报告的物理朝向把图旋正,让 da3 收到的图和用户视觉构图一致。
           // 0=PORTRAIT(不转), 1=LANDSCAPE_CW(顺时针横拿,把图逆时针 90° → da3 看到横画布), 2=LANDSCAPE_CCW(反向)。
           const ori: number = arEngineDemo.getOrientation(this.idStr);
@@ -739,6 +823,8 @@ struct ARRingHuntCam {
           editable: true
         };
         image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
+          // Phase 3 — 先裁可见区再扶正(照片 = 用户看到的)。详见 cropToVisibleRegion。
+          await this.cropToVisibleRegion(pm);
           const ori: number = arEngineDemo.getOrientation(this.idStr);
           try {
             if (ori === 1) { await pm.rotate(90); }
@@ -836,6 +922,20 @@ struct ARRingHuntCam {
       const saved: boolean = await this.savePhotoToGallery(jpeg);
       if (saved) {
         this.toast('已保存到相册');
+        // ★ 拍照成功后(2026-06-03)全场景重置:走完引导流程到 D 拍照后,清空回初始态。
+        //   清:信标锚点 / 灰盘 / 炫彩框 / HUD / snap 状态;da3 会话(sessionTaskId / refImage / targetJpeg);
+        //   ★机位引导图卡片(2026-06-03 追加):滑下隐藏 + 退 AI 模式,回初始干净态。
+        //   不清:zoom(用户主动控制的)。
+        this.resetSceneOnly();
+        this.refHolder.image = undefined;
+        this.targetJpeg = undefined;
+        this.sessionTaskId = '';
+        // 卡片滑下隐藏:动画 panelHeight → 0,然后退出 AI 模式(chrome 恢复全尺寸)。
+        // 复用现有 animatePanelHeightTo(0) 动画,300ms ease-out,和 chevron 收起一致。
+        this.animatePanelHeightTo(0);
+        this.cardExpanded = false;
+        this.panelExpanded = false;
+        Logger.info('ARDA3-CAPTURE photo saved → full reset (scene + da3 session + card)');
       } else {
         this.toast('保存失败,查日志');
       }
@@ -874,6 +974,50 @@ struct ARRingHuntCam {
       this.lockedBannerTimer = -1;
     }
     this.lockedBannerOpacity = 0;
+  }
+
+  // Phase 3 ④ — 吸附触发:三重门 aligned 首次 0→1 瞬间,触发震动 + 200ms 后淡入 HUD。
+  //   native 端框已经在自己跑 snap 弹性动画(lockProgress 弹簧 + pulseScale 衰减) — ArkTS 这边只
+  //   管 (1) 震动反馈;(2) snappedOnce 标记;(3) 延迟 200ms 让 snap 弹性先演完,再淡入 HUD(精调阶段)。
+  private onSnapTrigger(): void {
+    if (this.snappedOnce) {
+      return; // 同一轮 ALIGNING 期只 snap 一次,后续 aligned 抖动不重复
+    }
+    this.snappedOnce = true;
+    this.triggerShortVibration(); // 80ms 中震 — 吸附里程碑,比拍照轻震(30ms)更明显
+    this.clearHudShowTimer();
+    // Snap FX(2026-06-03)— 0.9s 庆祝特效播完之后再淡入 HUD(炫彩膜 + 闪白 + 涌出取景框 + 消失)。
+    // 之前 200ms 是给"简单弹性 snap + 颜色变化"留时间;现在升级为 4 阶段大特效(总 0.9s),HUD 延迟同步抬到 900ms。
+    this.hudShowTimer = setTimeout(() => {
+      animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+        this.hudOpacity = 1;
+      });
+      this.hudShowTimer = -1;
+    }, 900);
+  }
+
+  // Phase 3 ④ — 走出 30cm(phase 1→0)或进 LOCKED(phase 1→2):平滑淡出 HUD。
+  //   走出 30cm 时:snappedOnce 清零(下一轮进 30cm 重新走"接近→吸附"流程);
+  //   LOCKED 时:不清 snappedOnce(用户已对齐成功,banner 上来),HUD 直接淡出。
+  private fadeHudOut(resetSnapped: boolean): void {
+    this.clearHudShowTimer();
+    if (resetSnapped) {
+      this.snappedOnce = false;
+    }
+    if (this.hudOpacity > 0.01) {
+      animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+        this.hudOpacity = 0;
+      });
+    } else {
+      this.hudOpacity = 0;
+    }
+  }
+
+  private clearHudShowTimer(): void {
+    if (this.hudShowTimer >= 0) {
+      clearTimeout(this.hudShowTimer);
+      this.hudShowTimer = -1;
+    }
   }
 
   // 拍照黑闪:opacity 立即拉到 1(覆盖屏幕)→ 80ms 后开始 150ms 淡出。总 230ms 视觉反馈。
@@ -1245,6 +1389,8 @@ struct ARRingHuntCam {
           editable: true
         };
         image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
+          // Phase 3 — 与正常 captureJpeg 完全同一套裁切+旋转,标定 ↔ 线上路径喂 da3 的图字节一致。
+          await this.cropToVisibleRegion(pm);
           // 与正常 captureJpeg 完全同一套旋转策略(实测对调:CW=90,CCW=270;FLIP=180)。
           const ori: number = arEngineDemo.getOrientation(this.idStr);
           try {
@@ -1473,15 +1619,19 @@ struct ARRingHuntCam {
               }
               // huntPhase 1→0 边缘 = 走出 30cm → 卡片自动收起(回到找信标状态,让出取景空间)。
               // 仅在展开状态下收起。中间用户手动点 chevron 收/展不受影响,30cm 区间内自由。
+              // Phase 3 ④ — 同时清吸附状态 + 淡出 HUD(回到 pearl 自由流彩状态,下次进 30cm 重新走"接近→吸附")。
               if (s.huntPhase === 0 && this.prevHuntPhase === 1) {
                 if (this.cardExpanded) {
                   this.toggleCard();
                 }
+                this.fadeHudOut(true);  // resetSnapped=true,允许下次重新 snap
               }
-              // LOCKED banner 边缘:进 2 → 显示 2s 后淡出;离开 2 → 立即隐藏(为下次进 LOCKED 准备)。
-              // 注:phase 1→2(LOCKED)只动 banner,不动卡片(保持对齐时展开状态)。
+              // LOCKED banner 边缘:进 2 (C→D) → 显示 2s 后淡出;离开 2 → 立即隐藏(为下次进 D 准备)。
+              // 注:phase 1→2(C→D)只动 banner,不动 HUD(用户可能 D→C 再回,HUD 要在 D/C 都可见,
+              // 用户在 D 状态仍然能看炫彩点判断角度;角度 > 10° 才真正解锁回 B,由 isAligned 1→0 处理 HUD 淡出)。
               if (s.huntPhase === 2 && this.prevHuntPhase !== 2) {
                 this.showLockedBanner();
+                // ★ 不调 fadeHudOut(false) — D 状态保留 HUD,用户角度回 5°-10° (D→C) 时 HUD 还在
               } else if (s.huntPhase !== 2 && this.prevHuntPhase === 2) {
                 this.hideLockedBanner();
               }
@@ -1490,7 +1640,22 @@ struct ARRingHuntCam {
               this.yawDiffRad = s.yawDiffRad;
               this.pitchDiffRad = s.pitchDiffRad;
               this.rollDiffRad = s.rollDiffRad;
+              // 重构(2026-06-03 状态机 A/B/C/D)— isAligned 现在 = snapped(sticky 标志):
+              //   B→C 边缘 0→1 = snapReady 持续 1.5s 后 snap 触发。震动 + 900ms 后淡入 HUD。
+              //   C/D→B 边缘 1→0 = 角度 > 10° 解锁(或走出 30cm)。HUD 立刻淡出,snappedOnce 重置。
+              //   D↔C 之间(phase 变 1↔2)不影响 isAligned。
+              if (s.isAligned && !this.prevIsAligned) {
+                this.onSnapTrigger();
+              }
+              // ★ 问题 2 修(2026-06-03):C/D→B 角度解锁,需要立刻 HUD 淡出 + snappedOnce 重置。
+              //   原 fadeHudOut 只在 phase 1→0 触发,但 C→B 时 phase 还在 1(没出 30cm),所以漏触发。
+              if (!s.isAligned && this.prevIsAligned) {
+                this.fadeHudOut(true); // resetSnapped=true,允许下次 fill 持续 1.5s 后重新 snap
+              }
+              this.prevIsAligned = s.isAligned;
               this.isAligned = s.isAligned;
+              this.isAngleAligned = s.isAngleAligned;
+              this.fillRatio = s.fillRatio;
               this.isLocked = s.isLocked;
               if (this.isLocked && !this.prevLocked) {
                 this.triggerShortVibration();
@@ -1661,16 +1826,58 @@ struct ARRingHuntCam {
             .hitTestBehavior(HitTestMode.None)
           }
 
+          // 重构(2026-06-03)— "过头"提示:bbox fillRatio > 1.0 = 框超出取景框(用户走太近)。
+          // 引导用户后退,直到框回到可见区内(fill ≤ 1.0,在吸附区间 [0.90, 1.0])。
+          // LOCKED 后不显示(已对齐完成)。位置紧贴距离 pill 下方(距顶 76vp ≈ pill 高 + 间距)。
+          if (this.ringPlaced && this.fillRatio > 1.0 && this.huntPhase !== 2) {
+            Row() {
+              Text('请退后一点 (取景框已被超出)')
+                .fontSize(FontSize.hud)
+                .fontColor('#FFFFCC66')
+                .fontWeight(FontWeight.Medium)
+                .backgroundColor(Palette.glass)
+                .padding({ left: Spacing.M, right: Spacing.M, top: Spacing.S, bottom: Spacing.S })
+                .borderRadius(Radius.M)
+            }
+            .id('overshootHint')
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .position({ x: 0, y: 76 })
+            .hitTestBehavior(HitTestMode.None)
+          }
+
+          // 修(2026-06-03)— "拿反"提示:dist<30cm 但 yaw > 90° = 用户朝向反了(看框背面)。
+          // 引导用户转向目标。条件:在 30cm 内 + |yaw| > 90° + 没 LOCKED。
+          // 配合 native:snapReady 的 facingOk 守门 + ComputeFillRatio 的几何根治(dot<0→fill=0),
+          // 让"拿反不再死循环吸附"。提示位置在过头提示下方(y=120,叠不上时分开)。
+          if (this.ringPlaced && this.distance < 0.30 && Math.abs(this.yawDiffRad) > Math.PI / 2 && this.huntPhase !== 2) {
+            Row() {
+              Text('请转向目标方向')
+                .fontSize(FontSize.hud)
+                .fontColor('#FFFF9966')
+                .fontWeight(FontWeight.Medium)
+                .backgroundColor(Palette.glass)
+                .padding({ left: Spacing.M, right: Spacing.M, top: Spacing.S, bottom: Spacing.S })
+                .borderRadius(Radius.M)
+            }
+            .id('facingHint')
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .position({ x: 0, y: 120 })
+            .hitTestBehavior(HitTestMode.None)
+          }
+
           // Stage 12C-redesign — ALIGNING HUD: 4 L-shaped corner brackets at the corners of an
           // 80vp focus box (the camera-style "you're framed here" mark), a faint 120vp reference
           // ring around them, and an iridescent center dot that translates with yaw/pitch diff.
-          // Replaces the old 56vp slab crosshair + 400vp outer ring + solid red/green dot.
           //   Off-aim    → brackets white60, dot has soft white glow.
           //   ±5° aligned → brackets switch to iridescent purple, dot glow brightens.
           // L bracket math: each corner = 1 horizontal 12×1.5 + 1 vertical 1.5×12 line whose
           // centers land at (±34, ±40) / (±40, ±34) on the 80×80 box — measured from the Stack
           // center via translate().
-          if (this.huntPhase === 1) {
+          // Phase 3 ④ — 两阶段时序:HUD 不再绑 huntPhase===1,而是绑 hudOpacity(吸附后 200ms 延迟淡入
+          // 1,走出 30cm / 进 LOCKED 时 200ms 淡出 0)。视觉本身不改,只改"何时出"。
+          if (this.hudOpacity > 0.01) {
             Stack({ alignContent: Alignment.Center }) {
               // Faint outer reference ring (1vp hairline, 30% white) — gives a context circle
               // without competing with the brackets or dot.
@@ -1710,12 +1917,13 @@ struct ARRingHuntCam {
                     [Palette.iridescentBlue, 1.0]
                   ]
                 })
-                .shadow({ radius: this.isAligned ? 12 : 6,
-                          color: this.isAligned ? '#CCFFFFFF' : '#80FFFFFF',
+                .shadow({ radius: this.isAngleAligned ? 12 : 6,
+                          color: this.isAngleAligned ? '#CCFFFFFF' : '#80FFFFFF',
                           offsetX: 0, offsetY: 0 })
                 .translate(this.dotTranslate())
             }
             .id('alignHud')
+            .opacity(this.hudOpacity)
             .hitTestBehavior(HitTestMode.None)
           }
 
@@ -1941,6 +2149,8 @@ struct ARRingHuntCam {
         // viewport math regardless of device size or notch insets.
         this.screenWvp = n.width as number;
         this.screenHvp = n.height as number;
+        // Phase 2 — 布局变化时 push 可见区 NDC y 给 native(框居中 + fillRatio 判据)。
+        this.pushVisibleNdcY();
       })
     }
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])

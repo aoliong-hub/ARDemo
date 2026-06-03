@@ -61,7 +61,8 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
                                         AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color,
                                         float distance, int huntPhase, const glm::quat &frameOrientation,
                                         float frameHueTime, bool isAligned, float deltaTime, float ringHeight,
-                                        float badgeFadeProgress, float animAge, RingCameraInfo *outCam,
+                                        float badgeFadeProgress, float animAge, float clipShiftY,
+                                        RingCameraInfo *outCam,
                                         bool wantCapture, int captureW, int captureH,
                                         std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH,
                                         bool wantCleanCapture,
@@ -155,7 +156,7 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
             glm::mat4 wayfinderToWorld = glm::translate(glm::mat4(1.0f), ringPos);
             mWayfinderRenderer.Render(viewMat, projectionMat, wayfinderToWorld, cameraPos, color, animTime, distance,
                                       huntPhase, frameOrientation, frameHueTime, isAligned, deltaTime, ringHeight,
-                                      badgeFadeProgress, animAge);
+                                      badgeFadeProgress, animAge, clipShiftY);
         }
     }
 

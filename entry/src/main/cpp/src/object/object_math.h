@@ -469,6 +469,89 @@ inline void ComputeOffscreenGuidance(const float view[16], const float proj[16],
     out.indicatorAngleDeg = std::atan2(edgeX, edgeY) * (180.0f / kPi);
 }
 
+// Phase 2(2026-06-02)— 框填屏判据。把对齐框的 4 个角投影到 NDC,看占可见区比例。
+// 可见区在 NDC 里不对称(ArkUI 底黑条比顶黑条厚 → 可见中心高于 FB 中心),所以传入 y 方向的
+// "可见区半跨度"(visYHalfExt = (vis_top_ndc - vis_bot_ndc)/2,典型值 0.666 for Mate 60)。
+// 横向无黑条 → 可见 x 半跨度 = 1.0,直接归一化。
+//
+// 重构(2026-06-03)— 把度量从"max|ndc|"改为"bbox 跨度比":
+//   旧:fillRatio = max(|ndcX|, |ndcY|/visYHalfExt)
+//        问题:角度偏 5° → 框投影中心平移 0.1+ NDC → max|ndc| 被偏远那一角抓住 → fillRatio 假涨 20%+
+//   新:fillRatio = min( (ndcXmax-ndcXmin)/2, (ndcYmax-ndcYmin)/(2×visYHalfExt) )
+//        测的是"框的 NDC 跨度占可见区跨度的比例" — 平移不改跨度 → 对偏心完全免疫
+//        理论:站 P 朝 R 框 88% 填 → fill = 0.88;pitch 偏 5° → fill 仍 ≈ 0.88(不再跳 1.08)
+// 返回值仍然是 [0, ~1] 范围,门限 0.85/0.90/1.10 不变。caller 仍乘 mZoom 把数字 zoom 算进去。
+//
+// 用法(2026-06-03 新增 cameraForward + frameNormal 参数,几何根治拿反虚满):
+//   const float corners[4][3] = {...world 坐标...};
+//   const float camFwd[3] = {...};      // 用户相机视线方向(世界系)
+//   const float frameN[3] = {...};      // 框正面法线(= targetQ × (0,0,-1))
+//   float r = ComputeFillRatio(view, proj, corners, visYHalfExt, camFwd, frameN);
+//   r *= zoom;
+//   // dot(camFwd, frameN) < 0 → 拿反 → r = 0(几何根治)
+inline float ComputeFillRatio(const float view[16], const float proj[16],
+                              const float corners[4][3], float visYHalfExt,
+                              const float cameraForward[3], const float frameNormal[3])
+{
+    constexpr float kEps = 1e-6f;
+    // 修(2026-06-03)— 几何根治拿反虚满:
+    //   frame normal(targetQ × (0,0,-1))= 目标视线方向。用户朝向目标(正对框正面)时:
+    //   cameraForward 也是同方向 → dot(cameraForward, frameNormal) > 0
+    //   用户拿反/反向(看框背面)→ dot < 0
+    //   所以 dot < 0 时 fill = 0(框背对相机,即使 bbox 投影满也不算填)。
+    float dotFC = cameraForward[0] * frameNormal[0]
+                + cameraForward[1] * frameNormal[1]
+                + cameraForward[2] * frameNormal[2];
+    if (dotFC < 0.0f) {
+        return 0.0f; // 拿反:用户看的是框背面,fill 无意义
+    }
+    float ndcXmin = 1e9f;
+    float ndcXmax = -1e9f;
+    float ndcYmin = 1e9f;
+    float ndcYmax = -1e9f;
+    int nValid = 0;
+    for (int i = 0; i < 4; ++i) {
+        float world[4] = {corners[i][0], corners[i][1], corners[i][2], 1.0f};
+        float eye[4];
+        Mat4MulVec4ColMajor(view, world, eye);
+        float clip[4];
+        Mat4MulVec4ColMajor(proj, eye, clip);
+        if (clip[3] < kEps) {
+            continue; // 角在相机背后 — 跳过(全 4 角都跳 → 返 0,caller 视为"不填")
+        }
+        float ndcx = clip[0] / clip[3];
+        float ndcy = clip[1] / clip[3];
+        if (ndcx < ndcXmin) { ndcXmin = ndcx; }
+        if (ndcx > ndcXmax) { ndcXmax = ndcx; }
+        if (ndcy < ndcYmin) { ndcYmin = ndcy; }
+        if (ndcy > ndcYmax) { ndcYmax = ndcy; }
+        ++nValid;
+    }
+    if (nValid == 0) {
+        return 0.0f;
+    }
+    if (visYHalfExt < 0.01f) {
+        visYHalfExt = 1.0f; // 兜底:ArkTS 还没 push 过来时,按全 FB 算
+    }
+    // 修(2026-06-03)— 问题 1:bbox 跨度对平移不变(框偏 15° yaw 半出界 fill 仍 0.89)。
+    //   修法:把 bbox 裁剪到可见区边界([-1,1]×[-visYHalfExt,+visYHalfExt])再算跨度。
+    //   含义改为:**bbox 与可见区相交部分** 占可见区比例 → 框出界时 fill 自动减少。
+    //   ↳ 框完全在可见区内:fill 同前(0.89)— 完全保留偏心免疫(平移不改 fill)
+    //   ↳ 框 50% 出界:fill 大致减半(~0.45)— 反映"用户只看到一半"
+    //   ↳ 框完全出界:fill = 0 — 反映"看不到"
+    if (ndcXmin < -1.0f) { ndcXmin = -1.0f; }
+    if (ndcXmax > 1.0f)  { ndcXmax = 1.0f; }
+    if (ndcYmin < -visYHalfExt) { ndcYmin = -visYHalfExt; }
+    if (ndcYmax > visYHalfExt)  { ndcYmax = visYHalfExt; }
+    if (ndcXmin >= ndcXmax || ndcYmin >= ndcYmax) {
+        return 0.0f; // 完全无重叠(框整个出可见区)
+    }
+    // bbox 与可见区相交跨度 / 可见区跨度
+    float fillX = (ndcXmax - ndcXmin) * 0.5f;             // 可见区横向跨度 = 2.0
+    float fillY = (ndcYmax - ndcYmin) / (2.0f * visYHalfExt); // 可见区纵向跨度 = 2 × halfExt
+    return (fillX < fillY) ? fillX : fillY; // min:限制维度(决定 "什么时候撑满")
+}
+
 // Yaw (radians, about world +Y) so that the model's front (local -Z) points at the camera.
 // Rendering applies RotY(yaw) (right-handed), so world front = RotY(yaw)*(0,0,-1) = (-sin,0,-cos).
 // Requiring that to equal the horizontal object->camera direction (dx,dz) gives

@@ -110,6 +110,17 @@ public:
     // AR session can re-call SetDisplayGeometry. Default stub no-op for scenes that don't care.
     virtual void SetDisplayRotation(int32_t rotation) { (void)rotation; }
 
+    // Phase 2(2026-06-02)— ArkTS push 可见区 NDC y 边界(跨机型自适应)。
+    //   center      = (vis_top_ndc + vis_bot_ndc) / 2   典型 +0.218(底黑条比顶厚 → 可见中心高于 FB 中心)
+    //   halfExtent  = (vis_top_ndc - vis_bot_ndc) / 2   典型 +0.666
+    // Renderer 用 center 做 clip-space y 偏移(框居中可见区);fillRatio 判据用 halfExtent 做纵向归一。
+    // 不传或传 0 时,默认 fall back 到 NDC 全跨度 [-1, 1](等价于无黑条遮罩),保 backward-compat。
+    virtual void SetVisibleNdcY(float center, float halfExtent)
+    {
+        (void)center;
+        (void)halfExtent;
+    }
+
     // Report physical phone orientation derived from camRoll snap (computed at placement time):
     // 0 = PORTRAIT, 1 = LANDSCAPE_CW (camRoll≤-45°), 2 = LANDSCAPE_CCW (camRoll≥+45°).
     // ArkTS reads this to decide whether to rotate the captured JPEG before sending to da3.
@@ -149,7 +160,8 @@ public:
                               float &screenEdgeX, float &screenEdgeY, bool &isBehind, float &indicatorAngleDeg,
                               float &ndcX, float &ndcY, int32_t &huntPhase, float &yawDiffRad, float &pitchDiffRad,
                               float &rollDiffRad, bool &isAligned, bool &isLocked, float &targetYawDeg,
-                              float &targetPitchDeg, float &targetRollDeg)
+                              float &targetPitchDeg, float &targetRollDeg, bool &isAngleAligned, float &fillRatio,
+                              bool &snapReady, float &snapHoldSec, float &cGraceSec, float &fillRatioRaw)
     {
         distance = 0.0f;
         ringPlaced = false;
@@ -170,6 +182,17 @@ public:
         targetYawDeg = 0.0f;
         targetPitchDeg = 0.0f;
         targetRollDeg = 0.0f;
+        // 重构(2026-06-03)— 两阶段对齐新增字段(调试 + HUD 视觉):
+        //   isAngleAligned : 吸附后的角度对准 yaw+pitch<5°↔7° 滞回
+        //   fillRatio      : 框 4 角 NDC 占可见区比例 × zoom(实时,调试用)
+        //   snapReady      : 瞬时 snapReady(dist + fill,无 hold)。调试用,UI 不依赖。
+        //   snapHoldSec    : snapReady 当前持续秒数(0..1.5+)。调试浮层显示进度。
+        isAngleAligned = false;
+        fillRatio = 0.0f;
+        snapReady = false;
+        snapHoldSec = 0.0f;
+        cGraceSec = 0.0f;
+        fillRatioRaw = 0.0f;
     }
 
 public:

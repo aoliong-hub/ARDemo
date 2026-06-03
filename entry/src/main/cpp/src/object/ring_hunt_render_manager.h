@@ -56,6 +56,8 @@ public:
                      AREngine_ARAnchor *ringAnchor, float animTime, const glm::vec3 &color, float distance,
                      int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
                      float deltaTime, float ringHeight, float badgeFadeProgress, float animAge,
+                     // Phase 2 — clipShiftY 透传到 wayfinder.Render(只对框 + 箭头 MVP 加 clip-space y 偏移)。
+                     float clipShiftY,
                      RingCameraInfo *outCam,
                      bool wantCapture, int captureW, int captureH,
                      std::vector<uint8_t> *outCaptureRGBA, int *outCapW, int *outCapH,

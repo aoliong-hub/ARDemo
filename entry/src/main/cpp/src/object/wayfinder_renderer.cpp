@@ -174,6 +174,13 @@ constexpr char FRAME_FS[] = R"(
     varying vec2 v_uv;
     uniform float u_time;
     uniform float u_alphaMult;
+    // Phase 3 ④:0 = pearl 自由流彩(吸附前),1 = 青绿锁定(吸附后)。同时驱动:
+    //   流速:基础 0.15,锁定时 ×4(= 0.60)
+    //   颜色:base pearl ↔ lockColor 线性混合
+    //   alpha:0.85 ↔ 1.00 boost
+    uniform float u_lockProgress;
+    // Snap FX(2026-06-03)— 庆祝特效闪光强度,0..1。脉冲触发时拉到 1,~60ms exp 衰减。
+    uniform float u_flash;
     vec3 pearl(float t) {
         t = fract(t);
         vec3 c0 = vec3(1.00, 0.87, 0.76);
@@ -187,8 +194,68 @@ constexpr char FRAME_FS[] = R"(
         return mix(c3, c0, x - 3.0);
     }
     void main() {
-        vec3 col = pearl(v_uv.x + u_time * 0.15);
-        gl_FragColor = vec4(col, 0.85 * u_alphaMult);
+        float flow = 0.15 * (1.0 + 3.0 * u_lockProgress);
+        vec3 base = pearl(v_uv.x + u_time * flow);
+        vec3 lockColor = vec3(0.4, 1.0, 0.6); // 青绿
+        vec3 col = mix(base, lockColor, u_lockProgress);
+        col = mix(col, vec3(1.0), u_flash * 0.8); // Snap FX 闪白
+        float a = (0.85 + 0.15 * u_lockProgress) * u_alphaMult;
+        gl_FragColor = vec4(col, a);
+    }
+)";
+
+// Snap FX 炫彩薄膜 shader(2026-06-03):
+// 填充矩形,uv (0..1, 0..1)。沿 uv.y 流 pearl(类似水滴),触发时 u_flash 闪白,然后 u_lockProgress
+// 拉到 1 把整体转青绿(吸附锁定色)。u_alpha 由外部按 4 阶段时间序列驱动(0→0.5→0.3→0)。
+constexpr char MEMBRANE_VS[] = R"(
+    uniform mat4 u_mvp;
+    attribute vec4 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 v_uv;
+    void main() {
+        v_uv = a_uv;
+        gl_Position = u_mvp * a_pos;
+    }
+)";
+constexpr char MEMBRANE_FS[] = R"(
+    precision mediump float;
+    varying vec2 v_uv;
+    uniform float u_time;
+    uniform float u_alpha;          // 外部驱动的整体 alpha(0..0.5,按阶段)
+    uniform float u_flash;          // 0..1 闪白
+    uniform float u_lockProgress;   // 0..1 pearl→青绿
+    // 圆角 SDF mask(2026-06-03 问题 2):薄膜边缘按框圆角裁剪,角外 alpha=0,无 4 直角凸起。
+    uniform vec2  u_halfDim;        // (halfW, halfH) 物理半尺寸(0.0375, 0.05)
+    uniform float u_cornerR;        // 圆角半径(物理,同框 cornerRadius 0.010)
+    vec3 pearl(float t) {
+        t = fract(t);
+        vec3 c0 = vec3(1.00, 0.87, 0.76);
+        vec3 c1 = vec3(0.96, 0.82, 0.82);
+        vec3 c2 = vec3(0.84, 0.74, 1.00);
+        vec3 c3 = vec3(0.78, 0.84, 1.00);
+        float x = t * 4.0;
+        if (x < 1.0) return mix(c0, c1, x);
+        if (x < 2.0) return mix(c1, c2, x - 1.0);
+        if (x < 3.0) return mix(c2, c3, x - 2.0);
+        return mix(c3, c0, x - 3.0);
+    }
+    void main() {
+        // 流速:lockProgress 影响(同框,基础 0.30,锁定后 0.60),斜对角(uv.x + uv.y 各半)
+        float flow = 0.30 * (1.0 + 1.0 * u_lockProgress);
+        float coord = (v_uv.x + v_uv.y) * 0.5;
+        vec3 base = pearl(coord + u_time * flow);
+        vec3 lockColor = vec3(0.4, 1.0, 0.6);
+        vec3 col = mix(base, lockColor, u_lockProgress);
+        col = mix(col, vec3(1.0), u_flash * 0.8);
+        // 圆角 SDF(Inigo Quilez 圆角矩形):mesh-space pos 从 uv 推
+        //   p = (v_uv - 0.5) × 2 × halfDim  → 物理坐标 [-halfW, halfW] × [-halfH, halfH]
+        //   q = |p|;距离矩形角点(halfDim - cornerR)外延圆弧 cornerR
+        vec2 p = (v_uv - 0.5) * 2.0 * u_halfDim;
+        vec2 q = abs(p);
+        vec2 inCorner = max(q - (u_halfDim - vec2(u_cornerR, u_cornerR)), vec2(0.0, 0.0));
+        float sdf = length(inCorner) - u_cornerR;  // < 0 内,0 边,> 0 外
+        float aMask = 1.0 - smoothstep(0.0, 0.0008, sdf);  // 0.8mm 抗锯齿
+        gl_FragColor = vec4(col, u_alpha * aMask);
     }
 )";
 
@@ -276,6 +343,8 @@ void WayfinderRenderer::Init()
         mFrameMvp = glGetUniformLocation(mFrameProgram, "u_mvp");
         mFrameTime = glGetUniformLocation(mFrameProgram, "u_time");
         mFrameAlphaMult = glGetUniformLocation(mFrameProgram, "u_alphaMult");
+        mFrameLockProgress = glGetUniformLocation(mFrameProgram, "u_lockProgress");
+        mFrameFlash = glGetUniformLocation(mFrameProgram, "u_flash");
         mFramePos = glGetAttribLocation(mFrameProgram, "a_pos");
         mFrameUv = glGetAttribLocation(mFrameProgram, "a_uv");
     } else {
@@ -309,6 +378,22 @@ void WayfinderRenderer::Init()
         LOGE("WayfinderRenderer: iridescent flow program failed to compile.");
     }
 
+    // Snap FX 炫彩薄膜 program(填充矩形 + flash + lockProgress 转青绿 + 圆角 SDF)。
+    mMembraneProgram = GLUtils::CreateProgram(MEMBRANE_VS, MEMBRANE_FS);
+    if (mMembraneProgram) {
+        mMembraneMvp = glGetUniformLocation(mMembraneProgram, "u_mvp");
+        mMembraneTime = glGetUniformLocation(mMembraneProgram, "u_time");
+        mMembraneAlpha = glGetUniformLocation(mMembraneProgram, "u_alpha");
+        mMembraneFlash = glGetUniformLocation(mMembraneProgram, "u_flash");
+        mMembraneLockProgress = glGetUniformLocation(mMembraneProgram, "u_lockProgress");
+        mMembraneHalfDim = glGetUniformLocation(mMembraneProgram, "u_halfDim");
+        mMembraneCornerR = glGetUniformLocation(mMembraneProgram, "u_cornerR");
+        mMembranePos = glGetAttribLocation(mMembraneProgram, "a_pos");
+        mMembraneUv = glGetAttribLocation(mMembraneProgram, "a_uv");
+    } else {
+        LOGE("WayfinderRenderer: alignment-membrane program failed to compile (snap FX skipped).");
+    }
+
     mGround = WayfinderGeometry::CreateGroundRing();
     mCore = WayfinderGeometry::CreatePillarCore();
     mFog = WayfinderGeometry::CreatePillarFog();
@@ -317,10 +402,13 @@ void WayfinderRenderer::Init()
     mBadgeRingBloom = WayfinderGeometry::CreateBadgeRingBloom();
     mBadgeDisk = WayfinderGeometry::CreateTopBadgeDisk();
     mPhone = WayfinderGeometry::CreatePhoneIconRounded();
-    // Stage 12C-batch3 polish: thickness halved (0.005 → 0.0025) for a finer hairline. Frame is
-    // scaled +20% on the render side (frameModel * scale(1.2)); together that nets to "thinner
-    // line AND a slightly bigger frame".
-    mAlignFrame = WayfinderGeometry::CreateAlignmentFrame(0.075f, 0.15f, 0.0025f, 0.005f, 8);
+    // Phase 2(2026-06-02):framePos 改为 P + frameNormal×0.50,scale 4.16 → 50cm 处 88% 填可见区。
+    // 2026-06-03:cornerRadius 0.0012 → 0.010,scale 4.16 后视觉圆角 ~4cm,框看着更柔和自然
+    //   (之前 0.0012 × 4.16 = 5mm 圆角,在 31cm 宽的框上几乎看不出圆)。
+    //   segPerCorner 8 → 12,圆角顶点更密,曲线更平滑。thickness 保持 0.0006(细线条)。
+    mAlignFrame = WayfinderGeometry::CreateAlignmentFrame(0.075f, 0.10f, 0.0006f, 0.010f, 12);
+    // Snap FX 炫彩薄膜:与框几何同尺寸,2 三角形填充。
+    mAlignMembrane = WayfinderGeometry::CreateAlignmentMembrane(0.075f, 0.10f);
     mArrow = WayfinderGeometry::CreateArrow3D();
     // 放置序列动画用的水滴(默认 2.5cm 半径 = 5cm 直径)。FLOW shader 沿 uv.y 走 pearl 渐变。
     mWaterDrop = WayfinderGeometry::CreateWaterDrop();
@@ -352,6 +440,10 @@ void WayfinderRenderer::Release()
     if (mFlowProgram) {
         GLUtils::ReleaseProgram(mFlowProgram);
         mFlowProgram = 0;
+    }
+    if (mMembraneProgram) {
+        GLUtils::ReleaseProgram(mMembraneProgram);
+        mMembraneProgram = 0;
     }
 }
 
@@ -419,7 +511,8 @@ void WayfinderRenderer::DrawFog(const glm::mat4 &mvp, const WayfinderMesh &mesh,
     glDisableVertexAttribArray(mFogUv);
 }
 
-void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime, float alphaMult)
+void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mesh, float hueTime, float alphaMult,
+                                  float lockProgress, float flashIntensity)
 {
     if (mesh.indices.empty() || !mFrameProgram) {
         return;
@@ -429,6 +522,8 @@ void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mes
     glUniformMatrix4fv(mFrameMvp, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniform1f(mFrameTime, hueTime);
     glUniform1f(mFrameAlphaMult, alphaMult);
+    glUniform1f(mFrameLockProgress, lockProgress);
+    glUniform1f(mFrameFlash, flashIntensity);
     glEnableVertexAttribArray(mFramePos);
     glEnableVertexAttribArray(mFrameUv);
     glVertexAttribPointer(mFramePos, 3, GL_FLOAT, GL_FALSE, 0, mesh.positions.data());
@@ -436,6 +531,35 @@ void WayfinderRenderer::DrawFrame(const glm::mat4 &mvp, const WayfinderMesh &mes
     glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.indices.size()), GL_UNSIGNED_SHORT, mesh.indices.data());
     glDisableVertexAttribArray(mFramePos);
     glDisableVertexAttribArray(mFrameUv);
+}
+
+// Snap FX 炫彩薄膜:填充矩形,半透明,在框中央渲染。同 framePos + frameRot + scale,放大涌出取景框。
+void WayfinderRenderer::DrawMembrane(const glm::mat4 &mvp, float hueTime, float alpha,
+                                     float lockProgress, float flashIntensity)
+{
+    if (mAlignMembrane.indices.empty() || !mMembraneProgram || alpha <= 0.001f) {
+        return;
+    }
+    // 半透明叠加:不写深度(让后面的框/箭头能正确叠),已开 GL_BLEND。
+    glDepthMask(GL_FALSE);
+    glUseProgram(mMembraneProgram);
+    glUniformMatrix4fv(mMembraneMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniform1f(mMembraneTime, hueTime);
+    glUniform1f(mMembraneAlpha, alpha);
+    glUniform1f(mMembraneFlash, flashIntensity);
+    glUniform1f(mMembraneLockProgress, lockProgress);
+    // 圆角 SDF 参数:框几何 0.075×0.10,half = (0.0375, 0.050),cornerR = 0.010(同 CreateAlignmentFrame)。
+    glUniform2f(mMembraneHalfDim, 0.0375f, 0.050f);
+    glUniform1f(mMembraneCornerR, 0.010f);
+    glEnableVertexAttribArray(mMembranePos);
+    glEnableVertexAttribArray(mMembraneUv);
+    glVertexAttribPointer(mMembranePos, 3, GL_FLOAT, GL_FALSE, 0, mAlignMembrane.positions.data());
+    glVertexAttribPointer(mMembraneUv, 2, GL_FLOAT, GL_FALSE, 0, mAlignMembrane.uvs.data());
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mAlignMembrane.indices.size()), GL_UNSIGNED_SHORT,
+                   mAlignMembrane.indices.data());
+    glDisableVertexAttribArray(mMembranePos);
+    glDisableVertexAttribArray(mMembraneUv);
+    glDepthMask(GL_TRUE);
 }
 
 void WayfinderRenderer::DrawArrow(const glm::mat4 &mvp, float hueTime, float aligned, float alphaMult)
@@ -487,7 +611,8 @@ void WayfinderRenderer::DrawFlow(const glm::mat4 &mvp, const WayfinderMesh &mesh
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
                                const glm::vec3 &cameraPos, const glm::vec3 &color, float animTime, float distance,
                                int huntPhase, const glm::quat &frameOrientation, float frameHueTime, bool isAligned,
-                               float deltaTime, float ringHeight, float badgeFadeProgress, float animAge)
+                               float deltaTime, float ringHeight, float badgeFadeProgress, float animAge,
+                               float clipShiftY)
 {
     (void)distance;   // 距离不再驱动渲染分支(被 badgeFadeProgress 取代),保留参数以维持 API
     (void)huntPhase;  // phase 仍在 caller 端用于 frameHueTime/LOCKED 冻结;渲染层不再分支
@@ -513,13 +638,55 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     float spinSpeed = (kTwoPi / 3.0f) * (1.0f - mAlignedTransition);
     mSpinAngle += spinSpeed * deltaTime;
 
+    // Phase 3 ④ — Frame snap effect: lock progress spring (150ms half-life)。decoupled from
+    // mAlignedTransition (arrow) so frame lights up faster than arrow stops spinning.
+    mLockProgress += (target - mLockProgress) * (deltaTime / 0.15f);
+    mLockProgress = glm::clamp(mLockProgress, 0.0f, 1.0f);
+
+    // Snap FX 庆祝特效:aligned 0→1 边缘触发 0.9s 4 阶段动画 + 60ms 闪白脉冲。
+    //   触发条件:aligned 0→1 边缘 且 mSnapAnimAge<0(未在播)→ 启动。
+    //   重置条件 1:aligned 1→0 边缘(C→B 角度解锁)→ mSnapAnimAge=-1 让框立刻重现,下次再播。
+    //   重置条件 2:badgeFadeProgress<0.05(用户走出 30cm,灰盘回归)→ 同上。
+    //   持续条件:0≤mSnapAnimAge<0.9 → +=dt 推进 4 阶段;≥0.9 演完(膜 alpha=0,scale=1)。
+    if (isAligned && !mPrevAligned && mSnapAnimAge < 0.0f) {
+        mSnapAnimAge = 0.0f;
+        mFlashIntensity = 1.0f;
+    }
+    // ★ C→B 角度解锁重置(2026-06-03):aligned 1→0 边缘 → snap FX 重置,框立刻重现(用户回到 B 重新对)。
+    if (!isAligned && mPrevAligned) {
+        mSnapAnimAge = -1.0f;
+        mFlashIntensity = 0.0f;
+    }
+    mPrevAligned = isAligned;
+    if (mSnapAnimAge >= 0.0f) {
+        mSnapAnimAge += deltaTime;
+    }
+    // 灰盘回归 = 用户走出 30cm,把 snap 状态全部重置(下次进 30cm + aligned 重新播)。
+    if (badgeFadeProgress < 0.05f && mSnapAnimAge >= 0.0f) {
+        mSnapAnimAge = -1.0f;
+        mFlashIntensity = 0.0f;
+    }
+    // 闪白指数衰减(60ms 时间常数)。
+    mFlashIntensity *= std::exp(-deltaTime / 0.06f);
+    if (mFlashIntensity < 0.001f) {
+        mFlashIntensity = 0.0f;
+    }
+
     const glm::mat4 vp = proj * view;
     const glm::mat4 mvp = vp * wayfinderToWorld;
     // Per-beacon ring height: stretch pillar meshes (built at kWayfinderTopHeight 0.9m) so the
     // glow runs from floor to badge regardless of requested height. Ground ring + badge + frame
     // use unscaled matrices (their positions are explicit).
     float pillarYScale = ringHeight / kWayfinderTopHeight;
-    const glm::mat4 mvpPillar = vp * wayfinderToWorld * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, pillarYScale, 1.0f));
+    // ★★★ 修(2026-06-03 问题 3 柱子歪)— 显式锁世界垂直:
+    //   柱子顶 = badge 世界位置 = anchor + (0, ringHeight, 0)
+    //   柱子底 = anchor 世界位置(badge 正下方,沿 worldUp 反向 ringHeight)
+    //   只用 translate(pillarBottom) + scaleY,无任何旋转,杜绝任何旋转污染。
+    //   wayfinderToWorld 本来就是纯 translate(ringPos),vec3(wayfinderToWorld[3]) = anchor 世界位置。
+    glm::vec3 pillarBottomWorld(wayfinderToWorld[3].x, wayfinderToWorld[3].y, wayfinderToWorld[3].z);
+    const glm::mat4 mvpPillar = vp
+                                * glm::translate(glm::mat4(1.0f), pillarBottomWorld)
+                                * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, pillarYScale, 1.0f));
 
     // ── 放置序列动画 0..1.3s + 稳态(≥1.3s)的 alpha/位置 调度 ──────────────────────────
     //   stage 1 (0..0.3):  灰盘渐入(disk+rim+phone+bloom alpha 0→1)。柱子/水滴/地圈/对齐框不画
@@ -648,16 +815,84 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
     }
 
     // ── 5. 对齐框 + 3D 箭头 group ──────────────────────────────────────────────────
+    // Phase 2(2026-06-02)— 框 = 目标机位 P 前方 50cm 的视野截面:
+    //   P            = wayfinderToWorld[3] + (0, ringHeight, 0)            (灰盘/badge 现位置,= 目标机位)
+    //   frameNormal  = frameOrientation × (0, 0, -1)                       (目标相机视线方向,世界坐标)
+    //   framePos_new = P + frameNormal × 0.50m                             (沿目标视线前方 50cm)
+    //   scale        = 4.16                                                (50cm 处 88% 填可见区,同 ring_hunt_ar_application.cpp:kFrameScale)
+    // 用户站到 P 且朝向 R(= targetQ)时,framePos_new 正好在用户视线前方 50cm,框 88% 填满取景框 ✓
+    // 配 clip-space y shift(clipShiftY = 可见区中心 NDC,典型 +0.218 for Mate 60)→ 框居中可见区,
+    // 不再因底黑条遮罩偏下。badge / pillar / ground / drop 不偏移(它们贴 P,即用户对齐的目标位置)。
     if (frameAlphaMult > 0.01f) {
-        glm::vec3 framePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
+        glm::vec3 P = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
+        glm::vec3 frameNormal = glm::normalize(frameOrientation * glm::vec3(0.0f, 0.0f, -1.0f));
+        glm::vec3 framePos = P + frameNormal * 0.50f;
         glm::mat4 frameRot = glm::mat4_cast(frameOrientation);
+        // Snap FX(2026-06-03)— 4 阶段庆祝特效时序(mSnapAnimAge 驱动):
+        //   A [0.00, 0.15]:膜 alpha 0→0.5 淡入(+ u_flash 60ms 衰减闪白),框 + 膜 scale = 1.0×base
+        //   B [0.15, 0.40]:膜维持 alpha=0.5,框 + 膜 scale 1.0→1.10(EaseOut,~97% 填屏)
+        //   C [0.40, 0.70]:scale 1.10→1.30(涌出屏幕边),框 + 膜 alpha 1→0.3 同步淡出
+        //   D [0.70, 0.90]:scale 1.30→1.50(继续涌出),alpha 0.3→0(收尾消失)
+        //   E [≥0.90]:    动画完,膜 alpha=0,框 alpha=0(本轮已"飞出"不再渲染,直到走出 30cm 重置)
+        // 时间常量(s):
+        constexpr float kSnapA  = 0.15f;
+        constexpr float kSnapB  = 0.40f;
+        constexpr float kSnapC  = 0.70f;
+        constexpr float kSnapTotal = 0.90f;
+        const float kBaseScale = 4.16f;
+        float snapScaleMul = 1.0f;
+        float frameAnimAlpha = 1.0f;
+        float membraneAlpha = 0.0f;
+        if (mSnapAnimAge < 0.0f) {
+            // 未触发 / 已重置 → 正常稳态,无膜。
+            snapScaleMul = 1.0f;
+            frameAnimAlpha = 1.0f;
+            membraneAlpha = 0.0f;
+        } else if (mSnapAnimAge < kSnapA) {
+            float t = mSnapAnimAge / kSnapA;                // 0→1
+            membraneAlpha = 0.50f * t;
+            snapScaleMul = 1.0f;
+            frameAnimAlpha = 1.0f;
+        } else if (mSnapAnimAge < kSnapB) {
+            float t = (mSnapAnimAge - kSnapA) / (kSnapB - kSnapA); // 0→1
+            float eased = 1.0f - (1.0f - t) * (1.0f - t);    // EaseOut quadratic
+            membraneAlpha = 0.50f;
+            snapScaleMul = 1.0f + 0.10f * eased;             // 1.00 → 1.10
+            frameAnimAlpha = 1.0f;
+        } else if (mSnapAnimAge < kSnapC) {
+            float t = (mSnapAnimAge - kSnapB) / (kSnapC - kSnapB); // 0→1
+            membraneAlpha = 0.50f * (1.0f - 0.4f * t);       // 0.50 → 0.30
+            snapScaleMul = 1.10f + 0.20f * t;                // 1.10 → 1.30
+            frameAnimAlpha = 1.0f - 0.7f * t;                // 1.00 → 0.30
+        } else if (mSnapAnimAge < kSnapTotal) {
+            float t = (mSnapAnimAge - kSnapC) / (kSnapTotal - kSnapC); // 0→1
+            membraneAlpha = 0.30f * (1.0f - t);              // 0.30 → 0
+            snapScaleMul = 1.30f + 0.20f * t;                // 1.30 → 1.50
+            frameAnimAlpha = 0.30f * (1.0f - t);             // 0.30 → 0
+        } else {
+            // 动画演完,本轮"飞出"完毕 — 膜/框都不渲染,直到走出 30cm 重置后下次进 30cm + aligned 重播。
+            membraneAlpha = 0.0f;
+            snapScaleMul = 1.0f;
+            frameAnimAlpha = 0.0f;
+        }
+        float effectiveScale = kBaseScale * snapScaleMul;
         glm::mat4 frameModel = glm::translate(glm::mat4(1.0f), framePos) * frameRot
-                               * glm::scale(glm::mat4(1.0f), glm::vec3(1.2f));
-        DrawFrame(vp * frameModel, mAlignFrame, frameHueTime, frameAlphaMult);
+                               * glm::scale(glm::mat4(1.0f), glm::vec3(effectiveScale));
+        // clip-space y shift: post-multiply MVP so clip.y' = clip.y + clipShiftY × clip.w
+        //   → ndc.y' = ndc.y + clipShiftY (将框中心从 FB 中心搬到可见区中心)
+        // 矩阵列优先:translate(0, clipShiftY, 0) 即 [3][1] = clipShiftY。
+        glm::mat4 clipShift(1.0f);
+        clipShift[3][1] = clipShiftY;
+        // 先画膜(半透明,不写深度),再画框(写深度,outline 盖在膜上)。
+        glm::mat4 frameMvp = clipShift * vp * frameModel;
+        DrawMembrane(frameMvp, frameHueTime, membraneAlpha * frameAlphaMult, mLockProgress, mFlashIntensity);
+        DrawFrame(frameMvp, mAlignFrame, frameHueTime, frameAlphaMult * frameAnimAlpha,
+                  mLockProgress, mFlashIntensity);
 
         glm::mat4 spinMat = glm::rotate(glm::mat4(1.0f), mSpinAngle, glm::vec3(0.0f, 0.0f, 1.0f));
-        glm::mat4 arrowMvp = vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * spinMat;
-        DrawArrow(arrowMvp, animTime, mAlignedTransition, frameAlphaMult);
+        // Snap FX 阶段中,箭头跟着框一起淡出(scale 不跟,避免视觉爆炸过头)— 让"框飞出"时箭头同步消失。
+        glm::mat4 arrowMvp = clipShift * vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * spinMat;
+        DrawArrow(arrowMvp, animTime, mAlignedTransition, frameAlphaMult * frameAnimAlpha);
     }
 
     glDepthMask(GL_TRUE);
