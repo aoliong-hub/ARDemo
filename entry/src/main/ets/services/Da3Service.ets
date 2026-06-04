@@ -18,6 +18,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Logger } from '../utils/Logger';
+import { getCloudConfig } from '../config/CloudConfig';
 
 // Same shape as ARRingHuntCam's GuideData — all fields are strings (the host's applyGuide
 // parses & validates them).
@@ -43,15 +44,16 @@ export interface MultipartPart {
 // Tag for grep: ARDA3-HTTP.
 const TAG = 'ARDA3-HTTP';
 
-const URL_GEN: string = 'https://intelligence-hiaicloud.hwcloudtest.cn/camera-agent-api/api/generate';
-const URL_GEN_TASK: string = 'https://intelligence-hiaicloud.hwcloudtest.cn/camera-agent-api/api/task/';
-const URL_GUIDE_BASE: string = 'https://xsjcamera.rnd.huawei.com';
-const URL_GUIDE_GATEWAY: string = '/mrightserver/uat/camera_agent_guide';
-
-const POLL_INTERVAL_MS: number = 1000;
-const POLL_MAX_S: number = 120;
-const CONNECT_TIMEOUT_MS: number = 30000;
-const READ_TIMEOUT_MS: number = 60000;
+// URL / timeout helpers — read from CloudConfig so switching backend at runtime takes effect.
+// da3 的 generate 和 guide 在不同 host，所以 host 分别存在 generate.host / guide.host 里。
+function cfgGenUrl(): string { return getCloudConfig().generate.host + getCloudConfig().generate.endpoint; }
+function cfgGenTaskUrl(): string { return getCloudConfig().generate.host + getCloudConfig().generate.taskBase; }
+function cfgGuideInferUrl(): string { return getCloudConfig().guide.host + getCloudConfig().guide.inferPath; }
+function cfgGuideTaskUrl(): string { return getCloudConfig().guide.host + getCloudConfig().guide.taskPath; }
+function cfgPollMs(): number { return getCloudConfig().pollIntervalMs; }
+function cfgPollMaxS(): number { return getCloudConfig().pollMaxSeconds; }
+function cfgConnMs(): number { return getCloudConfig().connectTimeoutMs; }
+function cfgReadMs(): number { return getCloudConfig().readTimeoutMs; }
 
 function nowMs(): number {
   return systemDateTime.getTime(false);
@@ -174,8 +176,8 @@ function postMultipart(url: string, parts: MultipartPart[], extraHeaders?: Recor
       method: http.RequestMethod.POST,
       header: headers,
       extraData: mp.body,
-      connectTimeout: CONNECT_TIMEOUT_MS,
-      readTimeout: READ_TIMEOUT_MS
+      connectTimeout: cfgConnMs(),
+      readTimeout: cfgReadMs()
     }, (err: BusinessError, data: http.HttpResponse) => {
       const ms: number = nowMs() - start;
       try {
@@ -210,8 +212,8 @@ function get(url: string, extraHeaders?: Record<string, string>): Promise<HttpRe
     req.request(url, {
       method: http.RequestMethod.GET,
       header: headers,
-      connectTimeout: CONNECT_TIMEOUT_MS,
-      readTimeout: READ_TIMEOUT_MS
+      connectTimeout: cfgConnMs(),
+      readTimeout: cfgReadMs()
     }, (err: BusinessError, data: http.HttpResponse) => {
       const ms: number = nowMs() - start;
       try {
@@ -480,13 +482,13 @@ function findImageField(obj: Record<string, ESObject> | null): string | null {
 
 async function pollGenerateTask(taskId: string): Promise<string | null> {
   const start: number = nowMs();
-  const maxMs: number = POLL_MAX_S * 1000;
+  const maxMs: number = cfgPollMaxS() * 1000;
   const DONE: string[] = ['success', 'succeeded', 'finished', 'finish', 'done', 'complete', 'completed', '0'];
   const FAIL: string[] = ['failed', 'fail', 'error', '1'];
   while (nowMs() - start < maxMs) {
-    const resp: HttpResult | null = await get(URL_GEN_TASK + taskId);
+    const resp: HttpResult | null = await get(cfgGenTaskUrl() + taskId);
     if (resp === null) {
-      await sleepMs(POLL_INTERVAL_MS);
+      await sleepMs(cfgPollMs());
       continue;
     }
     const json: Record<string, ESObject> | null = safeParse(resp.body);
@@ -519,9 +521,9 @@ async function pollGenerateTask(taskId: string): Promise<string | null> {
       Logger.error(`${TAG} generate marked DONE but no image field found body=${truncate(safeForLog(resp.body), 1200)}`);
       return null;
     }
-    await sleepMs(POLL_INTERVAL_MS);
+    await sleepMs(cfgPollMs());
   }
-  Logger.error(`${TAG} generate poll TIMEOUT after ${POLL_MAX_S}s taskId=${taskId}`);
+  Logger.error(`${TAG} generate poll TIMEOUT after ${cfgPollMaxS()}s taskId=${taskId}`);
   return null;
 }
 
@@ -539,8 +541,8 @@ export async function generate(jpeg: ArrayBuffer, taskId: string, filesDir?: str
   const ts: string = dbgTs();
   dbgSaveBytes(dbgDir, `${ts}_gen_input.jpg`, jpeg);
   dbgSaveText(dbgDir, `${ts}_gen_req.txt`,
-    `url=${URL_GEN}\ntask_id=${taskId}\nprompt=${PROMPT}\ninput_image_bytes=${jpeg.byteLength}\n`);
-  const resp: HttpResult | null = await postMultipart(URL_GEN, parts);
+    `url=${cfgGenUrl()}\ntask_id=${taskId}\nprompt=${PROMPT}\ninput_image_bytes=${jpeg.byteLength}\n`);
+  const resp: HttpResult | null = await postMultipart(cfgGenUrl(), parts);
   if (resp === null) {
     Logger.error(`${TAG} generate POST returned null`);
     return null;
@@ -636,7 +638,7 @@ function parseZoom(raw: string): string {
   return m[0];
 }
 
-function parseGuideString(raw: GuideData): GuideData {
+export function parseGuideString(raw: GuideData): GuideData {
   const out: GuideData = {
     x:     parseSignedField(raw.x,     ['左'],     ['右']),
     y:     parseSignedField(raw.y,     ['下'],     ['上']),
@@ -687,13 +689,13 @@ function pickGuideString(out: Record<string, ESObject> | null): GuideData | null
 
 async function pollGuideTask(taskid: string): Promise<GuideData | null> {
   const start: number = nowMs();
-  const maxMs: number = POLL_MAX_S * 1000;
-  const url: string = URL_GUIDE_BASE + URL_GUIDE_GATEWAY + '/task';
+  const maxMs: number = cfgPollMaxS() * 1000;
+  const url: string = cfgGuideTaskUrl();
   while (nowMs() - start < maxMs) {
     const parts: MultipartPart[] = [{ name: 'taskid', text: taskid }];
     const resp: HttpResult | null = await postMultipart(url, parts);
     if (resp === null) {
-      await sleepMs(POLL_INTERVAL_MS);
+      await sleepMs(cfgPollMs());
       continue;
     }
     const json: Record<string, ESObject> | null = safeParse(resp.body);
@@ -779,16 +781,16 @@ async function pollGuideTask(taskid: string): Promise<GuideData | null> {
     if (st === null) {
       Logger.warn(`${TAG} guide poll missing task_status body=${truncate(safeForLog(resp.body), 1200)}`);
     }
-    await sleepMs(POLL_INTERVAL_MS);
+    await sleepMs(cfgPollMs());
   }
-  Logger.error(`${TAG} guide poll TIMEOUT after ${POLL_MAX_S}s taskid=${taskid}`);
+  Logger.error(`${TAG} guide poll TIMEOUT after ${cfgPollMaxS()}s taskid=${taskid}`);
   return null;
 }
 
 export async function getGuide(targetJpeg: ArrayBuffer, currentJpeg: ArrayBuffer, taskId: string,
                                 filesDir?: string): Promise<GuideData | null> {
   Logger.info(`ARDA3-FLOW Da3.getGuide start target=${targetJpeg.byteLength}B current=${currentJpeg.byteLength}B task_id=${taskId}`);
-  const url: string = URL_GUIDE_BASE + URL_GUIDE_GATEWAY + '/infer';
+  const url: string = cfgGuideInferUrl();
   // 关键修复:da3 demo 的 data 字段是 { task_id: this.taskId },与 generate 同会话。
   // 之前传 '{}' 导致服务端 os.path.join(None, ...) 崩。
   // ArkTS 严格禁裸 object literal,直接拼字符串(taskId 是 UUID,无需转义)。

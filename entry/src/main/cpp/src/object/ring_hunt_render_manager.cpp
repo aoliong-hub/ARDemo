@@ -95,6 +95,10 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
                 float raw[7] = {0.0f};
                 HMS_AREngine_ARPose_GetPoseRaw(arSession, camPose, raw, 7);
                 cameraPos = glm::vec3(raw[4], raw[5], raw[6]);
+                // Hand the full camera pose to OnUpdate so it can snapshot at capture time
+                if (outCam != nullptr) {
+                    std::memcpy(outCam->camPoseRaw, raw, sizeof(float) * 7);
+                }
             }
             HMS_AREngine_ARPose_Destroy(camPose);
         }
@@ -113,30 +117,63 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
 
     mBackgroundRenderer.Draw(arSession, arFrame);
 
+    // ── Frame captures: do these BEFORE the tracking check so DA3 / photo captures succeed
+    //     even when AR tracking is temporarily lost. Cloud-side VGGT inference does its own
+    //     pose estimation from images and does not depend on AR Engine tracking state.
+    //     Captured frames are camera-only (no AR overlay drawn yet). ──────────────────────
+    //
+    // 性能优化:glReadPixels 是同步阻塞调用,会强制 GPU 管线排空再回读像素。
+    //   1) 用缩放后的尺寸(capScale=0.5)读,6MB→1.5MB,大幅减少 GPU→CPU 拷贝量
+    //   2) Y-flip 改为逐行写入目标 buffer,省掉临时 buffer + 二次拷贝
+    //   3) 预分配 target buffer(capBuf_),避免每帧 vector::resize 堆分配
+    //   4) clean 和 da3 不会同时触发(互斥),不会双倍阻塞
+
+    constexpr float kCapScale = 1.0f;  // 全分辨率读取(ArkTS 侧 resize 到 512,这里保证 viewport 对齐)
+    const int capReadW = std::max(1, static_cast<int>(captureW * kCapScale));
+    const int capReadH = std::max(1, static_cast<int>(captureH * kCapScale));
+
+    // 拍照纯净帧
+    if (wantCleanCapture && outCleanRGBA != nullptr && captureW > 0 && captureH > 0) {
+        size_t bytes = static_cast<size_t>(capReadW) * static_cast<size_t>(capReadH) * 4u;
+        if (capBuf_.size() < bytes) { capBuf_.resize(bytes); }
+        glReadPixels(0, 0, capReadW, capReadH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
+        // Y-flip:直接倒序写入输出 buffer,省掉临时 buffer
+        outCleanRGBA->resize(bytes);
+        const size_t rowStride = static_cast<size_t>(capReadW) * 4u;
+        for (int y = 0; y < capReadH; ++y) {
+            uint8_t *dst = outCleanRGBA->data() + y * rowStride;
+            const uint8_t *src = capBuf_.data() + (capReadH - 1 - y) * rowStride;
+            std::memcpy(dst, src, rowStride);
+        }
+        if (outCleanW != nullptr) { *outCleanW = capReadW; }
+        if (outCleanH != nullptr) { *outCleanH = capReadH; }
+        LOGI("ARDA3-CAPTURE clean glReadPixels done %{public}dx%{public}d (scaled from %{public}dx%{public}d)",
+             capReadW, capReadH, captureW, captureH);
+    }
+
+    // Da3 capture
+    if (wantCapture && outCaptureRGBA != nullptr && captureW > 0 && captureH > 0) {
+        size_t bytes = static_cast<size_t>(capReadW) * static_cast<size_t>(capReadH) * 4u;
+        if (capBuf_.size() < bytes) { capBuf_.resize(bytes); }
+        glReadPixels(0, 0, capReadW, capReadH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
+        outCaptureRGBA->resize(bytes);
+        const size_t rowStride = static_cast<size_t>(capReadW) * 4u;
+        for (int y = 0; y < capReadH; ++y) {
+            uint8_t *dst = outCaptureRGBA->data() + y * rowStride;
+            const uint8_t *src = capBuf_.data() + (capReadH - 1 - y) * rowStride;
+            std::memcpy(dst, src, rowStride);
+        }
+        if (outCapW != nullptr) { *outCapW = capReadW; }
+        if (outCapH != nullptr) { *outCapH = capReadH; }
+        LOGI("ARDA3-CAP glReadPixels done %{public}dx%{public}d (scaled from %{public}dx%{public}d)",
+             capReadW, capReadH, captureW, captureH);
+    }
+
+    // AR overlays (axes, wayfinder) require tracking. If lost, swap and bail — but captures
+    // above already succeeded so cloud inference keeps running.
     if (camTracking != ARENGINE_TRACKING_STATE_TRACKING) {
         mRenderContext.SwapBuffers(&mRenderSurface);
         return false;
-    }
-
-    // 拍照纯净帧:这一刻 framebuffer 只含相机背景画面,wayfinder(信标/炫彩圈/对齐框)还没画。
-    // glReadPixels 抓出来的就是不带任何 AR 物体的纯相机照片。Y-flip 同 da3 路径(GL 原点左下 →
-    // 图像消费者左上)。共用 captureW/captureH 作为读取尺寸。
-    if (wantCleanCapture && outCleanRGBA != nullptr && captureW > 0 && captureH > 0) {
-        size_t bytes = static_cast<size_t>(captureW) * static_cast<size_t>(captureH) * 4u;
-        outCleanRGBA->resize(bytes);
-        glReadPixels(0, 0, captureW, captureH, GL_RGBA, GL_UNSIGNED_BYTE, outCleanRGBA->data());
-        size_t rowStride = static_cast<size_t>(captureW) * 4u;
-        std::vector<uint8_t> tmp(rowStride);
-        for (int y = 0; y < captureH / 2; ++y) {
-            uint8_t *top = outCleanRGBA->data() + y * rowStride;
-            uint8_t *bot = outCleanRGBA->data() + (captureH - 1 - y) * rowStride;
-            std::memcpy(tmp.data(), top, rowStride);
-            std::memcpy(top, bot, rowStride);
-            std::memcpy(bot, tmp.data(), rowStride);
-        }
-        if (outCleanW != nullptr) { *outCleanW = captureW; }
-        if (outCleanH != nullptr) { *outCleanH = captureH; }
-        LOGI("ARDA3-CAPTURE clean glReadPixels done %{public}dx%{public}d", captureW, captureH);
     }
 
     if (hasRing && ringAnchor != nullptr) {
@@ -158,29 +195,6 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
                                       huntPhase, frameOrientation, frameHueTime, isAligned, deltaTime, ringHeight,
                                       badgeFadeProgress, animAge, clipShiftY);
         }
-    }
-
-    // Da3 capture hook: glReadPixels before SwapBuffers, on the success path only (after camera
-    // background quad + beacon overlay). zoom>1 enlarges glViewport off-screen, so reading
-    // (0,0,W,H) returns exactly the user-visible region — zoom comes through automatically.
-    if (wantCapture && outCaptureRGBA != nullptr && captureW > 0 && captureH > 0) {
-        size_t bytes = static_cast<size_t>(captureW) * static_cast<size_t>(captureH) * 4u;
-        outCaptureRGBA->resize(bytes);
-        glReadPixels(0, 0, captureW, captureH, GL_RGBA, GL_UNSIGNED_BYTE, outCaptureRGBA->data());
-        // Y flip: glReadPixels origin is bottom-left; image consumers (encoders, PixelMap) want
-        // top-left. Swap row 0<->H-1, 1<->H-2, ... in-place.
-        size_t rowStride = static_cast<size_t>(captureW) * 4u;
-        std::vector<uint8_t> tmp(rowStride);
-        for (int y = 0; y < captureH / 2; ++y) {
-            uint8_t *top = outCaptureRGBA->data() + y * rowStride;
-            uint8_t *bot = outCaptureRGBA->data() + (captureH - 1 - y) * rowStride;
-            std::memcpy(tmp.data(), top, rowStride);
-            std::memcpy(top, bot, rowStride);
-            std::memcpy(bot, tmp.data(), rowStride);
-        }
-        if (outCapW != nullptr) { *outCapW = captureW; }
-        if (outCapH != nullptr) { *outCapH = captureH; }
-        LOGI("ARDA3-CAP glReadPixels done %{public}dx%{public}d", captureW, captureH);
     }
 
     mRenderContext.SwapBuffers(&mRenderSurface);

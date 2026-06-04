@@ -49,6 +49,14 @@ public:
                 const glm::quat &frameOrientation, float frameHueTime, bool isAligned, float deltaTime,
                 float ringHeight, float badgeFadeProgress, float animAge, float clipShiftY);
 
+    // Debug: draw AR Engine world axes (solid lines) at world origin.
+    // Red=+X, Green=+Y, Blue=+Z. Uses the existing line shader.
+    void DrawWorldAxes(const glm::mat4 &view, const glm::mat4 &proj);
+
+    // Debug: draw camera-local axes (dashed lines) at the camera position.
+    // Red=right, Green=up, Blue=forward. Uses the existing line shader.
+    void DrawCameraAxes(const glm::mat4 &view, const glm::mat4 &proj, const glm::vec3 &cameraPos);
+
 private:
     void DrawSolid(const glm::mat4 &mvp, const WayfinderMesh &mesh, const glm::vec3 &color, float alphaBase,
                    float alphaTop, bool depthWrite);
@@ -173,6 +181,9 @@ private:
     WayfinderMesh mAlignMembrane;
     WayfinderMesh mArrow;
     WayfinderMesh mWaterDrop;
+    WayfinderMesh mAxes;        // solid world axes
+    WayfinderMesh mAxesDashed;  // dashed camera axes
+    WayfinderMesh mDebugSphere;
 };
 
 } // namespace ARObject

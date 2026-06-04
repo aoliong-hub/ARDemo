@@ -412,6 +412,9 @@ void WayfinderRenderer::Init()
     mArrow = WayfinderGeometry::CreateArrow3D();
     // 放置序列动画用的水滴(默认 2.5cm 半径 = 5cm 直径)。FLOW shader 沿 uv.y 走 pearl 渐变。
     mWaterDrop = WayfinderGeometry::CreateWaterDrop();
+    mAxes = WayfinderGeometry::CreateAxesLines();
+    mAxesDashed = WayfinderGeometry::CreateAxesLinesDashed();
+    mDebugSphere = WayfinderGeometry::CreateDebugSphere(0.015f);  // tiny sphere: ~1.5cm radius
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
 
@@ -606,6 +609,96 @@ void WayfinderRenderer::DrawFlow(const glm::mat4 &mvp, const WayfinderMesh &mesh
     glDisableVertexAttribArray(mFlowPos);
     glDisableVertexAttribArray(mFlowUv);
     glDepthMask(GL_TRUE);
+}
+
+void WayfinderRenderer::DrawWorldAxes(const glm::mat4 &view, const glm::mat4 &proj)
+{
+    if (mAxes.indices.empty() || !mLineProgram) {
+        return;
+    }
+    // Solid axes at AR Engine world origin. Model = identity.
+    const glm::mat4 mvp = proj * view;
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_TRUE);
+    glUseProgram(mLineProgram);
+    glUniformMatrix4fv(mLineMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+    glLineWidth(3.0f);
+    glEnableVertexAttribArray(mLinePos);
+    glVertexAttribPointer(mLinePos, 3, GL_FLOAT, GL_FALSE, 0, mAxes.positions.data());
+
+    const glm::vec3 kColors[3] = {
+        glm::vec3(1.0f, 0.2f, 0.2f),  // +X red
+        glm::vec3(0.2f, 1.0f, 0.2f),  // +Y green
+        glm::vec3(0.2f, 0.4f, 1.0f),  // +Z blue
+    };
+    for (int a = 0; a < 3; ++a) {
+        glUniform3fv(mLineColor, 1, glm::value_ptr(kColors[a]));
+        glUniform1f(mLineAlpha, 0.9f);
+        glDrawElements(GL_LINES, 2, GL_UNSIGNED_SHORT,
+                       mAxes.indices.data() + a * 2);
+    }
+
+    glDisableVertexAttribArray(mLinePos);
+    glUseProgram(0);
+    GLUtils::CheckError(__FILE_NAME__, __LINE__);
+}
+
+void WayfinderRenderer::DrawCameraAxes(const glm::mat4 &view, const glm::mat4 &proj, const glm::vec3 &cameraPos)
+{
+    if (mAxesDashed.indices.empty() || !mLineProgram) {
+        return;
+    }
+
+    const glm::vec3 camRight(view[0][0], view[1][0], view[2][0]);
+    const glm::vec3 camUp   (view[0][1], view[1][1], view[2][1]);
+    const glm::vec3 camFwd  (-view[0][2], -view[1][2], -view[2][2]);
+
+    // Offset forward so all dashes sit beyond the near clip plane.
+    const float kForwardOffset = 0.5f;
+    glm::vec3 axesOrigin = cameraPos + camFwd * kForwardOffset;
+
+    glm::mat4 axisModel(1.0f);
+    axisModel[0] = glm::vec4(camRight, 0.0f);
+    axisModel[1] = glm::vec4(camUp,    0.0f);
+    axisModel[2] = glm::vec4(camFwd,   0.0f);
+    axisModel[3] = glm::vec4(axesOrigin, 1.0f);
+
+    const glm::mat4 mvp = proj * view * axisModel;
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_TRUE);
+    glUseProgram(mLineProgram);
+    glUniformMatrix4fv(mLineMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+    glLineWidth(2.5f);
+    glEnableVertexAttribArray(mLinePos);
+    glVertexAttribPointer(mLinePos, 3, GL_FLOAT, GL_FALSE, 0, mAxesDashed.positions.data());
+
+    // Dashed camera axes: same colours, 0.6 alpha for a softer look.
+    const glm::vec3 kColors[3] = {
+        glm::vec3(1.0f, 0.2f, 0.2f),  // right (red)
+        glm::vec3(0.2f, 1.0f, 0.2f),  // up (green)
+        glm::vec3(0.2f, 0.4f, 1.0f),  // forward (blue)
+    };
+
+    // Each axis has multiple dash segments (all GL_LINES). Total indices = 3 * N.
+    int idxPerAxis = static_cast<int>(mAxesDashed.indices.size()) / 3;
+    for (int a = 0; a < 3; ++a) {
+        glUniform3fv(mLineColor, 1, glm::value_ptr(kColors[a]));
+        glUniform1f(mLineAlpha, 0.6f);
+        glDrawElements(GL_LINES, idxPerAxis, GL_UNSIGNED_SHORT,
+                       mAxesDashed.indices.data() + a * idxPerAxis);
+    }
+
+    glDisableVertexAttribArray(mLinePos);
+    glUseProgram(0);
+    GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
 
 void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, const glm::mat4 &wayfinderToWorld,
@@ -893,6 +986,17 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         // Snap FX 阶段中,箭头跟着框一起淡出(scale 不跟,避免视觉爆炸过头)— 让"框飞出"时箭头同步消失。
         glm::mat4 arrowMvp = clipShift * vp * glm::translate(glm::mat4(1.0f), framePos) * frameRot * spinMat;
         DrawArrow(arrowMvp, animTime, mAlignedTransition, frameAlphaMult * frameAnimAlpha);
+    }
+
+    // ── Debug: yellow sphere at target (badge) position ─────────────────────────
+    // Always draw when the beacon is placed, so the cloud target point is visible
+    // even during the placement animation. Rendered on top of everything.
+    if (!mDebugSphere.indices.empty()) {
+        glm::vec3 spherePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
+        glm::mat4 sphereModel = glm::translate(glm::mat4(1.0f), spherePos);
+        glm::mat4 sphereMvp = vp * sphereModel;
+        const glm::vec3 kYellow(1.0f, 0.85f, 0.05f);
+        DrawSolid(sphereMvp, mDebugSphere, kYellow, 1.0f, 1.0f, true);
     }
 
     glDepthMask(GL_TRUE);

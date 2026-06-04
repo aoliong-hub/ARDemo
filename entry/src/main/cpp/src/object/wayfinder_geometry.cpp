@@ -449,4 +449,93 @@ WayfinderMesh WayfinderGeometry::CreateWaterDrop(float radius, int segments, int
     return m;
 }
 
+WayfinderMesh WayfinderGeometry::CreateAxesLines(float length)
+{
+    WayfinderMesh m;
+    // 6 vertices: origin + tip for each of X/Y/Z axes.
+    // Vertex layout: each vertex has position (x,y,z), normal (nx,ny,nz), uv (u,v).
+    // Normals and uvs are unused by the line shader but must be present for PushVtx.
+    const float origin[3] = {0.0f, 0.0f, 0.0f};
+    const float axes[3][3] = {
+        {length, 0.0f, 0.0f},   // +X
+        {0.0f, length, 0.0f},   // +Y
+        {0.0f, 0.0f, length},   // +Z
+    };
+    for (int a = 0; a < 3; ++a) {
+        // Origin vertex for this axis
+        PushVtx(m, origin[0], origin[1], origin[2], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        // Tip vertex for this axis
+        PushVtx(m, axes[a][0], axes[a][1], axes[a][2], 0.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+        // Line segment: index a*2 → a*2+1
+        uint16_t base = static_cast<uint16_t>(a * 2);
+        m.indices.push_back(base);
+        m.indices.push_back(base + 1);
+    }
+    return m;
+}
+
+WayfinderMesh WayfinderGeometry::CreateAxesLinesDashed(float length, float dashLen, float gapLen)
+{
+    WayfinderMesh m;
+    if (dashLen <= 0.0f) { dashLen = 0.04f; }
+    if (gapLen  <= 0.0f) { gapLen  = 0.03f; }
+    const float period = dashLen + gapLen;  // one dash + one gap
+    const float axes[3][3] = {
+        {length, 0.0f, 0.0f},  // +X
+        {0.0f, length, 0.0f},  // +Y
+        {0.0f, 0.0f, length},  // +Z
+    };
+    for (int a = 0; a < 3; ++a) {
+        float dist = 0.0f;
+        while (dist + dashLen <= length) {
+            float d0 = dist;
+            float d1 = dist + dashLen;
+            // start of dash
+            uint16_t base = static_cast<uint16_t>(m.positions.size() / 3);
+            float t0 = d0 / length;
+            float t1 = d1 / length;
+            PushVtx(m, axes[a][0]*t0, axes[a][1]*t0, axes[a][2]*t0, 0,0,0, 0,0);
+            PushVtx(m, axes[a][0]*t1, axes[a][1]*t1, axes[a][2]*t1, 0,0,0, 1,1);
+            m.indices.push_back(base);
+            m.indices.push_back(base + 1);
+            dist += period;
+        }
+    }
+    return m;
+}
+
+WayfinderMesh WayfinderGeometry::CreateDebugSphere(float radius, int segments, int stacks)
+{
+    // Same UV-sphere construction as CreateWaterDrop but with caller-specified radius.
+    WayfinderMesh m;
+    if (segments < 6) { segments = 6; }
+    if (stacks < 4)   { stacks = 4; }
+    for (int i = 0; i <= stacks; ++i) {
+        float v = static_cast<float>(i) / static_cast<float>(stacks);
+        float phi = v * kPi;
+        float y = -std::cos(phi) * radius;
+        float r = std::sin(phi) * radius;
+        for (int j = 0; j <= segments; ++j) {
+            float u = static_cast<float>(j) / static_cast<float>(segments);
+            float theta = u * kTwoPi;
+            float x = r * std::cos(theta);
+            float z = r * std::sin(theta);
+            float invR = (radius > 1e-6f) ? (1.0f / radius) : 1.0f;
+            PushVtx(m, x, y, z, x * invR, y * invR, z * invR, u, v);
+        }
+    }
+    int stride = segments + 1;
+    for (int i = 0; i < stacks; ++i) {
+        for (int j = 0; j < segments; ++j) {
+            uint16_t a = static_cast<uint16_t>(i * stride + j);
+            uint16_t b = static_cast<uint16_t>((i + 1) * stride + j);
+            uint16_t c = static_cast<uint16_t>(i * stride + j + 1);
+            uint16_t d = static_cast<uint16_t>((i + 1) * stride + j + 1);
+            m.indices.push_back(a); m.indices.push_back(b); m.indices.push_back(c);
+            m.indices.push_back(c); m.indices.push_back(b); m.indices.push_back(d);
+        }
+    }
+    return m;
+}
+
 } // namespace ARObject

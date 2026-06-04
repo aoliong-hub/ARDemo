@@ -185,6 +185,15 @@ private:
     float mCalibCamRawPose[7] = {0,0,0,1, 0,0,0};
     float mCalibCamDispPose[7] = {0,0,0,1, 0,0,0};
 
+    // Camera pose snapshot taken at frame-capture time (when mCaptureRequested is drained).
+    // PlaceBeaconInternal uses this instead of the live camera pose so the cloud-returned
+    // relative displacement is applied to the SAME reference frame the cloud saw — preventing
+    // beacon position drift caused by phone movement between capture and placement.
+    // Layout: [qx,qy,qz,qw, px,py,pz] — GetDisplayOrientedPose raw[7] format.
+    float mCaptureCamPose[7] = {0,0,0,1, 0,0,0};
+    bool mHasCapturePose = false;
+    std::chrono::steady_clock::time_point mCapturePoseTime{};
+
     // Off-screen target guidance (computed each tracked frame from the view/proj matrices, targeting
     // the beacon top). Default "in view" so guidance stays hidden until a beacon is placed.
     std::atomic<bool> mIsTargetInView{true};

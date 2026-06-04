@@ -104,6 +104,18 @@ public:
     // (default 0.075×0.10,3:4)。uv (0..1, 0..1),供 MEMBRANE shader 沿 uv 流 pearl + flash + 转青绿。
     // 在框中央 z=0 平面,法线 +Z(同框)。aligned 0→1 边缘触发庆祝特效时显示。
     static WayfinderMesh CreateAlignmentMembrane(float width = 0.075f, float height = 0.10f);
+
+    // Debug axes: 3 line segments from (0,0,0) along +X (red), +Y (green), +Z (blue), each `length`
+    // metres long. Indices form 3 disjoint GL_LINES pairs so the caller can draw all 3 axes with a
+    // single DrawElements call (same mvp, different colors per axis → 3 draw calls).
+    static WayfinderMesh CreateAxesLines(float length = 1.0f);
+
+    // Dashed-axis variant: each axis is split into short segments (dashLen on, gapLen off) so the
+    // caller can draw dashed lines without glLineStipple (unavailable in OpenGL ES).
+    static WayfinderMesh CreateAxesLinesDashed(float length = 1.0f, float dashLen = 0.04f, float gapLen = 0.03f);
+
+    // Debug sphere: low-poly UV sphere at origin, used to mark the cloud target position.
+    static WayfinderMesh CreateDebugSphere(float radius = 0.05f, int segments = 16, int stacks = 10);
 };
 
 } // namespace ARObject

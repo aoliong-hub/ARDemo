@@ -249,6 +249,14 @@ void RingHuntApp::OnUpdate()
                 mLastFrameH = capH;
             }
             mFrameReady.store(true);
+            // Snapshot the camera pose at capture time so PlaceBeaconInternal can use
+            // the same reference frame the cloud saw — prevents beacon drift when the
+            // phone moves between capture and placement.
+            if (cam.tracking) {
+                std::memcpy(mCaptureCamPose, cam.camPoseRaw, sizeof(float) * 7);
+                mHasCapturePose = true;
+                mCapturePoseTime = std::chrono::steady_clock::now();
+            }
             LOGI("ARDA3-CAP frame cached %{public}dx%{public}d bytes=%{public}zu", capW, capH,
                  static_cast<size_t>(capW) * static_cast<size_t>(capH) * 4u);
         } else if (wantCap) {
@@ -744,19 +752,35 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
                      useGivenPosition, relX, relZ] {
         // Acquire the camera pose first: it gives both the placement position AND the heading
         // (world yaw) that the target orientation is measured relative to.
-        AREngine_ARCamera *cam = nullptr;
-        CHECK(HMS_AREngine_ARFrame_AcquireCamera(mArSession, mArFrame, &cam));
-        AREngine_ARPose *camPose = nullptr;
-        CHECK(HMS_AREngine_ARPose_Create(mArSession, nullptr, 0, &camPose));
-        // v13 (e): 用 GetDisplayOrientedPose,与 renderer (ring_hunt_render_manager.cpp:91) 对齐。
-        // GetPose 返回 sensor 物理姿态(因 sensor 物理 90° 横装,竖屏端平时给出 camRoll≈-90° 脏值);
-        // GetDisplayOrientedPose 吃当前 mDisplayRotation 做校正,给"用户视角"姿态,camRoll/Pitch/Yaw
-        // 提取出来的都是真实的"用户手机姿态"(端平时 camRoll≈0,camUp≈worldUp)。
-        CHECK(HMS_AREngine_ARCamera_GetDisplayOrientedPose(mArSession, cam, camPose));
+        // Prefer the snapshot taken at frame-capture time (if within 2 seconds) so the cloud-
+        // returned relative displacement is applied to the SAME reference frame the cloud saw.
+        // This prevents beacon drift when the phone moves between capture and placement.
+        constexpr float kCapturePoseMaxAgeSec = 2.0f;
         float raw[7] = {0.0f};
-        HMS_AREngine_ARPose_GetPoseRaw(mArSession, camPose, raw, 7);
-        HMS_AREngine_ARPose_Destroy(camPose);
-        HMS_AREngine_ARCamera_Release(cam);
+        bool useSnapshot = false;
+        if (mHasCapturePose) {
+            auto age = std::chrono::duration<float>(
+                std::chrono::steady_clock::now() - mCapturePoseTime).count();
+            if (age >= 0.0f && age < kCapturePoseMaxAgeSec) {
+                std::memcpy(raw, mCaptureCamPose, sizeof(float) * 7);
+                useSnapshot = true;
+            }
+        }
+        if (!useSnapshot) {
+            // Fallback: real-time acquisition (for manual ring placement, axis tests, etc.)
+            AREngine_ARCamera *cam = nullptr;
+            CHECK(HMS_AREngine_ARFrame_AcquireCamera(mArSession, mArFrame, &cam));
+            AREngine_ARPose *camPose = nullptr;
+            CHECK(HMS_AREngine_ARPose_Create(mArSession, nullptr, 0, &camPose));
+            // v13 (e): 用 GetDisplayOrientedPose,与 renderer (ring_hunt_render_manager.cpp:91) 对齐。
+            // GetPose 返回 sensor 物理姿态(因 sensor 物理 90° 横装,竖屏端平时给出 camRoll≈-90° 脏值);
+            // GetDisplayOrientedPose 吃当前 mDisplayRotation 做校正,给"用户视角"姿态,camRoll/Pitch/Yaw
+            // 提取出来的都是真实的"用户手机姿态"(端平时 camRoll≈0,camUp≈worldUp)。
+            CHECK(HMS_AREngine_ARCamera_GetDisplayOrientedPose(mArSession, cam, camPose));
+            HMS_AREngine_ARPose_GetPoseRaw(mArSession, camPose, raw, 7);
+            HMS_AREngine_ARPose_Destroy(camPose);
+            HMS_AREngine_ARCamera_Release(cam);
+        }
 
         float camPos[3] = {raw[4], raw[5], raw[6]};
         float camQuat[4];

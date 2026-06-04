@@ -25,7 +25,10 @@ import { Logger } from '../utils/Logger';
 import { Palette, FontSize, Spacing, Radius } from '../styles/Theme';
 import { CameraChrome } from '../components/CameraChrome';
 import { ReferencePanel, RefImageHolder } from '../components/ReferencePanel';
-import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, GuideData as Da3GuideData } from '../services/Da3Service';
+import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, parseGuideString, GuideData as Da3GuideData } from '../services/Da3Service';
+import { WsGuideClient, WsPoseResult, extractGuideField } from '../services/Da3WsService';
+import { getCloudConfig } from '../config/CloudConfig';
+import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType } from '../config/CloudConfig';
 
 // v13 (c): da3 机位服务返回的 guideData — 全 string,由 applyGuide 转 number 并喂给
 // placeRingAt + applyZoom。语义跟 placeRingAt 一致:x=右(米)/ y=圆环离地高度(米)/ z=前(米),
@@ -142,6 +145,10 @@ struct ARRingHuntCam {
   private targetJpeg?: ArrayBuffer;
   private busyGenerate: boolean = false;
   private busyGuide: boolean = false;
+  // v13 (e) — 连续机位引导循环（WebSocket）。持续抽帧上传直到对齐。
+  private guideLoopRunning: boolean = false;
+  private guideLoopFrameCount: number = 0;
+  private wsClient?: WsGuideClient;
   // 会话级 task_id — 每次点炫彩球重生成,generate + getGuide 共用,服务端靠这个把
   // "先前生成的目标图"和"现在算机位"两次请求关联起来。da3 demo 对齐:UuidUtil.getUuid()。
   private sessionTaskId: string = '';
@@ -150,6 +157,9 @@ struct ARRingHuntCam {
   // 物理朝向(每 62ms 从 native 轮询):0=PORTRAIT, 1=LANDSCAPE_CW, 2=LANDSCAPE_CCW, 3=FLIP(预留)
   // 驱动炫彩球 / ReferencePanel 文字+chevron / ZoomBar 倍率数字 原位自转,让横拿/倒置时视觉正。
   @State orientation: number = 0;
+
+  // 后端切换:da3 / vggt-omega。点一下切下一个。
+  @State backendType: BackendType = getBackendType();
 
   // ===== 标定工具状态(完全旁路) =====
   // 标定模式总开关。true 时显示标定 overlay,其它正常 UI 不受影响。
@@ -641,8 +651,6 @@ struct ARRingHuntCam {
           editable: true
         };
         image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
-          // Phase 3 — 先裁到可见区(去掉黑条遮挡的顶 + 底),再按朝向扶正。详见 cropToVisibleRegion。
-          await this.cropToVisibleRegion(pm);
           // 按 native 报告的物理朝向把图旋正,让 da3 收到的图和用户视觉构图一致。
           // 0=PORTRAIT(不转), 1=LANDSCAPE_CW(顺时针横拿,把图逆时针 90° → da3 看到横画布), 2=LANDSCAPE_CCW(反向)。
           const ori: number = arEngineDemo.getOrientation(this.idStr);
@@ -661,6 +669,17 @@ struct ARRingHuntCam {
           } catch (e) {
             const err: BusinessError = e as BusinessError;
             Logger.error(`ARDA3-CAP rotate failed code=${err.code} msg=${err.message}`);
+          }
+          // 云侧推理不需要全分辨率,缩到 ~512px 减少上传流量
+          try {
+            const imgInfo: image.ImageInfo = await pm.getImageInfo();
+            const sx: number = 512 / imgInfo.size.width;
+            const sy: number = 512 / imgInfo.size.height;
+            const s: number = Math.min(sx, sy);
+            pm.scale(s, s);
+            Logger.info(`ARDA3-CAP scaled ${s.toFixed(3)} → ~512px`);
+          } catch (e) {
+            Logger.warn(`ARDA3-CAP scale failed: ${(e as BusinessError).message}`);
           }
           packPixelMapToJpeg(pm).then((jpeg: ArrayBuffer | null) => {
             pm.release().catch((e: BusinessError) => { Logger.warn(`ARDA3-CAP pm.release: ${e.message}`); });
@@ -690,60 +709,83 @@ struct ARRingHuntCam {
     });
   }
 
-  // v13 (d) — step1: AI sphere tap. (1) open the reference panel + spinner, (2) capture the
-  // current frame, (3) call Da3 generate → target PixelMap, (4) display + re-pack to JPEG so
-  // step2 (target tap) has the bytes ready. Reentrancy-guarded.
+  // v13 (d/e) — step1: AI sphere tap.
+  //   da3:         HTTP 两段式 → capture+generate → 显示目标图 → 等用户点目标图触发 step2
+  //   vggt-omega:  WebSocket 一站式 → runGuideLoop 连续抽帧+引导
   private async onBeaconTap(): Promise<void> {
-    if (this.busyGenerate) {
-      Logger.warn('ARDA3-FLOW step1 ignored (busy)');
-      return;
-    }
-    this.busyGenerate = true;
-    try {
-      // 点炫彩球 = 完全重置 + 开新会话。
-      // (1) 清 AR 场景 + 流程状态:detach+release 上次的 native ringAnchor(信标/灰盘/炫彩圈/
-      //     对齐框都跟着 anchor 走),@State 流程标志归零,引导浮动元素停。
+    const isWs: boolean = getBackendType() === 'vggt-omega';
+    if (isWs) {
+      // ── vggt-omega: WebSocket 一站式 ──
+      if (this.busyGuide) {
+        Logger.warn('ARDA3-WS beacon tap ignored (busy)');
+        return;
+      }
+      this.busyGuide = true;
+      this.stopGuideLoop();
       this.resetSceneOnly();
-      // (2) 清 da3 会话级缓存:作废上次 sessionTaskId / 生成图 / 缓存 JPEG,参考图面板回 spinner。
       this.refHolder.image = undefined;
       this.targetJpeg = undefined;
       this.sessionTaskId = util.generateRandomUUID();
-      Logger.info(`ARDA3-FLOW new sessionTaskId=${this.sessionTaskId}`);
-      Logger.info('ARDA3-FLOW step1 beacon tap → capture+generate');
+      Logger.info(`ARDA3-WS new session: ${this.sessionTaskId}`);
       this.enterAiModeAndOpenCard();
       this.refLoading = true;
-      const jpeg: ArrayBuffer | null = await this.captureJpeg();
-      if (jpeg === null) {
+      if (this.zoom !== 1.0) {
+        this.applyZoom(1.0);
+        await new Promise<void>((r: () => void) => { setTimeout(r, 150); });
+      }
+      Logger.info('ARDA3-WS beacon tap → starting WebSocket guide loop');
+      this.toast('连接云侧…');
+      this.runGuideLoop();
+    } else {
+      // ── da3: HTTP 两段式 ──
+      if (this.busyGenerate) {
+        Logger.warn('ARDA3-FLOW step1 ignored (busy)');
+        return;
+      }
+      this.busyGenerate = true;
+      try {
+        this.resetSceneOnly();
+        this.refHolder.image = undefined;
+        this.targetJpeg = undefined;
+        this.sessionTaskId = util.generateRandomUUID();
+        Logger.info(`ARDA3-FLOW new sessionTaskId=${this.sessionTaskId}`);
+        Logger.info('ARDA3-FLOW step1 beacon tap → capture+generate');
+        this.enterAiModeAndOpenCard();
+        this.refLoading = true;
+        if (this.zoom !== 1.0) {
+          this.applyZoom(1.0);
+          await new Promise<void>((r: () => void) => { setTimeout(r, 150); });
+        }
+        const jpeg: ArrayBuffer | null = await this.captureJpeg();
+        if (jpeg === null) {
+          this.refLoading = false;
+          this.toast('抓帧失败');
+          Logger.error('ARDA3-FLOW step1 capture fail');
+          return;
+        }
+        const target: image.PixelMap | null = await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
         this.refLoading = false;
-        this.toast('抓帧失败');
-        Logger.error('ARDA3-FLOW step1 capture fail');
-        return;
+        if (target === null) {
+          this.toast('生成失败');
+          Logger.error('ARDA3-FLOW step1 generate fail');
+          return;
+        }
+        this.refHolder.image = target;
+        const targetJpeg: ArrayBuffer | null = await packPixelMapToJpeg(target);
+        if (targetJpeg === null) {
+          Logger.error('ARDA3-FLOW step1 target re-pack to jpeg failed');
+        } else {
+          this.targetJpeg = targetJpeg;
+          Logger.info(`ARDA3-FLOW step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
+        }
+      } finally {
+        this.busyGenerate = false;
       }
-      const target: image.PixelMap | null = await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
-      this.refLoading = false;
-      if (target === null) {
-        this.toast('生成失败');
-        Logger.error('ARDA3-FLOW step1 generate fail');
-        return;
-      }
-      this.refHolder.image = target;
-      // Re-pack target PixelMap → JPEG for step2's getGuide call.
-      const targetJpeg: ArrayBuffer | null = await packPixelMapToJpeg(target);
-      if (targetJpeg === null) {
-        Logger.error('ARDA3-FLOW step1 target re-pack to jpeg failed');
-        // Target image still shown; user can re-tap beacon to retry.
-      } else {
-        this.targetJpeg = targetJpeg;
-        Logger.info(`ARDA3-FLOW step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
-      }
-    } finally {
-      this.busyGenerate = false;
     }
   }
 
   // v13 (d) — step2: target image tap. Capture current frame again, send (target, current) to
-  // Da3 getGuide, route the result through applyGuide (which clamps zoom and applies the pitch
-  // sign correction). Reentrancy-guarded.
+  // Da3 getGuide, route the result through applyGuide. Reentrancy-guarded.
   private async onTargetTap(): Promise<void> {
     if (this.busyGuide) {
       Logger.warn('ARDA3-FLOW step2 ignored (busy)');
@@ -756,16 +798,11 @@ struct ARRingHuntCam {
     }
     this.busyGuide = true;
     try {
-      // 点参考图触发引导的同时,自动收起卡片栏,让出取景空间看 AR 引导。复用现有 toggleCard
-      // 动画(panelHeight 从 panelExpandedHeight 动画到 0)。用户想再看参考图 → 点 chevron 展开 →
-      // 再点图又自动收起,循环。AI 模式(panelExpanded)不变,只是卡片本身收起。
       if (this.cardExpanded) {
         this.toggleCard();
       }
       Logger.info('ARDA3-FLOW step2 target tap → capture+getGuide');
       this.toast('正在计算机位…');
-      // 计算机位前强制恢复到 1.0× 原生焦距 — da3 的空间推理基于原生 FOV,变焦后的帧
-      // 会让 guide 的位置/角度计算偏掉。短延时等 GL 渲完一帧再 capture,确保抓到 1.0× 的画面。
       if (this.zoom !== 1.0) {
         this.applyZoom(1.0);
         await new Promise<void>((resolve: () => void) => { setTimeout(resolve, 150); });
@@ -785,6 +822,205 @@ struct ARRingHuntCam {
       Logger.info(`ARDA3-FLOW step2 guide=${JSON.stringify(guide)} → applyGuide`);
       this.applyGuide(guide as GuideData);
     } finally {
+      this.busyGuide = false;
+    }
+  }
+
+  // Debug: 从 rawfile 加载固定 JPEG 图片,替代摄像头抽帧。
+  private async loadDebugImage(): Promise<ArrayBuffer | null> {
+    try {
+      const ctx: common.UIAbilityContext = this.context as common.UIAbilityContext;
+      const cfg = getCloudConfig();
+      const raw: Uint8Array = await ctx.resourceManager.getRawFileContent(cfg.debugFixedImageName);
+      Logger.info(`ARDA3-DEBUG fixed image loaded: ${cfg.debugFixedImageName} (${raw.byteLength}B)`);
+      return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+    } catch (e) {
+      Logger.error(`ARDA3-DEBUG load failed: ${(e as BusinessError).message}`);
+      return null;
+    }
+  }
+
+  // v13 (e) — WebSocket 连续引导主循环。
+  //   1. 连接 ws://host/ws/infer，等服务端发 "ready"
+  //   2. 每 intervalMs 抽一帧 → 通过 WebSocket 二进制帧头发送
+  //   3. 云侧滑动窗口攒够帧后触发 VGGT batch 推理 → 返回 pose + guide_string
+  //   4. 收到 pose → parse guide_string → applyGuide → 检测 isLocked
+  //   5. LOCKED 或超时 → 关 WebSocket → 收尾
+  private async runGuideLoop(): Promise<void> {
+    this.guideLoopRunning = true;
+    this.guideLoopFrameCount = 0;
+
+    const client: WsGuideClient = new WsGuideClient();
+    this.wsClient = client;
+
+    // 状态闭包 —— WebSocket 回调与 setInterval 共享
+    let stopped: boolean = false;
+    let frameTimer: number = -1;
+
+    const cleanup = (): void => {
+      stopped = true;
+      this.guideLoopRunning = false;
+      if (frameTimer >= 0) {
+        clearInterval(frameTimer);
+        frameTimer = -1;
+      }
+      client.close();
+      this.busyGuide = false;
+      this.wsClient = undefined;
+    };
+
+    // ── 连接 ──
+    const ok: boolean = await client.connect();
+    if (!ok) {
+      Logger.error('ARDA3-WS loop: connect failed');
+      this.toast('连接云侧失败');
+      this.busyGuide = false;
+      this.guideLoopRunning = false;
+      return;
+    }
+
+    // ── 等 "ready" 后开始抽帧发送 ──
+    const cfg = getCloudConfig();
+    const maxFrames: number = cfg.wsGuideMaxFrames;
+    const intervalMs: number = cfg.wsGuideFrameIntervalMs;
+    const useDebugImage: boolean = cfg.debugUseFixedImage;
+
+    // 注册回调：状态 / pose / 关闭 / 目标图
+    let imageReceived: boolean = false;
+    let poseReceived: boolean = false;
+    let captureInProgress: boolean = false;  // 防重入：一次只允许一个 captureJpeg 在跑
+
+    client.setCallbacks(
+      // onStatus — 等服务端就绪后开始抽帧
+      (status: string) => {
+        Logger.info(`ARDA3-WS loop: status=${status}`);
+        if (status === 'ready') {
+          frameTimer = setInterval(async (): Promise<void> => {
+            if (stopped || !this.guideLoopRunning) {
+              clearInterval(frameTimer);
+              cleanup();
+              return;
+            }
+            // 已对齐 → 立即停止抽帧
+            if (this.isLocked) {
+              Logger.info(`ARDA3-WS loop: LOCKED detected, stopping`);
+              this.toast('对齐成功!');
+              cleanup();
+              return;
+            }
+            // 上一帧还在抽 → 跳过本次，等下一拍
+            if (captureInProgress) {
+              return;
+            }
+
+            this.guideLoopFrameCount++;
+            if (this.guideLoopFrameCount > maxFrames) {
+              Logger.info(`ARDA3-WS loop: max frames ${maxFrames} reached`);
+              this.toast('机位引导超时，请重试');
+              cleanup();
+              return;
+            }
+
+            captureInProgress = true;
+            let current: ArrayBuffer | null = null;
+            if (useDebugImage) {
+              current = await this.loadDebugImage();
+            } else {
+              current = await this.captureJpeg();
+            }
+            captureInProgress = false;
+            if (current === null) {
+              Logger.warn(`ARDA3-WS loop frame ${this.guideLoopFrameCount}: capture failed`);
+              return;
+            }
+
+            Logger.info(`ARDA3-WS loop frame ${this.guideLoopFrameCount}/${maxFrames}: sending (${current.byteLength}B)`);
+            client.sendFrame(current);
+          }, intervalMs);
+        }
+      },
+      // onPose — 云侧推理完成，带回 guide_string
+      (pose: WsPoseResult): void => {
+        if (stopped) {
+          return;
+        }
+        // 首帧推理完成 → 云侧已就绪，关掉 spinner
+        if (!poseReceived) {
+          poseReceived = true;
+          this.refLoading = false;
+          Logger.info('ARDA3-WS loop: first pose received, server ready');
+        }
+        const gs: Record<string, ESObject> | undefined = pose.guide_string;
+        if (gs === undefined) {
+          Logger.warn('ARDA3-WS loop: pose without guide_string');
+          return;
+        }
+        // 从 WS 提取原始 guide_string（中文方向词），解析为裸数字再喂 applyGuide
+        const rawGs: Da3GuideData = {
+          x:     extractGuideField(gs, 'x', '0'),
+          y:     extractGuideField(gs, 'y', '0'),
+          z:     extractGuideField(gs, 'z', '0'),
+          pitch: extractGuideField(gs, 'pitch', '0'),
+          yaw:   extractGuideField(gs, 'yaw', '0'),
+          roll:  extractGuideField(gs, 'roll', '0'),
+          zoom:  extractGuideField(gs, 'zoom', '1'),
+        };
+        // parseGuideString 把 "右 0.15 米" 转为 "0.15"，applyGuide 才能 Number() 成功
+        const parsed: Da3GuideData = parseGuideString(rawGs);
+        Logger.info(`ARDA3-WS loop frame ${this.guideLoopFrameCount}: raw=${JSON.stringify(rawGs)} parsed=${JSON.stringify(parsed)}`);
+        this.applyGuide(parsed as GuideData);
+
+        setTimeout((): void => {
+          if (this.isLocked) {
+            Logger.info(`ARDA3-WS loop: LOCKED at frame ${this.guideLoopFrameCount}`);
+            this.toast('对齐成功!');
+            cleanup();
+          }
+        }, 150);
+      },
+      // onClosed — 连接断开时收尾
+      (): void => {
+        Logger.info('ARDA3-WS loop: connection closed');
+        cleanup();
+      },
+      // onImage — 云侧 Vision API 生成的目标图（首帧触发，type=0x03 二进制消息）
+      (jpegBytes: ArrayBuffer): void => {
+        if (imageReceived) {
+          return;
+        }
+        imageReceived = true;
+        Logger.info(`ARDA3-WS loop: target image received (${jpegBytes.byteLength}B)`);
+        // 解码 JPEG → PixelMap
+        try {
+          const src: image.ImageSource = image.createImageSource(jpegBytes);
+          const decodeOpts: image.DecodingOptions = {
+            editable: true,
+            desiredPixelFormat: image.PixelMapFormat.RGBA_8888
+          };
+          src.createPixelMap(decodeOpts).then((pm: image.PixelMap) => {
+            this.refHolder.image = pm;
+            src.release();
+            Logger.info(`ARDA3-WS loop: target image displayed (${pm.getImageInfoSync().size.width}x${pm.getImageInfoSync().size.height})`);
+          }).catch((e: BusinessError) => {
+            Logger.error(`ARDA3-WS loop: target image decode failed: ${e.message}`);
+            src.release();
+          });
+        } catch (e) {
+          Logger.error(`ARDA3-WS loop: createImageSource failed: ${(e as BusinessError).message}`);
+        }
+      }
+    );
+  }
+
+  // v13 (e) — 停止连续引导循环（炫彩球重开新会话时调用）。
+  private stopGuideLoop(): void {
+    if (this.guideLoopRunning) {
+      Logger.info('ARDA3-WS loop: stopping by user request');
+      this.guideLoopRunning = false;
+      if (this.wsClient) {
+        this.wsClient.close();
+        this.wsClient = undefined;
+      }
       this.busyGuide = false;
     }
   }
@@ -1119,6 +1355,17 @@ struct ARRingHuntCam {
       let err: BusinessError = e as BusinessError;
       Logger.warn(`vibrate exception: ${err.message}`);
     }
+  }
+
+  // 切换后端:da3 ↔ vggt-omega。点一下小标签即切换,下次 generate/getGuide 走新 URL。
+  private cycleBackend(): void {
+    const types: BackendType[] = allBackendTypes();
+    const idx: number = types.indexOf(this.backendType);
+    const next: BackendType = types[(idx + 1) % types.length];
+    setBackendType(next, this.context);
+    this.backendType = next;
+    Logger.info(`[ARRingHuntCam] backend switched to ${next} (${getBackendLabel(next)})`);
+    this.toast(`后端: ${getBackendLabel(next)}`);
   }
 
   private openDevSelector(): void {
@@ -1999,6 +2246,16 @@ struct ARRingHuntCam {
             this.calibStatus = `已进入标定模式 - ${this.calibOrientationLabel} - group ${this.calibGroupIdx} - 请采 A`;
           })
 
+        // ===== 后端切换入口(标定按钮右边) =====
+        Text(getBackendLabel(this.backendType))
+          .fontSize(11)
+          .fontColor(Palette.white)
+          .backgroundColor(this.backendType === 'da3' ? '#A0336699' : '#A0996633')
+          .borderRadius(8)
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .position({ x: 80, y: 8 })
+          .onClick(() => { this.cycleBackend(); })
+
         // ===== 标定 overlay(条件渲染,屏幕居中)=====
         if (this.calibMode) {
           Column({ space: 14 }) {
@@ -2212,6 +2469,10 @@ struct ARRingHuntCam {
     })
     .onReady((context: NavDestinationContext) => {
       this.pageInfos = context.pathStack;
+      // 恢复上次持久化的后端选择（preferences 异步读，完成后 UI 自动刷新）
+      initBackendType(this.context).then(() => {
+        this.backendType = getBackendType();
+      });
     })
     .backgroundColor(Color.Black)
     .hideTitleBar(true)

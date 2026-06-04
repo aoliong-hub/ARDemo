@@ -35,6 +35,10 @@ struct RingCameraInfo {
     float pos[3] = {0.0f, 0.0f, 0.0f};
     float viewMat[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     float projMat[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    // Full camera pose (GetDisplayOrientedPose raw[7]): qx,qy,qz,qw, px,py,pz.
+    // Filled every frame; used by OnUpdate to snapshot the camera pose at frame-capture time
+    // so PlaceBeaconInternal can use the same reference frame the cloud saw.
+    float camPoseRaw[7] = {0,0,0,1, 0,0,0};
 };
 
 class RingHuntRenderManager {
@@ -75,6 +79,8 @@ private:
     RenderContext mRenderContext;
     RenderSurface mRenderSurface;
     bool isInited = false;
+    // 预分配的 glReadPixels 中转 buffer,避免每帧 vector::resize 堆分配
+    std::vector<uint8_t> capBuf_;
 };
 
 } // namespace ARObject
