@@ -77,8 +77,8 @@ const da3Profile: BackendProfile = {
   pollMaxSeconds: 120,
   connectTimeoutMs: 30000,
   readTimeoutMs: 60000,
-  debugUseFixedImage: false,
-  debugFixedImageName: 'f001.jpeg',
+  debugUseFixedImage: true,
+  debugFixedImageName: '20260605_161451_847d08ca_1_a1_prompt_input.jpeg',
 };
 
 // ── vggt-omega 后端 ─────────────────────────────────────────────────
@@ -103,8 +103,8 @@ const vggtOmegaProfile: BackendProfile = {
   pollMaxSeconds: 120,
   connectTimeoutMs: 30000,
   readTimeoutMs: 60000,
-  debugUseFixedImage: false,
-  debugFixedImageName: 'f001.jpeg',
+  debugUseFixedImage: true,
+  debugFixedImageName: '20260605_161451_847d08ca_1_a1_prompt_input.jpeg',
 };
 
 // ── 注册表 ──────────────────────────────────────────────────────────

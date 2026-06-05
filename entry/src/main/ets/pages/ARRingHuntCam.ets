@@ -935,7 +935,15 @@ struct ARRingHuntCam {
             }
 
             Logger.info(`ARDA3-WS loop frame ${this.guideLoopFrameCount}/${maxFrames}: sending (${current.byteLength}B)`);
-            client.sendFrame(current);
+            // 优先发 0x04（带 ARKit pose）；tracking 未就绪时降级发 0x01（云侧 scale=1.0）。
+            const camPose: CamPose | null = arEngineDemo.getLatestCamRawPose(this.idStr);
+            if (camPose !== null) {
+              client.sendFrameWithPose(current,
+                camPose.px, camPose.py, camPose.pz,
+                camPose.qx, camPose.qy, camPose.qz, camPose.qw);
+            } else {
+              client.sendFrame(current);
+            }
           }, intervalMs);
         }
       },
