@@ -103,7 +103,7 @@ const vggtOmegaProfile: BackendProfile = {
   pollMaxSeconds: 120,
   connectTimeoutMs: 30000,
   readTimeoutMs: 60000,
-  debugUseFixedImage: true,
+  debugUseFixedImage: false,
   debugFixedImageName: '20260605_161451_847d08ca_1_a1_prompt_input.jpeg',
 };
 

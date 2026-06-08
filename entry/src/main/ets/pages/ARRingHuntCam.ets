@@ -69,6 +69,7 @@ struct ARRingHuntCam {
 
   @State distance: number = 99;
   @State ringPlaced: boolean = false;
+  @State guideUpdateCount: number = 0;
 
   // 6DoF alignment.
   @State huntPhase: number = 0; // 0=APPROACHING 1=ALIGNING 2=LOCKED
@@ -528,6 +529,12 @@ struct ARRingHuntCam {
       Logger.warn(`[applyGuide] NaN in pose fields, skip: x=${g.x} y=${g.y} z=${g.z} yaw=${g.yaw} pitch=${g.pitch} roll=${g.roll}`);
       return;
     }
+    const posDist: number = Math.sqrt(x * x + y * y + z * z);
+    const angDist: number = Math.abs(yaw) + Math.abs(pitch) + Math.abs(roll);
+    if (posDist < 0.001 && angDist < 0.01) {
+      Logger.warn(`[applyGuide] zero guide (pos=${posDist} ang=${angDist}), skip`);
+      return;
+    }
     // 清场景(含 native 锚点 detach+release)+ 流程状态。da3 会话/参考图不动 —— applyGuide
     // 是同一会话内的 step2,sessionTaskId 和 targetJpeg 后续可能还要用。
     this.resetSceneOnly();
@@ -547,6 +554,7 @@ struct ARRingHuntCam {
       return;
     }
     this.ringPlaced = true;
+    this.guideUpdateCount++;
     // 注意:不调 enterAiModeAndOpenCard()。applyGuide 是 step2(点参考图)的产物,onTargetTap
     // 已主动收起卡片栏让出取景空间;此处再展开会和功能②冲突。panelExpanded(AI 模式)在
     // onBeaconTap 时已设好,这里无需重设。卡片保持 onTargetTap 收起的状态,用户点 chevron 可
@@ -727,6 +735,7 @@ struct ARRingHuntCam {
       this.targetJpeg = undefined;
       this.sessionTaskId = util.generateRandomUUID();
       Logger.info(`ARDA3-WS new session: ${this.sessionTaskId}`);
+      this.guideUpdateCount = 0;
       this.enterAiModeAndOpenCard();
       this.refLoading = true;
       if (this.zoom !== 1.0) {
@@ -998,6 +1007,18 @@ struct ARRingHuntCam {
         }
         imageReceived = true;
         Logger.info(`ARDA3-WS loop: target image received (${jpegBytes.byteLength}B)`);
+        try {
+          const ts: number = systemDateTime.getTime(false);
+          const path: string = `${this.context.filesDir}/target_${ts}.jpg`;
+          const f: fileIo.File = fileIo.openSync(path,
+            fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+          fileIo.writeSync(f.fd, jpegBytes);
+          fileIo.closeSync(f.fd);
+          Logger.info(`ARDA3-WS loop: target image saved path=${path} bytes=${jpegBytes.byteLength}`);
+        } catch (e) {
+          const err: BusinessError = e as BusinessError;
+          Logger.warn(`ARDA3-WS loop: target image save failed: ${err.message}`);
+        }
         // 解码 JPEG → PixelMap
         try {
           const src: image.ImageSource = image.createImageSource(jpegBytes);
@@ -2062,7 +2083,7 @@ struct ARRingHuntCam {
           if (this.ringPlaced && this.huntPhase !== 2) {
             Row() {
               Column({ space: 2 }) {
-                Text(`距离 ${this.distText()} m`)
+                Text(`距离 ${this.distText()} m  #${this.guideUpdateCount}`)
                   .fontSize(FontSize.hud)
                   .fontColor(Palette.white)
                 Text(`偏航 ${this.formatDiff(this.yawDiffRad)}  俯仰 ${this.formatDiff(this.pitchDiffRad)}  翻滚 ${this.formatDiff(this.rollDiffRad)}`)
