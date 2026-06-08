@@ -965,8 +965,10 @@ struct ARRingHuntCam {
             }
 
             Logger.info(`ARDA3-WS loop frame ${this.guideLoopFrameCount}/${maxFrames}: sending (${current.byteLength}B)`);
-            // 优先发 0x04（带 ARKit pose）；tracking 未就绪时降级发 0x01（云侧 scale=1.0）。
-            const camPose: CamPose | null = arEngineDemo.getLatestCamRawPose(this.idStr);
+            // 优先发 0x04（带 DisplayOriented pose）；tracking 未就绪时降级发 0x01（云侧 scale=1.0）。
+            // 必须用 DispPose（GetDisplayOrientedPose）而非 RawPose（GetPose），因为 JPEG 是显示方向的，
+            // 云侧 VGGT 相机坐标系与显示方向对齐，用 RawPose 会导致 beacon 偏移旋转~90°。
+            const camPose: CamPose | null = arEngineDemo.getLatestCamDispPose(this.idStr);
             if (camPose !== null) {
               client.sendFrameWithPose(current,
                 camPose.px, camPose.py, camPose.pz,
