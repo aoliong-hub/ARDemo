@@ -2111,7 +2111,7 @@ struct ARRingHuntCam {
           if (this.ringPlaced && this.huntPhase !== 2) {
             Row() {
               Column({ space: 2 }) {
-                Text(`距离 ${this.distText()} m  #${this.guideUpdateCount}${this.inDeadzone ? '  ◉死区' : ''}`)
+                Text(`距离 ${this.distText()} m  #${this.guideUpdateCount}${this.inDeadzone ? '  ◉位置锁定' : ''}`)
                   .fontSize(FontSize.hud)
                   .fontColor(Palette.white)
                 Text(`偏航 ${this.formatDiff(this.yawDiffRad)}  俯仰 ${this.formatDiff(this.pitchDiffRad)}  翻滚 ${this.formatDiff(this.rollDiffRad)}`)
