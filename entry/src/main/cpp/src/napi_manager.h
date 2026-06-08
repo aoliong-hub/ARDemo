@@ -60,6 +60,7 @@ public:
     static napi_value NapiPlaceRing(napi_env env, napi_callback_info info);
     static napi_value NapiPlaceRingWithOrientation(napi_env env, napi_callback_info info);
     static napi_value NapiPlaceRingAt(napi_env env, napi_callback_info info);
+    static napi_value NapiPlaceRingAtWorld(napi_env env, napi_callback_info info);
     static napi_value NapiSetZoom(napi_env env, napi_callback_info info);
     static napi_value NapiSetDisplayRotation(napi_env env, napi_callback_info info);
     static napi_value NapiSetVisibleNdcY(napi_env env, napi_callback_info info);

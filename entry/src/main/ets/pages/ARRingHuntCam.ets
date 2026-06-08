@@ -989,62 +989,27 @@ struct ARRingHuntCam {
         }
         this.inDeadzone = pose.in_deadzone === true;
 
-        // ── beacon_world 路径：直接用世界坐标计算相机本地偏移，无延迟偏差 ──
+        // ── beacon_world 路径：直接传世界坐标给 C++，不做 world→local→world 往返 ──
         const bw: BeaconWorld | undefined = pose.beacon_world;
         if (getUseBeaconWorld() && bw !== undefined &&
             bw.position.length >= 3 && bw.quaternion.length >= 4) {
-          const cam: CamPose | null = arEngineDemo.getLatestCamRawPose(this.idStr);
-          if (cam !== null) {
-            const dx: number = bw.position[0] - cam.px;
-            const dy: number = bw.position[1] - cam.py;
-            const dz: number = bw.position[2] - cam.pz;
-            // 相机四元数的逆（共轭）：q^{-1} = [-qx, -qy, -qz, qw]
-            const cqx: number = -cam.qx;
-            const cqy: number = -cam.qy;
-            const cqz: number = -cam.qz;
-            const cqw: number = cam.qw;
-            // q^{-1} × v × q — 只需前半 q^{-1} × v（结果当纯四元数）再 × q
-            // 中间结果 t = q^{-1} × (0, dx, dy, dz)
-            const tw: number = -(cqx * dx + cqy * dy + cqz * dz);
-            const tx: number =  cqw * dx + cqy * dz - cqz * dy;
-            const ty: number =  cqw * dy + cqz * dx - cqx * dz;
-            const tz: number =  cqw * dz + cqx * dy - cqy * dx;
-            // local = t × q（取 xyz 部分）
-            const localX: number =  tw * cqx + tx * cqw + ty * (-cqz) - tz * (-cqy);
-            const localY: number =  tw * cqy + ty * cqw + tz * (-cqx) - tx * (-cqz);
-            const localZ: number =  tw * cqz + tz * cqw + tx * (-cqy) - ty * (-cqx);
-
-            // 目标四元数 → 欧拉角（YXZ 顺序）用于 placeRingAt
-            const bqx: number = bw.quaternion[0];
-            const bqy: number = bw.quaternion[1];
-            const bqz: number = bw.quaternion[2];
-            const bqw: number = bw.quaternion[3];
-            // 相对四元数 = cam^{-1} × beacon
-            const rw: number = cqw * bqw - cqx * bqx - cqy * bqy - cqz * bqz;
-            const rx: number = cqw * bqx + cqx * bqw + cqy * bqz - cqz * bqy;
-            const ry: number = cqw * bqy - cqx * bqz + cqy * bqw + cqz * bqx;
-            const rz: number = cqw * bqz + cqx * bqy - cqy * bqx + cqz * bqw;
-            // YXZ euler from relative quaternion
-            const sinP: number = 2.0 * (rw * rx - ry * rz);
-            const pitch: number = -Math.asin(Math.max(-1.0, Math.min(1.0, sinP))) * 180.0 / Math.PI;
-            const yaw: number = Math.atan2(2.0 * (rw * ry + rx * rz),
-                                           1.0 - 2.0 * (rx * rx + ry * ry)) * 180.0 / Math.PI;
-            const roll: number = Math.atan2(2.0 * (rw * rz + rx * ry),
-                                            1.0 - 2.0 * (rx * rx + rz * rz)) * 180.0 / Math.PI;
-
-            Logger.info(`ARDA3-WS beacon_world: local=[${localX.toFixed(4)},${localY.toFixed(4)},${localZ.toFixed(4)}] ` +
-              `yaw=${yaw.toFixed(1)} pitch=${pitch.toFixed(1)} roll=${roll.toFixed(1)}`);
-            const guideFromWorld: GuideData = {
-              x: String(localX), y: String(localY), z: String(localZ),
-              yaw: String(yaw), pitch: String(pitch), roll: String(roll), zoom: '1',
-            };
-            this.applyGuide(guideFromWorld);
+          Logger.info(`ARDA3-WS beacon_world: worldPos=[${bw.position.map((v: number): string => v.toFixed(4)).join(',')}] ` +
+            `quat=[${bw.quaternion.map((v: number): string => v.toFixed(4)).join(',')}]`);
+          this.resetSceneOnly();
+          let id: number = arEngineDemo.placeRingAtWorld(this.idStr,
+            bw.position[0], bw.position[1], bw.position[2],
+            bw.quaternion[0], bw.quaternion[1], bw.quaternion[2], bw.quaternion[3]);
+          Logger.info(`[applyGuide] placeRingAtWorld -> ${id}`);
+          if (id < 0) {
+            this.toast('请稳住手机等待跟踪稳定');
           } else {
-            Logger.warn('ARDA3-WS beacon_world: cam tracking not ready, fallback to guide_string');
-            this.applyGuideFromGuideString(pose);
+            this.ringPlaced = true;
+            this.guideUpdateCount++;
           }
         } else {
           // ── guide_string 路径（原有逻辑 / beacon_world 不存在时回退） ──
+          Logger.info(`ARDA3-WS beacon_world skipped: useFlag=${getUseBeaconWorld()} bw=${bw !== undefined} ` +
+            `posLen=${bw !== undefined ? bw.position.length : -1} quatLen=${bw !== undefined ? bw.quaternion.length : -1}`);
           this.applyGuideFromGuideString(pose);
         }
 

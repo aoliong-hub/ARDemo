@@ -131,7 +131,7 @@ export async function initBackendType(context: Context): Promise<void> {
     if (typeof saved === 'string' && VALID_BACKENDS.includes(saved as BackendType)) {
       _currentBackend = saved as BackendType;
     }
-    const savedBeacon = await prefs.get(PREF_KEY_USE_BEACON_WORLD, false);
+    const savedBeacon = await prefs.get(PREF_KEY_USE_BEACON_WORLD, true);
     if (typeof savedBeacon === 'boolean') {
       _useBeaconWorld = savedBeacon as boolean;
     }

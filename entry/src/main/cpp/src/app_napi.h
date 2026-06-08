@@ -100,6 +100,15 @@ public:
         (void)rollDeg;
         return -1;
     }
+    // Place a beacon at an ABSOLUTE WORLD position with the beacon's own quaternion.
+    // Bypasses camera-relative reconstruction — no world→local→world round-trip.
+    virtual int32_t PlaceRingAtWorld(float worldX, float worldY, float worldZ,
+                                     float quatX, float quatY, float quatZ, float quatW)
+    {
+        (void)worldX; (void)worldY; (void)worldZ;
+        (void)quatX; (void)quatY; (void)quatZ; (void)quatW;
+        return -1;
+    }
     // v13 digital zoom: 1.0 native, up to 5.0. Scales the GL viewport at render time so the
     // entire frame (camera background + AR overlays) is uniformly enlarged. AR tracking is not
     // affected. Default stub no-ops.

@@ -765,6 +765,42 @@ napi_value NapiManager::NapiPlaceRingAt(napi_env env, napi_callback_info info)
     return result;
 }
 
+// placeRingAtWorld(id, worldX, worldY, worldZ, quatX, quatY, quatZ, quatW)
+napi_value NapiManager::NapiPlaceRingAtWorld(napi_env env, napi_callback_info info)
+{
+    LOGD("NapiManager::NapiPlaceRingAtWorld");
+    size_t argc = 8;
+    napi_value args[8] = {};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    napi_value result = nullptr;
+    std::string id = ReadIdArg(env, args[0]);
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    bool allNumbers = true;
+    if (argc >= 8) {
+        for (int i = 1; i < 8; ++i) {
+            napi_valuetype t = napi_undefined;
+            napi_typeof(env, args[i], &t);
+            if (t != napi_number) { allNumbers = false; break; }
+        }
+    } else {
+        allNumbers = false;
+    }
+    if (app == nullptr || !allNumbers) {
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+    double vals[7] = {};
+    for (int i = 0; i < 7; ++i) {
+        napi_get_value_double(env, args[i + 1], &vals[i]);
+    }
+    int32_t objectId = app->PlaceRingAtWorld(
+        static_cast<float>(vals[0]), static_cast<float>(vals[1]), static_cast<float>(vals[2]),
+        static_cast<float>(vals[3]), static_cast<float>(vals[4]),
+        static_cast<float>(vals[5]), static_cast<float>(vals[6]));
+    napi_create_int32(env, objectId, &result);
+    return result;
+}
+
 // v13: setZoom(id, level). level is a number in [1.0, 5.0]; non-number → silent no-op (matches
 // the placeRing* family's silent-failure NAPI style). Returns undefined.
 napi_value NapiManager::NapiSetZoom(napi_env env, napi_callback_info info)

@@ -51,6 +51,8 @@ public:
     int32_t PlaceRing() override;
     int32_t PlaceRingWithOrientation(float yawDeg, float pitchDeg, float rollDeg) override;
     int32_t PlaceRingAt(float x, float y, float z, float yawDeg, float pitchDeg, float rollDeg) override;
+    int32_t PlaceRingAtWorld(float worldX, float worldY, float worldZ,
+                              float quatX, float quatY, float quatZ, float quatW) override;
     void SetZoom(float level) override;
     void ResetRing() override;
     void SetDisplayRotation(int32_t rotation) override;

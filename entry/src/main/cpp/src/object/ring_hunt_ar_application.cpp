@@ -936,6 +936,125 @@ int32_t RingHuntApp::PlaceBeaconInternal(bool useGivenOrientation, float yawRad,
     return objectId;
 }
 
+int32_t RingHuntApp::PlaceRingAtWorld(float worldX, float worldY, float worldZ,
+                                       float bqx, float bqy, float bqz, float bqw)
+{
+    if (mArSession == nullptr || isPaused.load() || !mReady.load()) {
+        LOGW("[RingHunt] placeRingAtWorld: not ready.");
+        return -1;
+    }
+    if (!mCameraTracking.load()) {
+        LOGW("[RingHunt] placeRingAtWorld rejected: not tracking");
+        return -1;
+    }
+    int32_t objectId = mNextId;
+
+    mTaskQueue.Push([this, objectId, worldX, worldY, worldZ, bqx, bqy, bqz, bqw] {
+        // Orientation: derive absolute yaw/pitch/roll from the beacon quaternion using the same
+        // convention as PlaceBeaconInternal derives cam yaw/pitch from the camera quaternion.
+        const float beaconQuat[4] = {bqx, bqy, bqz, bqw};
+        float beaconFwd[3];
+        ARObject::ComputeArrowDirection(beaconQuat, beaconFwd);
+        mTargetYaw = std::atan2(beaconFwd[0], -beaconFwd[2]);
+        mTargetPitch = std::asin(std::max(-1.0f, std::min(1.0f, beaconFwd[1])));
+
+        // Roll: snap to nearest standard orientation based on camera roll at placement time
+        // (portrait vs landscape depends on how the user is holding the phone, not the beacon).
+        float camRaw[7] = {0.0f};
+        {
+            AREngine_ARCamera *cam = nullptr;
+            CHECK(HMS_AREngine_ARFrame_AcquireCamera(mArSession, mArFrame, &cam));
+            AREngine_ARPose *camPose = nullptr;
+            CHECK(HMS_AREngine_ARPose_Create(mArSession, nullptr, 0, &camPose));
+            CHECK(HMS_AREngine_ARCamera_GetDisplayOrientedPose(mArSession, cam, camPose));
+            HMS_AREngine_ARPose_GetPoseRaw(mArSession, camPose, camRaw, 7);
+            HMS_AREngine_ARPose_Destroy(camPose);
+            HMS_AREngine_ARCamera_Release(cam);
+        }
+        float camQuat[4];
+        ARObject::UnpackQuatXYZW(camRaw, ARObject::QuatFormat::XYZW, camQuat);
+        const float upLocal[3] = {0.0f, 1.0f, 0.0f};
+        const float rightLocal[3] = {1.0f, 0.0f, 0.0f};
+        float camUp[3], camRight[3];
+        ARObject::RotateVectorByQuatXYZW(camQuat, upLocal, camUp);
+        ARObject::RotateVectorByQuatXYZW(camQuat, rightLocal, camRight);
+        const float worldUp[3] = {0.0f, 1.0f, 0.0f};
+        float dotR = worldUp[0]*camRight[0] + worldUp[1]*camRight[1] + worldUp[2]*camRight[2];
+        float dotU = worldUp[0]*camUp[0] + worldUp[1]*camUp[1] + worldUp[2]*camUp[2];
+        float camRoll = std::atan2(dotR, dotU);
+        constexpr float kRad45 = 0.785398f;
+        constexpr float kRad90 = 1.570796f;
+        float snapRoll;
+        int32_t orientationCode;
+        if (camRoll <= -kRad45) {
+            snapRoll = -kRad90; orientationCode = 1;
+        } else if (camRoll >= kRad45) {
+            snapRoll = +kRad90; orientationCode = 2;
+        } else {
+            snapRoll = 0.0f; orientationCode = 0;
+        }
+        mTargetRoll = snapRoll;
+        mOrientation.store(orientationCode);
+
+        // Report relative target degrees (world target minus camera at placement time).
+        float camFwd[3];
+        ARObject::ComputeArrowDirection(camQuat, camFwd);
+        float camYaw = std::atan2(camFwd[0], -camFwd[2]);
+        float camPitch = std::asin(std::max(-1.0f, std::min(1.0f, camFwd[1])));
+        mTargetYawDeg.store(glm::degrees(mTargetYaw - camYaw));
+        mTargetPitchDeg.store(glm::degrees(mTargetPitch - camPitch));
+        mTargetRollDeg.store(glm::degrees(snapRoll - camRoll));
+
+        // Position: place anchor directly at world coordinates.
+        // Ring visual = anchor.y + mRingHeight, we want ring at worldY.
+        float ringVisualHeight = worldY - (camRaw[5] - kGroundDrop);
+        if (ringVisualHeight < 0.05f) {
+            ringVisualHeight = 0.05f;
+        }
+        mRingHeight.store(ringVisualHeight);
+        float targetPos[3] = {worldX, camRaw[5] - kGroundDrop, worldZ};
+
+        const float identityQuat[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        if (mRingAnchor != nullptr) {
+            CHECK(HMS_AREngine_ARAnchor_Detach(mArSession, mRingAnchor));
+            HMS_AREngine_ARAnchor_Release(mRingAnchor);
+            mRingAnchor = nullptr;
+        }
+        float poseRaw[7];
+        ARObject::PackPoseRaw(identityQuat, targetPos, ARObject::QuatFormat::XYZW, poseRaw);
+        AREngine_ARPose *pose = nullptr;
+        CHECK(HMS_AREngine_ARPose_Create(mArSession, poseRaw, 7, &pose));
+        AREngine_ARAnchor *anchor = nullptr;
+        AREngine_ARStatus st = HMS_AREngine_ARSession_AcquireNewAnchor(mArSession, pose, &anchor);
+        HMS_AREngine_ARPose_Destroy(pose);
+        if (st != ARENGINE_SUCCESS || anchor == nullptr) {
+            LOGW("[RingHunt] placeRingAtWorld AcquireNewAnchor failed st=%{public}d.", st);
+            return;
+        }
+        mRingAnchor = anchor;
+        mHuntPhase.store(0);
+        mIsAligned.store(false);
+        mIsAngleAligned.store(false);
+        mIsLocked.store(false);
+        mToAligningTimer = 0.0f;
+        mToApproachingTimer = 0.0f;
+        mLockTimer = 0.0f;
+        mSnapHoldTimer = 0.0f;
+        mSnapHoldSec.store(0.0f);
+        mIsSnapReady.store(false);
+        mPrevSnapReady = false;
+        mWasAngleAligned = false;
+        mFrameHueTime = mAnimTime;
+        mBeaconPlacedAnimTime = mAnimTime;
+        mHasRing.store(true);
+        LOGI("[RingHunt] BeaconWorld placed id=%{public}d worldPos=(%{public}f,%{public}f,%{public}f) "
+             "yaw=%{public}f pitch=%{public}f roll=%{public}f",
+             objectId, targetPos[0], targetPos[1], targetPos[2],
+             mTargetYaw, mTargetPitch, mTargetRoll);
+    });
+    return objectId;
+}
+
 void RingHuntApp::SetZoom(float level)
 {
     // v13 digital zoom — atomically store clamped level. OnUpdate reads it next frame and uses it

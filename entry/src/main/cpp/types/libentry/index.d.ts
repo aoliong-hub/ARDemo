@@ -100,6 +100,10 @@ export const placeRingWithOrientation: (id: string, yawDeg: number, pitchDeg: nu
 // Returns objectId (>=0) or -1 on failure (not ready / bad args).
 export const placeRingAt: (id: string, x: number, y: number, z: number,
   yawDeg: number, pitchDeg: number, rollDeg: number) => number;
+// Place a beacon at an ABSOLUTE WORLD position with the beacon's own quaternion.
+// Bypasses camera-relative reconstruction — no world→local→world round-trip.
+export const placeRingAtWorld: (id: string, worldX: number, worldY: number, worldZ: number,
+  quatX: number, quatY: number, quatZ: number, quatW: number) => number;
 // v13: digital zoom — set GL viewport scale [1.0, 5.0]. 1.0 = native; clamped silently.
 export const setZoom: (id: string, level: number) => void;
 // Phase 2 — ArkTS push 可见区 NDC y 边界(从布局算)。
