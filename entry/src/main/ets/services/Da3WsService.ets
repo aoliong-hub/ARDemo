@@ -46,6 +46,8 @@ export interface WsPoseResult {
   fov: number[];
   guide_string?: Record<string, ESObject>;
   guidance?: string;
+  infer_count?: number;
+  in_deadzone?: boolean;
 }
 
 // guide_string 的实际字段（云侧 JSON 中返回的中文方向串）

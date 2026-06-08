@@ -83,6 +83,7 @@ struct ARRingHuntCam {
   @State isAngleAligned: boolean = false;
   @State fillRatio: number = 0;     // EMA 平滑后,过头提示 (>1.0) 用
   @State isLocked: boolean = false;
+  @State inDeadzone: boolean = false;
   private prevLocked: boolean = false;
   // 进 30cm 边缘检测:huntPhase 上一帧值。0→1 切换时触发一次短震(第一阶段完成,进对齐阶段)。
   private prevHuntPhase: number = 0;
@@ -968,6 +969,7 @@ struct ARRingHuntCam {
           Logger.info('ARDA3-WS loop: first pose received, server ready');
         }
         const gs: Record<string, ESObject> | undefined = pose.guide_string;
+        this.inDeadzone = pose.in_deadzone === true;
         if (gs === undefined) {
           Logger.warn('ARDA3-WS loop: pose without guide_string');
           return;
@@ -2083,7 +2085,7 @@ struct ARRingHuntCam {
           if (this.ringPlaced && this.huntPhase !== 2) {
             Row() {
               Column({ space: 2 }) {
-                Text(`距离 ${this.distText()} m  #${this.guideUpdateCount}`)
+                Text(`距离 ${this.distText()} m  #${this.guideUpdateCount}${this.inDeadzone ? '  ◉死区' : ''}`)
                   .fontSize(FontSize.hud)
                   .fontColor(Palette.white)
                 Text(`偏航 ${this.formatDiff(this.yawDiffRad)}  俯仰 ${this.formatDiff(this.pitchDiffRad)}  翻滚 ${this.formatDiff(this.rollDiffRad)}`)
