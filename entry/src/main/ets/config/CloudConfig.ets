@@ -116,9 +116,11 @@ const PROFILES: Record<BackendType, BackendProfile> = {
 // ── 全局当前后端(默认 da3，UI 可切换，持久化到 preferences) ─────────
 const PREFS_NAME = 'cloud_config';
 const PREF_KEY_BACKEND = 'backend_type';
+const PREF_KEY_USE_BEACON_WORLD = 'use_beacon_world';
 const VALID_BACKENDS: BackendType[] = ['da3', 'vggt-omega'];
 
 let _currentBackend: BackendType = 'da3';
+let _useBeaconWorld: boolean = true;
 let _prefsReady: boolean = false;
 
 // 应用启动时调一次，从磁盘恢复上次选择。如果从未存过则保持默认 'da3'。
@@ -128,6 +130,10 @@ export async function initBackendType(context: Context): Promise<void> {
     const saved = await prefs.get(PREF_KEY_BACKEND, 'da3');
     if (typeof saved === 'string' && VALID_BACKENDS.includes(saved as BackendType)) {
       _currentBackend = saved as BackendType;
+    }
+    const savedBeacon = await prefs.get(PREF_KEY_USE_BEACON_WORLD, false);
+    if (typeof savedBeacon === 'boolean') {
+      _useBeaconWorld = savedBeacon as boolean;
     }
     _prefsReady = true;
   } catch (e) {
@@ -161,4 +167,19 @@ export function getBackendLabel(t: BackendType): string {
 
 export function allBackendTypes(): BackendType[] {
   return ['da3', 'vggt-omega'];
+}
+
+// ── beacon_world 开关（独立于后端类型，便于 A/B 对比定位问题） ──────
+export function getUseBeaconWorld(): boolean {
+  return _useBeaconWorld;
+}
+
+export function setUseBeaconWorld(v: boolean, context?: Context): void {
+  _useBeaconWorld = v;
+  if (context !== undefined && _prefsReady) {
+    dataPreferences.getPreferences(context, PREFS_NAME).then((prefs) => {
+      prefs.put(PREF_KEY_USE_BEACON_WORLD, v);
+      prefs.flush();
+    }).catch(() => {});
+  }
 }

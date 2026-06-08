@@ -26,9 +26,9 @@ import { Palette, FontSize, Spacing, Radius } from '../styles/Theme';
 import { CameraChrome } from '../components/CameraChrome';
 import { ReferencePanel, RefImageHolder } from '../components/ReferencePanel';
 import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, parseGuideString, GuideData as Da3GuideData } from '../services/Da3Service';
-import { WsGuideClient, WsPoseResult, extractGuideField } from '../services/Da3WsService';
+import { WsGuideClient, WsPoseResult, BeaconWorld, extractGuideField } from '../services/Da3WsService';
 import { getCloudConfig } from '../config/CloudConfig';
-import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType } from '../config/CloudConfig';
+import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType, getUseBeaconWorld } from '../config/CloudConfig';
 
 // v13 (c): da3 机位服务返回的 guideData — 全 string,由 applyGuide 转 number 并喂给
 // placeRingAt + applyZoom。语义跟 placeRingAt 一致:x=右(米)/ y=圆环离地高度(米)/ z=前(米),
@@ -566,6 +566,26 @@ struct ARRingHuntCam {
     // }
   }
 
+  private applyGuideFromGuideString(pose: WsPoseResult): void {
+    const gs: Record<string, ESObject> | undefined = pose.guide_string;
+    if (gs === undefined) {
+      Logger.warn('ARDA3-WS loop: pose without guide_string');
+      return;
+    }
+    const rawGs: Da3GuideData = {
+      x:     extractGuideField(gs, 'x', '0'),
+      y:     extractGuideField(gs, 'y', '0'),
+      z:     extractGuideField(gs, 'z', '0'),
+      pitch: extractGuideField(gs, 'pitch', '0'),
+      yaw:   extractGuideField(gs, 'yaw', '0'),
+      roll:  extractGuideField(gs, 'roll', '0'),
+      zoom:  extractGuideField(gs, 'zoom', '1'),
+    };
+    const parsed: Da3GuideData = parseGuideString(rawGs);
+    Logger.info(`ARDA3-WS loop frame ${this.guideLoopFrameCount}: raw=${JSON.stringify(rawGs)} parsed=${JSON.stringify(parsed)}`);
+    this.applyGuide(parsed as GuideData);
+  }
+
   // AI 机位 action: place a wayfinder beacon (random 6DoF target). Repeated taps cause native to
   // replace the prior beacon, so we also wipe the local UI state to keep guidance in sync.
   // v13 single zoom entry: clamp [1, 5], push to native (setZoom NAPI → mZoom atomic → next
@@ -957,37 +977,76 @@ struct ARRingHuntCam {
           }, intervalMs);
         }
       },
-      // onPose — 云侧推理完成，带回 guide_string
+      // onPose — 云侧推理完成，带回 guide_string（可选 beacon_world）
       (pose: WsPoseResult): void => {
         if (stopped) {
           return;
         }
-        // 首帧推理完成 → 云侧已就绪，关掉 spinner
         if (!poseReceived) {
           poseReceived = true;
           this.refLoading = false;
           Logger.info('ARDA3-WS loop: first pose received, server ready');
         }
-        const gs: Record<string, ESObject> | undefined = pose.guide_string;
         this.inDeadzone = pose.in_deadzone === true;
-        if (gs === undefined) {
-          Logger.warn('ARDA3-WS loop: pose without guide_string');
-          return;
+
+        // ── beacon_world 路径：直接用世界坐标计算相机本地偏移，无延迟偏差 ──
+        const bw: BeaconWorld | undefined = pose.beacon_world;
+        if (getUseBeaconWorld() && bw !== undefined &&
+            bw.position.length >= 3 && bw.quaternion.length >= 4) {
+          const cam: CamPose | null = arEngineDemo.getLatestCamRawPose(this.idStr);
+          if (cam !== null) {
+            const dx: number = bw.position[0] - cam.px;
+            const dy: number = bw.position[1] - cam.py;
+            const dz: number = bw.position[2] - cam.pz;
+            // 相机四元数的逆（共轭）：q^{-1} = [-qx, -qy, -qz, qw]
+            const cqx: number = -cam.qx;
+            const cqy: number = -cam.qy;
+            const cqz: number = -cam.qz;
+            const cqw: number = cam.qw;
+            // q^{-1} × v × q — 只需前半 q^{-1} × v（结果当纯四元数）再 × q
+            // 中间结果 t = q^{-1} × (0, dx, dy, dz)
+            const tw: number = -(cqx * dx + cqy * dy + cqz * dz);
+            const tx: number =  cqw * dx + cqy * dz - cqz * dy;
+            const ty: number =  cqw * dy + cqz * dx - cqx * dz;
+            const tz: number =  cqw * dz + cqx * dy - cqy * dx;
+            // local = t × q（取 xyz 部分）
+            const localX: number =  tw * cqx + tx * cqw + ty * (-cqz) - tz * (-cqy);
+            const localY: number =  tw * cqy + ty * cqw + tz * (-cqx) - tx * (-cqz);
+            const localZ: number =  tw * cqz + tz * cqw + tx * (-cqy) - ty * (-cqx);
+
+            // 目标四元数 → 欧拉角（YXZ 顺序）用于 placeRingAt
+            const bqx: number = bw.quaternion[0];
+            const bqy: number = bw.quaternion[1];
+            const bqz: number = bw.quaternion[2];
+            const bqw: number = bw.quaternion[3];
+            // 相对四元数 = cam^{-1} × beacon
+            const rw: number = cqw * bqw - cqx * bqx - cqy * bqy - cqz * bqz;
+            const rx: number = cqw * bqx + cqx * bqw + cqy * bqz - cqz * bqy;
+            const ry: number = cqw * bqy - cqx * bqz + cqy * bqw + cqz * bqx;
+            const rz: number = cqw * bqz + cqx * bqy - cqy * bqx + cqz * bqw;
+            // YXZ euler from relative quaternion
+            const sinP: number = 2.0 * (rw * rx - ry * rz);
+            const pitch: number = -Math.asin(Math.max(-1.0, Math.min(1.0, sinP))) * 180.0 / Math.PI;
+            const yaw: number = Math.atan2(2.0 * (rw * ry + rx * rz),
+                                           1.0 - 2.0 * (rx * rx + ry * ry)) * 180.0 / Math.PI;
+            const roll: number = Math.atan2(2.0 * (rw * rz + rx * ry),
+                                            1.0 - 2.0 * (rx * rx + rz * rz)) * 180.0 / Math.PI;
+
+            Logger.info(`ARDA3-WS beacon_world: local=[${localX.toFixed(4)},${localY.toFixed(4)},${localZ.toFixed(4)}] ` +
+              `yaw=${yaw.toFixed(1)} pitch=${pitch.toFixed(1)} roll=${roll.toFixed(1)}`);
+            const guideFromWorld: GuideData = {
+              x: String(localX), y: String(localY), z: String(localZ),
+              yaw: String(yaw), pitch: String(pitch), roll: String(roll), zoom: '1',
+            };
+            this.applyGuide(guideFromWorld);
+          } else {
+            Logger.warn('ARDA3-WS beacon_world: cam tracking not ready, fallback to guide_string');
+            this.applyGuideFromGuideString(pose);
+          }
+        } else {
+          // ── guide_string 路径（原有逻辑 / beacon_world 不存在时回退） ──
+          this.applyGuideFromGuideString(pose);
         }
-        // 从 WS 提取原始 guide_string（中文方向词），解析为裸数字再喂 applyGuide
-        const rawGs: Da3GuideData = {
-          x:     extractGuideField(gs, 'x', '0'),
-          y:     extractGuideField(gs, 'y', '0'),
-          z:     extractGuideField(gs, 'z', '0'),
-          pitch: extractGuideField(gs, 'pitch', '0'),
-          yaw:   extractGuideField(gs, 'yaw', '0'),
-          roll:  extractGuideField(gs, 'roll', '0'),
-          zoom:  extractGuideField(gs, 'zoom', '1'),
-        };
-        // parseGuideString 把 "右 0.15 米" 转为 "0.15"，applyGuide 才能 Number() 成功
-        const parsed: Da3GuideData = parseGuideString(rawGs);
-        Logger.info(`ARDA3-WS loop frame ${this.guideLoopFrameCount}: raw=${JSON.stringify(rawGs)} parsed=${JSON.stringify(parsed)}`);
-        this.applyGuide(parsed as GuideData);
 
         setTimeout((): void => {
           if (this.isLocked) {

@@ -14,7 +14,7 @@
 //
 // 云 → 端（文本 JSON）：
 //   {"type":"status","status":"ready"}
-//   {"type":"pose","frame_seq":N,...,"guide_string":{...}}
+//   {"type":"pose","frame_seq":N,...,"guide_string":{...},"beacon_world":{"position":[x,y,z],"quaternion":[x,y,z,w]}}
 //   {"type":"error","code":"...","detail":"..."}
 
 import webSocket from '@ohos.net.webSocket';
@@ -35,7 +35,12 @@ const POSE_HEADER_SIZE: number = 37; // 9 + 7×float32 (tx,ty,tz,qx,qy,qz,qw)
 
 // ── 接收数据类型 ──────────────────────────────────────────────
 
-// 云侧 pose 响应（包含 guide_string）
+// 云侧 pose 响应（包含 guide_string，可选 beacon_world）
+export interface BeaconWorld {
+  position: number[];    // [x, y, z] ARKit 世界坐标
+  quaternion: number[];  // [x, y, z, w] scalar-last
+}
+
 export interface WsPoseResult {
   frame_seq: number;
   timestamp_ms: number;
@@ -45,6 +50,7 @@ export interface WsPoseResult {
   current_quaternion: number[];
   fov: number[];
   guide_string?: Record<string, ESObject>;
+  beacon_world?: BeaconWorld;
   guidance?: string;
   infer_count?: number;
   in_deadzone?: boolean;
@@ -290,10 +296,25 @@ export class WsGuideClient {
       } else if (msgType === 'pose') {
         const guide: Record<string, ESObject> | undefined =
           msg['guide_string'] !== undefined ? msg['guide_string'] as Record<string, ESObject> : undefined;
+        const rawBw: ESObject = msg['beacon_world'];
+        let bw: BeaconWorld | undefined = undefined;
+        if (rawBw !== undefined && rawBw !== null) {
+          const bwObj: Record<string, ESObject> = rawBw as Record<string, ESObject>;
+          const pos: ESObject = bwObj['position'];
+          const quat: ESObject = bwObj['quaternion'];
+          if (pos instanceof Array && quat instanceof Array) {
+            bw = { position: pos as number[], quaternion: quat as number[] };
+          }
+        }
+        if (bw !== undefined) {
+          (msg as Record<string, ESObject>)['beacon_world'] = bw as ESObject;
+        }
         if (guide !== undefined) {
-          Logger.info(`${TAG} recv pose frame_seq=${msg['frame_seq']} guide=${JSON.stringify(guide)}`);
+          Logger.info(`${TAG} recv pose frame_seq=${msg['frame_seq']} guide=${JSON.stringify(guide)}` +
+            (bw !== undefined ? ` beacon_world=pos[${bw.position.map((v: number): string => v.toFixed(4)).join(',')}]` : ''));
         } else {
-          Logger.info(`${TAG} recv pose frame_seq=${msg['frame_seq']} (no guide_string)`);
+          Logger.info(`${TAG} recv pose frame_seq=${msg['frame_seq']} (no guide_string)` +
+            (bw !== undefined ? ` beacon_world=pos[${bw.position.map((v: number): string => v.toFixed(4)).join(',')}]` : ''));
         }
         if (this.onPose) {
           this.onPose(msg as Record<string, ESObject> as WsPoseResult);
