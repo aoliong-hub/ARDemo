@@ -506,7 +506,6 @@ WayfinderMesh WayfinderGeometry::CreateAxesLinesDashed(float length, float dashL
 
 WayfinderMesh WayfinderGeometry::CreateDebugSphere(float radius, int segments, int stacks)
 {
-    // Same UV-sphere construction as CreateWaterDrop but with caller-specified radius.
     WayfinderMesh m;
     if (segments < 6) { segments = 6; }
     if (stacks < 4)   { stacks = 4; }

@@ -414,7 +414,7 @@ void WayfinderRenderer::Init()
     mWaterDrop = WayfinderGeometry::CreateWaterDrop();
     mAxes = WayfinderGeometry::CreateAxesLines();
     mAxesDashed = WayfinderGeometry::CreateAxesLinesDashed();
-    mDebugSphere = WayfinderGeometry::CreateDebugSphere(0.015f);  // tiny sphere: ~1.5cm radius
+    mDebugSphere = WayfinderGeometry::CreateDebugSphere(0.015f);
     GLUtils::CheckError(__FILE_NAME__, __LINE__);
 }
 
@@ -988,13 +988,36 @@ void WayfinderRenderer::Render(const glm::mat4 &view, const glm::mat4 &proj, con
         DrawArrow(arrowMvp, animTime, mAlignedTransition, frameAlphaMult * frameAnimAlpha);
     }
 
-    // ── Debug: yellow sphere at target (badge) position ─────────────────────────
-    // Always draw when the beacon is placed, so the cloud target point is visible
-    // even during the placement animation. Rendered on top of everything.
+    // ── Debug: beacon_world forward + up lines at target position ──────────────
+    // Cyan line (30cm) = forward (local -Z, the "look" direction).
+    // Green line (15cm) = up (local +Y). Yellow sphere = position marker.
+    if (mLineProgram) {
+        glm::vec3 origin = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
+        glm::vec3 fwd = frameOrientation * glm::vec3(0.0f, 0.0f, -1.0f);
+        glm::vec3 up  = frameOrientation * glm::vec3(0.0f, 1.0f,  0.0f);
+        float lineVerts[] = {
+            origin.x, origin.y, origin.z,
+            origin.x + fwd.x * 0.3f, origin.y + fwd.y * 0.3f, origin.z + fwd.z * 0.3f,
+            origin.x, origin.y, origin.z,
+            origin.x + up.x * 0.15f, origin.y + up.y * 0.15f, origin.z + up.z * 0.15f,
+        };
+        glUseProgram(mLineProgram);
+        glDepthFunc(GL_ALWAYS);
+        glLineWidth(5.0f);
+        glEnableVertexAttribArray(mLinePos);
+        glVertexAttribPointer(mLinePos, 3, GL_FLOAT, GL_FALSE, 0, lineVerts);
+        glUniformMatrix4fv(mLineMvp, 1, GL_FALSE, glm::value_ptr(vp));
+        glUniform3f(mLineColor, 0.0f, 1.0f, 1.0f);
+        glUniform1f(mLineAlpha, 1.0f);
+        glDrawArrays(GL_LINES, 0, 2);
+        glUniform3f(mLineColor, 0.2f, 1.0f, 0.2f);
+        glDrawArrays(GL_LINES, 2, 2);
+        glDisableVertexAttribArray(mLinePos);
+        glDepthFunc(GL_LESS);
+    }
     if (!mDebugSphere.indices.empty()) {
         glm::vec3 spherePos = glm::vec3(wayfinderToWorld[3]) + glm::vec3(0.0f, ringHeight, 0.0f);
-        glm::mat4 sphereModel = glm::translate(glm::mat4(1.0f), spherePos);
-        glm::mat4 sphereMvp = vp * sphereModel;
+        glm::mat4 sphereMvp = vp * glm::translate(glm::mat4(1.0f), spherePos);
         const glm::vec3 kYellow(1.0f, 0.85f, 0.05f);
         DrawSolid(sphereMvp, mDebugSphere, kYellow, 1.0f, 1.0f, true);
     }
