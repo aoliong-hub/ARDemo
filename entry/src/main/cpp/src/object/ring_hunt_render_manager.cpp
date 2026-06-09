@@ -128,45 +128,47 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
     //   3) 预分配 target buffer(capBuf_),避免每帧 vector::resize 堆分配
     //   4) clean 和 da3 不会同时触发(互斥),不会双倍阻塞
 
-    constexpr float kCapScale = 1.0f;  // 全分辨率读取(ArkTS 侧 resize 到 512,这里保证 viewport 对齐)
-    const int capReadW = std::max(1, static_cast<int>(captureW * kCapScale));
-    const int capReadH = std::max(1, static_cast<int>(captureH * kCapScale));
+    constexpr float kCleanCapScale = 1.0f;  // 拍照纯净帧保持全分辨率
+    constexpr float kGuideCapScale = 0.5f; // guide/da3 推理帧降到半分辨率,ArkTS 侧再缩到 512px
 
-    // 拍照纯净帧
+    // 拍照纯净帧（全分辨率）
     if (wantCleanCapture && outCleanRGBA != nullptr && captureW > 0 && captureH > 0) {
-        size_t bytes = static_cast<size_t>(capReadW) * static_cast<size_t>(capReadH) * 4u;
+        const int cleanW = std::max(1, static_cast<int>(captureW * kCleanCapScale));
+        const int cleanH = std::max(1, static_cast<int>(captureH * kCleanCapScale));
+        size_t bytes = static_cast<size_t>(cleanW) * static_cast<size_t>(cleanH) * 4u;
         if (capBuf_.size() < bytes) { capBuf_.resize(bytes); }
-        glReadPixels(0, 0, capReadW, capReadH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
-        // Y-flip:直接倒序写入输出 buffer,省掉临时 buffer
+        glReadPixels(0, 0, cleanW, cleanH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
         outCleanRGBA->resize(bytes);
-        const size_t rowStride = static_cast<size_t>(capReadW) * 4u;
-        for (int y = 0; y < capReadH; ++y) {
+        const size_t rowStride = static_cast<size_t>(cleanW) * 4u;
+        for (int y = 0; y < cleanH; ++y) {
             uint8_t *dst = outCleanRGBA->data() + y * rowStride;
-            const uint8_t *src = capBuf_.data() + (capReadH - 1 - y) * rowStride;
+            const uint8_t *src = capBuf_.data() + (cleanH - 1 - y) * rowStride;
             std::memcpy(dst, src, rowStride);
         }
-        if (outCleanW != nullptr) { *outCleanW = capReadW; }
-        if (outCleanH != nullptr) { *outCleanH = capReadH; }
+        if (outCleanW != nullptr) { *outCleanW = cleanW; }
+        if (outCleanH != nullptr) { *outCleanH = cleanH; }
         LOGI("ARDA3-CAPTURE clean glReadPixels done %{public}dx%{public}d (scaled from %{public}dx%{public}d)",
-             capReadW, capReadH, captureW, captureH);
+             cleanW, cleanH, captureW, captureH);
     }
 
-    // Da3 capture
+    // Da3 / guide capture（半分辨率,减少 GPU 停顿）
     if (wantCapture && outCaptureRGBA != nullptr && captureW > 0 && captureH > 0) {
-        size_t bytes = static_cast<size_t>(capReadW) * static_cast<size_t>(capReadH) * 4u;
+        const int guideW = std::max(1, static_cast<int>(captureW * kGuideCapScale));
+        const int guideH = std::max(1, static_cast<int>(captureH * kGuideCapScale));
+        size_t bytes = static_cast<size_t>(guideW) * static_cast<size_t>(guideH) * 4u;
         if (capBuf_.size() < bytes) { capBuf_.resize(bytes); }
-        glReadPixels(0, 0, capReadW, capReadH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
+        glReadPixels(0, 0, guideW, guideH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
         outCaptureRGBA->resize(bytes);
-        const size_t rowStride = static_cast<size_t>(capReadW) * 4u;
-        for (int y = 0; y < capReadH; ++y) {
+        const size_t rowStride = static_cast<size_t>(guideW) * 4u;
+        for (int y = 0; y < guideH; ++y) {
             uint8_t *dst = outCaptureRGBA->data() + y * rowStride;
-            const uint8_t *src = capBuf_.data() + (capReadH - 1 - y) * rowStride;
+            const uint8_t *src = capBuf_.data() + (guideH - 1 - y) * rowStride;
             std::memcpy(dst, src, rowStride);
         }
-        if (outCapW != nullptr) { *outCapW = capReadW; }
-        if (outCapH != nullptr) { *outCapH = capReadH; }
+        if (outCapW != nullptr) { *outCapW = guideW; }
+        if (outCapH != nullptr) { *outCapH = guideH; }
         LOGI("ARDA3-CAP glReadPixels done %{public}dx%{public}d (scaled from %{public}dx%{public}d)",
-             capReadW, capReadH, captureW, captureH);
+             guideW, guideH, captureW, captureH);
     }
 
     // AR overlays (axes, wayfinder) require tracking. If lost, swap and bail — but captures

@@ -705,7 +705,7 @@ struct ARRingHuntCam {
             const sx: number = 512 / imgInfo.size.width;
             const sy: number = 512 / imgInfo.size.height;
             const s: number = Math.min(sx, sy);
-            pm.scale(s, s);
+            await pm.scale(s, s);
             Logger.info(`ARDA3-CAP scaled ${s.toFixed(3)} → ~512px`);
           } catch (e) {
             Logger.warn(`ARDA3-CAP scale failed: ${(e as BusinessError).message}`);
@@ -721,9 +721,13 @@ struct ARRingHuntCam {
               const path: string = `${this.context.filesDir}/cap_${systemDateTime.getTime(false)}.jpg`;
               const f: fileIo.File = fileIo.openSync(path,
                 fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
-              fileIo.writeSync(f.fd, jpeg);
-              fileIo.closeSync(f.fd);
-              Logger.info(`ARDA3-CAP jpeg saved path=${path}`);
+              fileIo.write(f.fd, jpeg).then(() => {
+                fileIo.closeSync(f.fd);
+                Logger.info(`ARDA3-CAP jpeg saved path=${path}`);
+              }).catch((e: BusinessError) => {
+                Logger.warn(`ARDA3-CAP save write failed: ${e.message}`);
+                try { fileIo.closeSync(f.fd); } catch (_e) {}
+              });
             } catch (e) {
               const err: BusinessError = e as BusinessError;
               Logger.warn(`ARDA3-CAP save failed code=${err.code} msg=${err.message}`);
