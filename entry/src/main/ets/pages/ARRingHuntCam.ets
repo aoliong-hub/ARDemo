@@ -163,6 +163,15 @@ struct ARRingHuntCam {
   // 后端切换:da3 / vggt-omega。点一下切下一个。
   @State backendType: BackendType = getBackendType();
 
+  // ===== Scale 校准引导 =====
+  @State private scaleCalStep: number = 0;
+  @State private scaleCalOpacity: number = 0;
+  @State private scaleCalText: string = '';
+  private scaleCalOrigin: CamPose | null = null;
+  private scaleCalTimerMoveId: number = -1;
+  private scaleCalTimerNudgeId: number = -1;
+  private scaleCalCompleteTimerId: number = -1;
+
   // ===== 标定工具状态(完全旁路) =====
   // 标定模式总开关。true 时显示标定 overlay,其它正常 UI 不受影响。
   @State calibMode: boolean = false;
@@ -509,6 +518,7 @@ struct ARRingHuntCam {
     this.hudOpacity = 0;
     this.hideLockedBanner();
     this.resetGuidance();
+    this.stopScaleCalGuidance();
   }
 
   // v13 (c) — guideData → AR end-to-end glue. Parses the 7 string fields, validates, then routes
@@ -769,6 +779,7 @@ struct ARRingHuntCam {
       }
       Logger.info('ARDA3-WS beacon tap → starting WebSocket guide loop');
       this.toast('连接云侧…');
+      this.startScaleCalGuidance();
       this.runGuideLoop();
     } else {
       // ── da3: HTTP 两段式 ──
@@ -901,6 +912,7 @@ struct ARRingHuntCam {
       client.close();
       this.busyGuide = false;
       this.wsClient = undefined;
+      this.stopScaleCalGuidance();
     };
 
     // ── 连接 ──
@@ -1271,6 +1283,84 @@ struct ARRingHuntCam {
       this.lockedBannerTimer = -1;
     }
     this.lockedBannerOpacity = 0;
+  }
+
+  // ── Scale 校准引导 ──────────────────────────────────────────────
+  private startScaleCalGuidance(): void {
+    this.stopScaleCalGuidance();
+    this.scaleCalOrigin = arEngineDemo.getLatestCamDispPose(this.idStr) ?? null;
+    this.scaleCalStep = 1;
+    this.scaleCalText = '请将手机对准目标';
+    animateTo({ duration: 300, curve: Curve.EaseOut }, () => {
+      this.scaleCalOpacity = 1;
+    });
+    this.scaleCalTimerMoveId = setTimeout(() => {
+      this.scaleCalTimerMoveId = -1;
+      this.advanceScaleCalToMove();
+    }, 700);
+  }
+
+  private advanceScaleCalToMove(): void {
+    if (this.scaleCalStep !== 1) {
+      return;
+    }
+    this.scaleCalStep = 2;
+    this.scaleCalText = '保持对准，慢慢向旁边走一小步';
+    if (this.scaleCalOrigin == null) {
+      this.scaleCalOrigin = arEngineDemo.getLatestCamDispPose(this.idStr) ?? null;
+    }
+    this.scaleCalTimerNudgeId = setTimeout(() => {
+      this.scaleCalTimerNudgeId = -1;
+      this.advanceScaleCalToNudge();
+    }, 5000);
+  }
+
+  private advanceScaleCalToNudge(): void {
+    if (this.scaleCalStep !== 2) {
+      return;
+    }
+    this.scaleCalStep = 4;
+    this.scaleCalText = '再走远一点';
+  }
+
+  private completeScaleCalGuidance(): void {
+    if (this.scaleCalStep === 0 || this.scaleCalStep === 3) {
+      return;
+    }
+    this.clearScaleCalTimers();
+    this.scaleCalStep = 3;
+    this.scaleCalText = '好的，开始导航';
+    this.scaleCalCompleteTimerId = setTimeout(() => {
+      this.scaleCalCompleteTimerId = -1;
+      animateTo({ duration: 600, curve: Curve.EaseOut }, () => {
+        this.scaleCalOpacity = 0;
+      });
+      setTimeout(() => {
+        this.scaleCalStep = 0;
+      }, 600);
+    }, 1500);
+  }
+
+  private stopScaleCalGuidance(): void {
+    this.clearScaleCalTimers();
+    this.scaleCalStep = 0;
+    this.scaleCalOpacity = 0;
+    this.scaleCalOrigin = null;
+  }
+
+  private clearScaleCalTimers(): void {
+    if (this.scaleCalTimerMoveId >= 0) {
+      clearTimeout(this.scaleCalTimerMoveId);
+      this.scaleCalTimerMoveId = -1;
+    }
+    if (this.scaleCalTimerNudgeId >= 0) {
+      clearTimeout(this.scaleCalTimerNudgeId);
+      this.scaleCalTimerNudgeId = -1;
+    }
+    if (this.scaleCalCompleteTimerId >= 0) {
+      clearTimeout(this.scaleCalCompleteTimerId);
+      this.scaleCalCompleteTimerId = -1;
+    }
   }
 
   // Phase 3 ④ — 吸附触发:三重门 aligned 首次 0→1 瞬间,触发震动 + 200ms 后淡入 HUD。
@@ -1975,6 +2065,22 @@ struct ARRingHuntCam {
               if (newOri !== this.orientation) {
                 this.orientation = newOri;
               }
+              // ── Scale 校准引导:位移检测 ──
+              if (this.scaleCalStep === 2 || this.scaleCalStep === 4) {
+                const calPose: CamPose | null = arEngineDemo.getLatestCamDispPose(this.idStr) ?? null;
+                if (calPose != null) {
+                  if (this.scaleCalOrigin == null) {
+                    this.scaleCalOrigin = calPose;
+                  } else {
+                    const dx: number = calPose.px - this.scaleCalOrigin.px;
+                    const dy: number = calPose.py - this.scaleCalOrigin.py;
+                    const dz: number = calPose.pz - this.scaleCalOrigin.pz;
+                    if (Math.sqrt(dx * dx + dy * dy + dz * dz) >= 0.30) {
+                      this.completeScaleCalGuidance();
+                    }
+                  }
+                }
+              }
             }, 62)
           })
           .onDestroy(() => {
@@ -2255,6 +2361,20 @@ struct ARRingHuntCam {
             .opacity(this.lockedBannerOpacity)
             .hitTestBehavior(HitTestMode.None)
             .id('lockedBanner')
+          }
+
+          // Scale 校准引导:玻璃胶囊提示用户移动以完成 scale 校准。
+          if (this.scaleCalStep > 0) {
+            Text(this.scaleCalText)
+              .fontSize(16)
+              .fontColor(Color.White)
+              .fontWeight(FontWeight.Medium)
+              .backgroundColor(Palette.glass)
+              .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+              .borderRadius(Radius.M)
+              .opacity(this.scaleCalOpacity)
+              .offset({ y: -80 })
+              .hitTestBehavior(HitTestMode.None)
           }
 
           // v13 central zoom-value indicator. Pulses on every pinch / ZoomBar tap, auto-hides
