@@ -1334,7 +1334,7 @@ struct ARRingHuntCam {
     }
     this.clearScaleCalTimers();
     this.scaleCalStep = 3;
-    this.scaleCalText = '好的，开始导航';
+    this.scaleCalText = '校准完成，请稍候';
     this.scaleCalCompleteTimerId = setTimeout(() => {
       this.scaleCalCompleteTimerId = -1;
       animateTo({ duration: 600, curve: Curve.EaseOut }, () => {
