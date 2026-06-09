@@ -655,6 +655,8 @@ struct ARRingHuntCam {
 
   private captureJpeg(): Promise<ArrayBuffer | null> {
     return new Promise<ArrayBuffer | null>((resolve: (v: ArrayBuffer | null) => void) => {
+      // 排空上一次残留的旧帧,保证后续 isFrameReady 轮询等到的是本次 captureFrame 触发的新帧
+      arEngineDemo.takeFrameRGBA(this.idStr);
       arEngineDemo.captureFrame(this.idStr);
       let tries: number = 0;
       let reFired: boolean = false;
@@ -690,6 +692,9 @@ struct ARRingHuntCam {
           editable: true
         };
         image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
+          // 先裁可见区再扶正(与 captureCleanJpeg / captureJpegForCalib 一致),
+          // 去掉顶+底黑条,让云侧收到的图 = 用户实际看到的画面。
+          await this.cropToVisibleRegion(pm);
           // 按 native 报告的物理朝向把图旋正,让 da3 收到的图和用户视觉构图一致。
           // 0=PORTRAIT(不转), 1=LANDSCAPE_CW(顺时针横拿,把图逆时针 90° → da3 看到横画布), 2=LANDSCAPE_CCW(反向)。
           const ori: number = arEngineDemo.getOrientation(this.idStr);
@@ -1761,6 +1766,7 @@ struct ARRingHuntCam {
   // 才能直接套到正常流程,不受"原始横躺图 vs 扶正图"差异污染。
   private captureJpegForCalib(): Promise<ArrayBuffer | null> {
     return new Promise<ArrayBuffer | null>((resolve: (v: ArrayBuffer | null) => void) => {
+      arEngineDemo.takeFrameRGBA(this.idStr);
       arEngineDemo.captureFrame(this.idStr);
       let tries: number = 0;
       const maxTries: number = 60;

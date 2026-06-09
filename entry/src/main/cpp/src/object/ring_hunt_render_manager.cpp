@@ -129,7 +129,7 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
     //   4) clean 和 da3 不会同时触发(互斥),不会双倍阻塞
 
     constexpr float kCleanCapScale = 1.0f;  // 拍照纯净帧保持全分辨率
-    constexpr float kGuideCapScale = 0.5f; // guide/da3 推理帧降到半分辨率,ArkTS 侧再缩到 512px
+    constexpr float kGuideCapScale = 1.0f; // glReadPixels 不做降采样,0.5 只会读左下角 1/4;ArkTS 侧再缩到 512px
 
     // 拍照纯净帧（全分辨率）
     if (wantCleanCapture && outCleanRGBA != nullptr && captureW > 0 && captureH > 0) {
