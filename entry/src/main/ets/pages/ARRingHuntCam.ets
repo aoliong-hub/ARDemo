@@ -763,7 +763,7 @@ struct ARRingHuntCam {
   private async onBeaconTap(): Promise<void> {
     const isWs: boolean = getBackendType() === 'vggt-omega';
     if (isWs) {
-      // ── vggt-omega: WebSocket 一站式 ──
+      // ── vggt-omega: 混合模式 — 手机端 DA3 生图 + 服务端 3D 定位 ──
       if (this.busyGuide) {
         Logger.warn('ARDA3-WS beacon tap ignored (busy)');
         return;
@@ -782,6 +782,39 @@ struct ARRingHuntCam {
         this.applyZoom(1.0);
         await new Promise<void>((r: () => void) => { setTimeout(r, 150); });
       }
+
+      // Step 1: DA3 生图
+      Logger.info('ARDA3-WS beacon tap → DA3 generate target image');
+      this.toast('正在生成目标图…');
+      const jpeg: ArrayBuffer | null = await this.captureJpeg();
+      if (jpeg === null) {
+        this.refLoading = false;
+        this.busyGuide = false;
+        this.toast('抓帧失败');
+        Logger.error('ARDA3-WS step1 capture fail');
+        return;
+      }
+      const target: image.PixelMap | null = await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
+      if (target === null) {
+        this.refLoading = false;
+        this.busyGuide = false;
+        this.toast('生成失败');
+        Logger.error('ARDA3-WS step1 DA3 generate fail');
+        return;
+      }
+      this.refHolder.image = target;
+      this.refLoading = false;
+      const targetJpeg: ArrayBuffer | null = await packPixelMapToJpeg(target);
+      if (targetJpeg === null) {
+        this.busyGuide = false;
+        Logger.error('ARDA3-WS step1 target re-pack to jpeg failed');
+        this.toast('图像编码失败');
+        return;
+      }
+      this.targetJpeg = targetJpeg;
+      Logger.info(`ARDA3-WS step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
+
+      // Step 2: WebSocket 引导（带目标图）
       Logger.info('ARDA3-WS beacon tap → starting WebSocket guide loop');
       this.toast('连接云侧…');
       this.startScaleCalGuidance();
@@ -942,10 +975,18 @@ struct ARRingHuntCam {
     let captureInProgress: boolean = false;  // 防重入：一次只允许一个 captureJpeg 在跑
 
     client.setCallbacks(
-      // onStatus — 等服务端就绪后开始抽帧
+      // onStatus — 等服务端就绪后：先发目标图，再开始抽帧
       (status: string) => {
         Logger.info(`ARDA3-WS loop: status=${status}`);
         if (status === 'ready') {
+          // 先发客户端生成的目标图
+          if (this.targetJpeg !== undefined) {
+            const sent: boolean = client.sendTargetImage(this.targetJpeg as ArrayBuffer);
+            Logger.info(`ARDA3-WS loop: sent target image to server, ok=${sent}`);
+          } else {
+            Logger.warn('ARDA3-WS loop: no target image to send (targetJpeg is undefined)');
+          }
+
           frameTimer = setInterval(async (): Promise<void> => {
             if (stopped || !this.guideLoopRunning) {
               clearInterval(frameTimer);

@@ -29,6 +29,7 @@ const TAG = 'ARDA3-WS';
 const MSG_FRAME: number = 0x01;
 const MSG_CONTROL: number = 0x02;
 const MSG_FRAME_WITH_POSE: number = 0x04;
+const MSG_SET_TARGET: number = 0x05;
 const CTRL_RESET: number = 0x01;
 const HEADER_SIZE: number = 9;      // 1 type + 4 seq + 4 timestamp_ms
 const POSE_HEADER_SIZE: number = 37; // 9 + 7×float32 (tx,ty,tz,qx,qy,qz,qw)
@@ -219,6 +220,33 @@ export class WsGuideClient {
 
     Logger.info(`${TAG} sent frame+pose seq=${this.seq} ts=${ts} jpeg=${jpegBytes.byteLength}B ` +
                 `t=[${tx.toFixed(3)},${ty.toFixed(3)},${tz.toFixed(3)}]`);
+    return true;
+  }
+
+  // 发送目标图（0x05）：客户端生成的目标图通过此消息发给服务端
+  sendTargetImage(jpegBytes: ArrayBuffer): boolean {
+    if (!this.ws || !this.connected) {
+      return false;
+    }
+
+    const totalLen: number = HEADER_SIZE + jpegBytes.byteLength;
+    const packet: ArrayBuffer = new ArrayBuffer(totalLen);
+    const view: DataView = new DataView(packet);
+    view.setUint8(0, MSG_SET_TARGET);
+    view.setUint32(1, 0, false);   // seq=0
+    view.setUint32(5, 0, false);   // ts=0
+
+    const pkt8: Uint8Array = new Uint8Array(packet);
+    const jpg8: Uint8Array = new Uint8Array(jpegBytes);
+    pkt8.set(jpg8, HEADER_SIZE);
+
+    this.ws.send(packet, (err: BusinessError) => {
+      if (err) {
+        Logger.error(`${TAG} send target image FAIL: ${err.message}`);
+      }
+    });
+
+    Logger.info(`${TAG} sent target image jpeg=${jpegBytes.byteLength}B`);
     return true;
   }
 
