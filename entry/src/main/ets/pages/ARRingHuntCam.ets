@@ -759,22 +759,20 @@ struct ARRingHuntCam {
 
   // v13 (d/e) — step1: AI sphere tap.
   //   da3:         HTTP 两段式 → capture+generate → 显示目标图 → 等用户点目标图触发 step2
-  //   vggt-omega:  WebSocket 一站式 → runGuideLoop 连续抽帧+引导
+  //   vggt-omega:  同样先生图（调云侧 HTTP），点目标图后 WebSocket 连续引导
   private async onBeaconTap(): Promise<void> {
-    const isWs: boolean = getBackendType() === 'vggt-omega';
-    if (isWs) {
-      // ── vggt-omega: 混合模式 — 手机端 DA3 生图 + 服务端 3D 定位 ──
-      if (this.busyGuide) {
-        Logger.warn('ARDA3-WS beacon tap ignored (busy)');
-        return;
-      }
-      this.busyGuide = true;
+    if (this.busyGenerate) {
+      Logger.warn('ARDA3-FLOW step1 ignored (busy)');
+      return;
+    }
+    this.busyGenerate = true;
+    try {
       this.stopGuideLoop();
       this.resetSceneOnly();
       this.refHolder.image = undefined;
       this.targetJpeg = undefined;
       this.sessionTaskId = util.generateRandomUUID();
-      Logger.info(`ARDA3-WS new session: ${this.sessionTaskId}`);
+      Logger.info(`ARDA3-FLOW new sessionTaskId=${this.sessionTaskId} backend=${getBackendType()}`);
       this.guideUpdateCount = 0;
       this.enterAiModeAndOpenCard();
       this.refLoading = true;
@@ -782,93 +780,38 @@ struct ARRingHuntCam {
         this.applyZoom(1.0);
         await new Promise<void>((r: () => void) => { setTimeout(r, 150); });
       }
-
-      // Step 1: DA3 生图
-      Logger.info('ARDA3-WS beacon tap → DA3 generate target image');
+      Logger.info('ARDA3-FLOW step1 beacon tap → capture+generate');
       this.toast('正在生成目标图…');
       const jpeg: ArrayBuffer | null = await this.captureJpeg();
       if (jpeg === null) {
         this.refLoading = false;
-        this.busyGuide = false;
         this.toast('抓帧失败');
-        Logger.error('ARDA3-WS step1 capture fail');
+        Logger.error('ARDA3-FLOW step1 capture fail');
         return;
       }
       const target: image.PixelMap | null = await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
+      this.refLoading = false;
       if (target === null) {
-        this.refLoading = false;
-        this.busyGuide = false;
         this.toast('生成失败');
-        Logger.error('ARDA3-WS step1 DA3 generate fail');
+        Logger.error('ARDA3-FLOW step1 generate fail');
         return;
       }
       this.refHolder.image = target;
-      this.refLoading = false;
       const targetJpeg: ArrayBuffer | null = await packPixelMapToJpeg(target);
       if (targetJpeg === null) {
-        this.busyGuide = false;
-        Logger.error('ARDA3-WS step1 target re-pack to jpeg failed');
-        this.toast('图像编码失败');
-        return;
+        Logger.error('ARDA3-FLOW step1 target re-pack to jpeg failed');
+      } else {
+        this.targetJpeg = targetJpeg;
+        Logger.info(`ARDA3-FLOW step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
       }
-      this.targetJpeg = targetJpeg;
-      Logger.info(`ARDA3-WS step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
-
-      // Step 2: WebSocket 引导（带目标图）
-      Logger.info('ARDA3-WS beacon tap → starting WebSocket guide loop');
-      this.toast('连接云侧…');
-      this.startScaleCalGuidance();
-      this.runGuideLoop();
-    } else {
-      // ── da3: HTTP 两段式 ──
-      if (this.busyGenerate) {
-        Logger.warn('ARDA3-FLOW step1 ignored (busy)');
-        return;
-      }
-      this.busyGenerate = true;
-      try {
-        this.resetSceneOnly();
-        this.refHolder.image = undefined;
-        this.targetJpeg = undefined;
-        this.sessionTaskId = util.generateRandomUUID();
-        Logger.info(`ARDA3-FLOW new sessionTaskId=${this.sessionTaskId}`);
-        Logger.info('ARDA3-FLOW step1 beacon tap → capture+generate');
-        this.enterAiModeAndOpenCard();
-        this.refLoading = true;
-        if (this.zoom !== 1.0) {
-          this.applyZoom(1.0);
-          await new Promise<void>((r: () => void) => { setTimeout(r, 150); });
-        }
-        const jpeg: ArrayBuffer | null = await this.captureJpeg();
-        if (jpeg === null) {
-          this.refLoading = false;
-          this.toast('抓帧失败');
-          Logger.error('ARDA3-FLOW step1 capture fail');
-          return;
-        }
-        const target: image.PixelMap | null = await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
-        this.refLoading = false;
-        if (target === null) {
-          this.toast('生成失败');
-          Logger.error('ARDA3-FLOW step1 generate fail');
-          return;
-        }
-        this.refHolder.image = target;
-        const targetJpeg: ArrayBuffer | null = await packPixelMapToJpeg(target);
-        if (targetJpeg === null) {
-          Logger.error('ARDA3-FLOW step1 target re-pack to jpeg failed');
-        } else {
-          this.targetJpeg = targetJpeg;
-          Logger.info(`ARDA3-FLOW step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
-        }
-      } finally {
-        this.busyGenerate = false;
-      }
+    } finally {
+      this.busyGenerate = false;
     }
   }
 
-  // v13 (d) — step2: target image tap. Capture current frame again, send (target, current) to
-  // Da3 getGuide, route the result through applyGuide. Reentrancy-guarded.
+  // v13 (d/e) — step2: target image tap.
+  //   da3:         HTTP 单次推理 — capture+getGuide → applyGuide
+  //   vggt-omega:  WebSocket 连续引导 — 发目标图(0x05) + 持续抽帧推理
   private async onTargetTap(): Promise<void> {
     if (this.busyGuide) {
       Logger.warn('ARDA3-FLOW step2 ignored (busy)');
@@ -879,33 +822,53 @@ struct ARRingHuntCam {
       Logger.warn('ARDA3-FLOW step2 no targetJpeg cached');
       return;
     }
-    this.busyGuide = true;
-    try {
+
+    const isWs: boolean = getBackendType() === 'vggt-omega';
+    if (isWs) {
+      // ── vggt-omega: WebSocket 连续引导 ──
+      this.busyGuide = true;
       if (this.cardExpanded) {
         this.toggleCard();
       }
-      Logger.info('ARDA3-FLOW step2 target tap → capture+getGuide');
-      this.toast('正在计算机位…');
+      Logger.info('ARDA3-WS step2 target tap → starting WebSocket guide loop');
+      this.toast('连接云侧…');
+      this.refLoading = true;
       if (this.zoom !== 1.0) {
         this.applyZoom(1.0);
-        await new Promise<void>((resolve: () => void) => { setTimeout(resolve, 150); });
+        await new Promise<void>((r: () => void) => { setTimeout(r, 150); });
       }
-      const current: ArrayBuffer | null = await this.captureJpeg();
-      if (current === null) {
-        this.toast('抓帧失败');
-        Logger.error('ARDA3-FLOW step2 capture fail');
-        return;
+      this.startScaleCalGuidance();
+      this.runGuideLoop();
+    } else {
+      // ── da3: HTTP 单次推理 ──
+      this.busyGuide = true;
+      try {
+        if (this.cardExpanded) {
+          this.toggleCard();
+        }
+        Logger.info('ARDA3-FLOW step2 target tap → capture+getGuide');
+        this.toast('正在计算机位…');
+        if (this.zoom !== 1.0) {
+          this.applyZoom(1.0);
+          await new Promise<void>((resolve: () => void) => { setTimeout(resolve, 150); });
+        }
+        const current: ArrayBuffer | null = await this.captureJpeg();
+        if (current === null) {
+          this.toast('抓帧失败');
+          Logger.error('ARDA3-FLOW step2 capture fail');
+          return;
+        }
+        const guide: Da3GuideData | null = await da3GetGuide(this.targetJpeg as ArrayBuffer, current, this.sessionTaskId, this.context.filesDir);
+        if (guide === null) {
+          this.toast('机位计算失败');
+          Logger.error('ARDA3-FLOW step2 getGuide fail');
+          return;
+        }
+        Logger.info(`ARDA3-FLOW step2 guide=${JSON.stringify(guide)} → applyGuide`);
+        this.applyGuide(guide as GuideData);
+      } finally {
+        this.busyGuide = false;
       }
-      const guide: Da3GuideData | null = await da3GetGuide(this.targetJpeg as ArrayBuffer, current, this.sessionTaskId, this.context.filesDir);
-      if (guide === null) {
-        this.toast('机位计算失败');
-        Logger.error('ARDA3-FLOW step2 getGuide fail');
-        return;
-      }
-      Logger.info(`ARDA3-FLOW step2 guide=${JSON.stringify(guide)} → applyGuide`);
-      this.applyGuide(guide as GuideData);
-    } finally {
-      this.busyGuide = false;
     }
   }
 
