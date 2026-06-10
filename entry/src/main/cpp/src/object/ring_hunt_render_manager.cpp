@@ -37,9 +37,27 @@ void RingHuntRenderManager::Initialize(void *window, AREngine_ARSession *arSessi
     }
 }
 
+void RingHuntRenderManager::EnsureGuideFbo(int w, int h)
+{
+    if (guideFbo_ != 0 && guideFboW_ == w && guideFboH_ == h) return;
+    if (guideFbo_ != 0) { glDeleteFramebuffers(1, &guideFbo_); guideFbo_ = 0; }
+    if (guideRbo_ != 0) { glDeleteRenderbuffers(1, &guideRbo_); guideRbo_ = 0; }
+    glGenRenderbuffers(1, &guideRbo_);
+    glBindRenderbuffer(GL_RENDERBUFFER, guideRbo_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+    glGenFramebuffers(1, &guideFbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, guideFbo_);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, guideRbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    guideFboW_ = w;
+    guideFboH_ = h;
+}
+
 void RingHuntRenderManager::Release()
 {
     if (isInited && RenderRef::GetInstance().IsOne()) {
+        if (guideFbo_ != 0) { glDeleteFramebuffers(1, &guideFbo_); guideFbo_ = 0; }
+        if (guideRbo_ != 0) { glDeleteRenderbuffers(1, &guideRbo_); guideRbo_ = 0; }
         mWayfinderRenderer.Release();
         mRenderContext.ReleaseCurrent();
         mRenderSurface.Release();
@@ -123,41 +141,53 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
     //     Captured frames are camera-only (no AR overlay drawn yet). ──────────────────────
     //
     // 性能优化:glReadPixels 是同步阻塞调用,会强制 GPU 管线排空再回读像素。
-    //   1) 用缩放后的尺寸(capScale=0.5)读,6MB→1.5MB,大幅减少 GPU→CPU 拷贝量
-    //   2) Y-flip 改为逐行写入目标 buffer,省掉临时 buffer + 二次拷贝
-    //   3) 预分配 target buffer(capBuf_),避免每帧 vector::resize 堆分配
-    //   4) clean 和 da3 不会同时触发(互斥),不会双倍阻塞
-
-    constexpr float kCleanCapScale = 1.0f;  // 拍照纯净帧保持全分辨率
-    constexpr float kGuideCapScale = 1.0f; // glReadPixels 不做降采样,0.5 只会读左下角 1/4;ArkTS 侧再缩到 512px
+    //   guide capture 用 FBO + glBlitFramebuffer 在 GPU 端降采样到 512px,
+    //   只 glReadPixels ~0.5MB 而非 12.7MB。clean capture 保持全分辨率。
 
     // 拍照纯净帧（全分辨率）
     if (wantCleanCapture && outCleanRGBA != nullptr && captureW > 0 && captureH > 0) {
-        const int cleanW = std::max(1, static_cast<int>(captureW * kCleanCapScale));
-        const int cleanH = std::max(1, static_cast<int>(captureH * kCleanCapScale));
-        size_t bytes = static_cast<size_t>(cleanW) * static_cast<size_t>(cleanH) * 4u;
+        size_t bytes = static_cast<size_t>(captureW) * static_cast<size_t>(captureH) * 4u;
         if (capBuf_.size() < bytes) { capBuf_.resize(bytes); }
-        glReadPixels(0, 0, cleanW, cleanH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
+        glReadPixels(0, 0, captureW, captureH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
         outCleanRGBA->resize(bytes);
-        const size_t rowStride = static_cast<size_t>(cleanW) * 4u;
-        for (int y = 0; y < cleanH; ++y) {
+        const size_t rowStride = static_cast<size_t>(captureW) * 4u;
+        for (int y = 0; y < captureH; ++y) {
             uint8_t *dst = outCleanRGBA->data() + y * rowStride;
-            const uint8_t *src = capBuf_.data() + (cleanH - 1 - y) * rowStride;
+            const uint8_t *src = capBuf_.data() + (captureH - 1 - y) * rowStride;
             std::memcpy(dst, src, rowStride);
         }
-        if (outCleanW != nullptr) { *outCleanW = cleanW; }
-        if (outCleanH != nullptr) { *outCleanH = cleanH; }
-        LOGI("ARDA3-CAPTURE clean glReadPixels done %{public}dx%{public}d (scaled from %{public}dx%{public}d)",
-             cleanW, cleanH, captureW, captureH);
+        if (outCleanW != nullptr) { *outCleanW = captureW; }
+        if (outCleanH != nullptr) { *outCleanH = captureH; }
     }
 
-    // Da3 / guide capture（半分辨率,减少 GPU 停顿）
+    // Da3 / guide capture: GPU-side downsample via FBO blit, then small glReadPixels
     if (wantCapture && outCaptureRGBA != nullptr && captureW > 0 && captureH > 0) {
-        const int guideW = std::max(1, static_cast<int>(captureW * kGuideCapScale));
-        const int guideH = std::max(1, static_cast<int>(captureH * kGuideCapScale));
+        constexpr int kMaxDim = 512;
+        float scale = std::min(1.0f, std::min(static_cast<float>(kMaxDim) / captureW,
+                                               static_cast<float>(kMaxDim) / captureH));
+        const int guideW = std::max(1, static_cast<int>(captureW * scale));
+        const int guideH = std::max(1, static_cast<int>(captureH * scale));
+
+        EnsureGuideFbo(guideW, guideH);
+
+        GLint prevReadFbo = 0, prevDrawFbo = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFbo);
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFbo);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, guideFbo_);
+        glBlitFramebuffer(0, 0, captureW, captureH,
+                          0, 0, guideW, guideH,
+                          GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, guideFbo_);
         size_t bytes = static_cast<size_t>(guideW) * static_cast<size_t>(guideH) * 4u;
         if (capBuf_.size() < bytes) { capBuf_.resize(bytes); }
         glReadPixels(0, 0, guideW, guideH, GL_RGBA, GL_UNSIGNED_BYTE, capBuf_.data());
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, prevReadFbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDrawFbo);
+
         outCaptureRGBA->resize(bytes);
         const size_t rowStride = static_cast<size_t>(guideW) * 4u;
         for (int y = 0; y < guideH; ++y) {
@@ -167,8 +197,6 @@ bool RingHuntRenderManager::OnDrawFrame(AREngine_ARSession *arSession, AREngine_
         }
         if (outCapW != nullptr) { *outCapW = guideW; }
         if (outCapH != nullptr) { *outCapH = guideH; }
-        LOGI("ARDA3-CAP glReadPixels done %{public}dx%{public}d (scaled from %{public}dx%{public}d)",
-             guideW, guideH, captureW, captureH);
     }
 
     // AR overlays (axes, wayfinder) require tracking. If lost, swap and bail — but captures

@@ -74,6 +74,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"captureFrame", nullptr, NapiManager::NapiCaptureFrame, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isFrameReady", nullptr, NapiManager::NapiIsFrameReady, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"takeFrameRGBA", nullptr, NapiManager::NapiTakeFrameRGBA, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"takeFrameRGBAScaled", nullptr, NapiManager::NapiTakeFrameRGBAScaled, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"captureCleanFrame", nullptr, NapiManager::NapiCaptureCleanFrame, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isCleanFrameReady", nullptr, NapiManager::NapiIsCleanFrameReady, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"takeCleanFrameRGBA", nullptr, NapiManager::NapiTakeCleanFrameRGBA, nullptr, nullptr, nullptr, napi_default, nullptr}

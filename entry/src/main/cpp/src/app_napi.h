@@ -151,6 +151,14 @@ public:
         (void)outH;
         return false;
     }
+    virtual bool TakeFrameRGBAScaled(std::vector<uint8_t> &outRGBA, int &outW, int &outH, int maxDim)
+    {
+        (void)outRGBA;
+        (void)outW;
+        (void)outH;
+        (void)maxDim;
+        return false;
+    }
     // 拍照"纯净帧"抓取:同 RequestCapture 套路,但 glReadPixels 在 wayfinder Render 之前,所以
     // 抓到的 framebuffer 只含相机背景,没有信标/炫彩圈/对齐框等 AR 物体。功能 6 拍照入相册用。
     virtual void RequestCleanCapture() {}

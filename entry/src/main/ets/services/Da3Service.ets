@@ -310,11 +310,11 @@ async function pixelMapFromBase64(b64: string): Promise<image.PixelMap | null> {
 
 // Pack a PixelMap -> JPEG ArrayBuffer (quality 92). Exported so the host page can re-pack the
 // generated target image into JPEG bytes for the second-stage Da3 call.
-export async function packPixelMapToJpeg(pm: image.PixelMap): Promise<ArrayBuffer | null> {
+export async function packPixelMapToJpeg(pm: image.PixelMap, quality: number = 92): Promise<ArrayBuffer | null> {
   let packer: image.ImagePacker | null = null;
   try {
     packer = image.createImagePacker();
-    const opts: image.PackingOption = { format: 'image/jpeg', quality: 92 };
+    const opts: image.PackingOption = { format: 'image/jpeg', quality: quality };
     const jpeg: ArrayBuffer = await packer.packing(pm, opts);
     return jpeg;
   } catch (e) {

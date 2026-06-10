@@ -21,6 +21,7 @@
 #include "graphic/RenderSurface.h"
 #include "wayfinder_renderer.h"
 #include "world/world_background_renderer.h" // reused camera background (NOT modified)
+#include <GLES3/gl3.h>
 #include <cstdint>
 #include <glm.hpp>
 #include <vector>
@@ -81,6 +82,13 @@ private:
     bool isInited = false;
     // 预分配的 glReadPixels 中转 buffer,避免每帧 vector::resize 堆分配
     std::vector<uint8_t> capBuf_;
+
+    // Guide capture downscale FBO: GPU-side blit to small target, then glReadPixels small buffer.
+    GLuint guideFbo_ = 0;
+    GLuint guideRbo_ = 0;
+    int guideFboW_ = 0;
+    int guideFboH_ = 0;
+    void EnsureGuideFbo(int w, int h);
 };
 
 } // namespace ARObject

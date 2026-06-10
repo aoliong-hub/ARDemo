@@ -69,6 +69,7 @@ public:
     void RequestCapture() override;
     bool IsFrameReady() const override;
     bool TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &outH) override;
+    bool TakeFrameRGBAScaled(std::vector<uint8_t> &outRGBA, int &outW, int &outH, int maxDim) override;
     // 拍照(纯净帧):glReadPixels 在 wayfinder Render 之前完成,抓到的不含 AR 物体。
     void RequestCleanCapture() override;
     bool IsCleanFrameReady() const override;

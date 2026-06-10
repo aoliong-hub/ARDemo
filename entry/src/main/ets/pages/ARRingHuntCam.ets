@@ -653,15 +653,14 @@ struct ARRingHuntCam {
     }
   }
 
-  private captureJpeg(): Promise<ArrayBuffer | null> {
+  private captureJpeg(jpegQuality: number = 92): Promise<ArrayBuffer | null> {
     return new Promise<ArrayBuffer | null>((resolve: (v: ArrayBuffer | null) => void) => {
-      // 排空上一次残留的旧帧,保证后续 isFrameReady 轮询等到的是本次 captureFrame 触发的新帧
       arEngineDemo.takeFrameRGBA(this.idStr);
       arEngineDemo.captureFrame(this.idStr);
       let tries: number = 0;
       let reFired: boolean = false;
-      const maxTries: number = 60;   // 50ms * 60 = 3s 总等待
-      const reFireAt: number = 20;   // 1s 仍无帧 → 重发一次 captureFrame(覆盖 surface 抖动 / tracking 暂掉)
+      const maxTries: number = 60;
+      const reFireAt: number = 20;
       const timerId: number = setInterval(() => {
         tries = tries + 1;
         if (!arEngineDemo.isFrameReady(this.idStr)) {
@@ -678,74 +677,86 @@ struct ARRingHuntCam {
           return;
         }
         clearInterval(timerId);
-        const cap: CapturedFrame | null = arEngineDemo.takeFrameRGBA(this.idStr);
+        const cap: CapturedFrame | null = arEngineDemo.takeFrameRGBAScaled(this.idStr, 512);
         if (cap === null) {
-          Logger.error('ARDA3-CAP takeFrameRGBA returned null');
+          Logger.error('ARDA3-CAP takeFrameRGBAScaled returned null');
           resolve(null);
           return;
         }
-        Logger.info(`ARDA3-CAP RGBA taken w=${cap.width} h=${cap.height} bytes=${cap.buffer.byteLength}`);
+        const rawW: number = cap.width;
+        const rawH: number = cap.height;
+        const src32: Uint32Array = new Uint32Array(cap.buffer);
+        const ori: number = arEngineDemo.getOrientation(this.idStr);
+
+        // 计算可见区(raw 像素坐标)
+        const screenH_vp: number = Math.max(1, this.screenHvp);
+        let visTop: number = Math.round((this.viewportTop / screenH_vp) * rawH);
+        let visH: number = Math.round((this.viewportH() / screenH_vp) * rawH);
+        if (visH <= 0 || visTop < 0 || visTop + visH > rawH) {
+          visTop = 0;
+          visH = rawH;
+        }
+
+        // 缩放因子(基于全帧,与之前行为一致);cap at 1.0 since native already downscaled
+        const scaleFactor: number = Math.min(1.0, Math.min(512 / rawW, 512 / rawH));
+        const cropW: number = Math.max(1, Math.round(rawW * scaleFactor));
+        const cropH: number = Math.max(1, Math.round(visH * scaleFactor));
+        const outW: number = (ori === 1 || ori === 2) ? cropH : cropW;
+        const outH: number = (ori === 1 || ori === 2) ? cropW : cropH;
+
+        // 预计算查找表,消除内循环 Math.round/Math.min
+        const invScale: number = 1.0 / scaleFactor;
+        const srcYTable: Uint16Array = new Uint16Array(cropH);
+        for (let y: number = 0; y < cropH; y++) {
+          srcYTable[y] = Math.min(visTop + Math.round(y * invScale), rawH - 1);
+        }
+        const srcXTable: Uint16Array = new Uint16Array(cropW);
+        for (let x: number = 0; x < cropW; x++) {
+          srcXTable[x] = Math.min(Math.round(x * invScale), rawW - 1);
+        }
+
+        // 裁切 + 降采样 + 旋转一次完成;按朝向拆循环,消除每像素分支
+        const dstBuf: ArrayBuffer = new ArrayBuffer(outW * outH * 4);
+        const dst32: Uint32Array = new Uint32Array(dstBuf);
+        if (ori === 1) {
+          const colBase: number = cropH - 1;
+          for (let y: number = 0; y < cropH; y++) {
+            const srcRowOff: number = srcYTable[y] * rawW;
+            const dstCol: number = colBase - y;
+            for (let x: number = 0; x < cropW; x++) {
+              dst32[x * outW + dstCol] = src32[srcRowOff + srcXTable[x]];
+            }
+          }
+        } else if (ori === 2) {
+          const rowBase: number = cropW - 1;
+          for (let y: number = 0; y < cropH; y++) {
+            const srcRowOff: number = srcYTable[y] * rawW;
+            for (let x: number = 0; x < cropW; x++) {
+              dst32[(rowBase - x) * outW + y] = src32[srcRowOff + srcXTable[x]];
+            }
+          }
+        } else {
+          for (let y: number = 0; y < cropH; y++) {
+            const srcRowOff: number = srcYTable[y] * rawW;
+            const dstRowOff: number = y * outW;
+            for (let x: number = 0; x < cropW; x++) {
+              dst32[dstRowOff + x] = src32[srcRowOff + srcXTable[x]];
+            }
+          }
+        }
+
         const opts: image.InitializationOptions = {
-          size: { width: cap.width, height: cap.height },
+          size: { width: outW, height: outH },
           srcPixelFormat: image.PixelMapFormat.RGBA_8888,
           pixelFormat: image.PixelMapFormat.RGBA_8888,
           editable: true
         };
-        image.createPixelMap(cap.buffer, opts).then(async (pm: image.PixelMap) => {
-          // 先裁可见区再扶正(与 captureCleanJpeg / captureJpegForCalib 一致),
-          // 去掉顶+底黑条,让云侧收到的图 = 用户实际看到的画面。
-          await this.cropToVisibleRegion(pm);
-          // 按 native 报告的物理朝向把图旋正,让 da3 收到的图和用户视觉构图一致。
-          // 0=PORTRAIT(不转), 1=LANDSCAPE_CW(顺时针横拿,把图逆时针 90° → da3 看到横画布), 2=LANDSCAPE_CCW(反向)。
-          const ori: number = arEngineDemo.getOrientation(this.idStr);
-          try {
-            // 实测对调:存档图证实 LANDSCAPE_CW 用 rotate(270) 会得到倒置图 → 改 90;
-            // LANDSCAPE_CCW 对称翻成 270。HarmonyOS pm.rotate(angle) 的实际旋转方向跟之前推理反。
-            if (ori === 1) {
-              await pm.rotate(90);
-              Logger.info('ARDA3-CAP rotate 90 (LANDSCAPE_CW)');
-            } else if (ori === 2) {
-              await pm.rotate(270);
-              Logger.info('ARDA3-CAP rotate 270 (LANDSCAPE_CCW)');
-            } else {
-              Logger.info('ARDA3-CAP no rotate (PORTRAIT)');
-            }
-          } catch (e) {
-            const err: BusinessError = e as BusinessError;
-            Logger.error(`ARDA3-CAP rotate failed code=${err.code} msg=${err.message}`);
-          }
-          // 云侧推理不需要全分辨率,缩到 ~512px 减少上传流量
-          try {
-            const imgInfo: image.ImageInfo = await pm.getImageInfo();
-            const sx: number = 512 / imgInfo.size.width;
-            const sy: number = 512 / imgInfo.size.height;
-            const s: number = Math.min(sx, sy);
-            await pm.scale(s, s);
-            Logger.info(`ARDA3-CAP scaled ${s.toFixed(3)} → ~512px`);
-          } catch (e) {
-            Logger.warn(`ARDA3-CAP scale failed: ${(e as BusinessError).message}`);
-          }
-          packPixelMapToJpeg(pm).then((jpeg: ArrayBuffer | null) => {
+        image.createPixelMap(dstBuf, opts).then(async (pm: image.PixelMap) => {
+          packPixelMapToJpeg(pm, jpegQuality).then((jpeg: ArrayBuffer | null) => {
             pm.release().catch((e: BusinessError) => { Logger.warn(`ARDA3-CAP pm.release: ${e.message}`); });
             if (jpeg === null) {
               resolve(null);
               return;
-            }
-            Logger.info(`ARDA3-CAP jpeg ready bytes=${jpeg.byteLength}`);
-            try {
-              const path: string = `${this.context.filesDir}/cap_${systemDateTime.getTime(false)}.jpg`;
-              const f: fileIo.File = fileIo.openSync(path,
-                fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
-              fileIo.write(f.fd, jpeg).then(() => {
-                fileIo.closeSync(f.fd);
-                Logger.info(`ARDA3-CAP jpeg saved path=${path}`);
-              }).catch((e: BusinessError) => {
-                Logger.warn(`ARDA3-CAP save write failed: ${e.message}`);
-                try { fileIo.closeSync(f.fd); } catch (_e) {}
-              });
-            } catch (e) {
-              const err: BusinessError = e as BusinessError;
-              Logger.warn(`ARDA3-CAP save failed code=${err.code} msg=${err.message}`);
             }
             resolve(jpeg);
           });
@@ -899,17 +910,12 @@ struct ARRingHuntCam {
     const client: WsGuideClient = new WsGuideClient();
     this.wsClient = client;
 
-    // 状态闭包 —— WebSocket 回调与 setInterval 共享
+    // 状态闭包 —— WebSocket 回调与抽帧循环共享
     let stopped: boolean = false;
-    let frameTimer: number = -1;
 
     const cleanup = (): void => {
       stopped = true;
       this.guideLoopRunning = false;
-      if (frameTimer >= 0) {
-        clearInterval(frameTimer);
-        frameTimer = -1;
-      }
       client.close();
       this.busyGuide = false;
       this.wsClient = undefined;
@@ -935,7 +941,6 @@ struct ARRingHuntCam {
     // 注册回调：状态 / pose / 关闭 / 目标图
     let imageReceived: boolean = false;
     let poseReceived: boolean = false;
-    let captureInProgress: boolean = false;  // 防重入：一次只允许一个 captureJpeg 在跑
 
     client.setCallbacks(
       // onStatus — 等服务端就绪后：先发目标图，再开始抽帧
@@ -950,58 +955,51 @@ struct ARRingHuntCam {
             Logger.warn('ARDA3-WS loop: no target image to send (targetJpeg is undefined)');
           }
 
-          frameTimer = setInterval(async (): Promise<void> => {
-            if (stopped || !this.guideLoopRunning) {
-              clearInterval(frameTimer);
-              cleanup();
-              return;
-            }
-            // 已对齐 → 立即停止抽帧
-            if (this.isLocked) {
-              Logger.info(`ARDA3-WS loop: LOCKED detected, stopping`);
-              this.toast('对齐成功!');
-              cleanup();
-              return;
-            }
-            // 上一帧还在抽 → 跳过本次，等下一拍
-            if (captureInProgress) {
-              return;
-            }
+          // 串行抽帧循环 — 每帧处理+发送完毕后再等 intervalMs 再抽下一帧,
+          // 避免 setInterval 回调堆积在主线程事件队列。
+          const frameLoop = async (): Promise<void> => {
+            while (!stopped && this.guideLoopRunning) {
+              if (this.isLocked) {
+                Logger.info(`ARDA3-WS loop: LOCKED detected, stopping`);
+                this.toast('对齐成功!');
+                cleanup();
+                return;
+              }
 
-            this.guideLoopFrameCount++;
-            if (this.guideLoopFrameCount > maxFrames) {
-              Logger.info(`ARDA3-WS loop: max frames ${maxFrames} reached`);
-              this.toast('机位引导超时，请重试');
+              this.guideLoopFrameCount++;
+              if (this.guideLoopFrameCount > maxFrames) {
+                Logger.info(`ARDA3-WS loop: max frames ${maxFrames} reached`);
+                this.toast('机位引导超时，请重试');
+                cleanup();
+                return;
+              }
+
+              let current: ArrayBuffer | null = null;
+              if (useDebugImage) {
+                current = await this.loadDebugImage();
+              } else {
+                current = await this.captureJpeg(40);
+              }
+              if (current === null) {
+                Logger.warn(`ARDA3-WS loop frame ${this.guideLoopFrameCount}: capture failed`);
+              } else if (!stopped) {
+                const camPose: CamPose | null = arEngineDemo.getLatestCamDispPose(this.idStr);
+                if (camPose !== null) {
+                  client.sendFrameWithPose(current,
+                    camPose.px, camPose.py, camPose.pz,
+                    camPose.qx, camPose.qy, camPose.qz, camPose.qw);
+                } else {
+                  client.sendFrame(current);
+                }
+              }
+
+              await new Promise<void>((r: () => void) => { setTimeout(r, intervalMs); });
+            }
+            if (!stopped) {
               cleanup();
-              return;
             }
-
-            captureInProgress = true;
-            let current: ArrayBuffer | null = null;
-            if (useDebugImage) {
-              current = await this.loadDebugImage();
-            } else {
-              current = await this.captureJpeg();
-            }
-            captureInProgress = false;
-            if (current === null) {
-              Logger.warn(`ARDA3-WS loop frame ${this.guideLoopFrameCount}: capture failed`);
-              return;
-            }
-
-            Logger.info(`ARDA3-WS loop frame ${this.guideLoopFrameCount}/${maxFrames}: sending (${current.byteLength}B)`);
-            // 优先发 0x04（带 DisplayOriented pose）；tracking 未就绪时降级发 0x01（云侧 scale=1.0）。
-            // 必须用 DispPose（GetDisplayOrientedPose）而非 RawPose（GetPose），因为 JPEG 是显示方向的，
-            // 云侧 VGGT 相机坐标系与显示方向对齐，用 RawPose 会导致 beacon 偏移旋转~90°。
-            const camPose: CamPose | null = arEngineDemo.getLatestCamDispPose(this.idStr);
-            if (camPose !== null) {
-              client.sendFrameWithPose(current,
-                camPose.px, camPose.py, camPose.pz,
-                camPose.qx, camPose.qy, camPose.qz, camPose.qw);
-            } else {
-              client.sendFrame(current);
-            }
-          }, intervalMs);
+          };
+          frameLoop();
         }
       },
       // onPose — 云侧推理完成，带回 guide_string（可选 beacon_world）

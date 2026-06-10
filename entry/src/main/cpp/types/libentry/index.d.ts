@@ -142,6 +142,7 @@ export interface CapturedFrame {
 export const captureFrame: (id: string) => void;
 export const isFrameReady: (id: string) => boolean;
 export const takeFrameRGBA: (id: string) => CapturedFrame | null;
+export const takeFrameRGBAScaled: (id: string, maxDim: number) => CapturedFrame | null;
 
 // 拍照纯净帧(功能 6):glReadPixels 在 wayfinder Render 之前,抓到的不含信标/炫彩圈/对齐框等
 // AR 物体,只有纯相机背景画面。同一组 request/poll/take 套路,共用 CapturedFrame 类型。

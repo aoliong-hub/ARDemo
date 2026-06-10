@@ -1004,6 +1004,45 @@ napi_value NapiManager::NapiTakeFrameRGBA(napi_env env, napi_callback_info info)
     return obj;
 }
 
+napi_value NapiManager::NapiTakeFrameRGBAScaled(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string id = ReadIdArg(env, args[0]);
+    int32_t maxDim = 512;
+    if (argc >= 2) {
+        napi_get_value_int32(env, args[1], &maxDim);
+    }
+    AppNapi *app = NapiManager::GetInstance()->GetApp(id);
+    if (app == nullptr) {
+        return nullptr;
+    }
+    std::vector<uint8_t> rgba;
+    int w = 0;
+    int h = 0;
+    if (!app->TakeFrameRGBAScaled(rgba, w, h, maxDim) || rgba.empty() || w <= 0 || h <= 0) {
+        return nullptr;
+    }
+    void *bufData = nullptr;
+    napi_value arrayBuffer = nullptr;
+    if (napi_create_arraybuffer(env, rgba.size(), &bufData, &arrayBuffer) != napi_ok || bufData == nullptr) {
+        LOGE("ARDA3-CAP napi_create_arraybuffer failed bytes=%{public}zu", rgba.size());
+        return nullptr;
+    }
+    std::memcpy(bufData, rgba.data(), rgba.size());
+    napi_value obj = nullptr;
+    napi_create_object(env, &obj);
+    napi_value wv = nullptr;
+    napi_value hv = nullptr;
+    napi_create_int32(env, w, &wv);
+    napi_create_int32(env, h, &hv);
+    napi_set_named_property(env, obj, "buffer", arrayBuffer);
+    napi_set_named_property(env, obj, "width", wv);
+    napi_set_named_property(env, obj, "height", hv);
+    return obj;
+}
+
 // 拍照纯净帧 NAPI 三件套(对应功能 6):captureCleanFrame 触发,isCleanFrameReady 轮询,
 // takeCleanFrameRGBA 取出 RGBA buffer。返回的纯净帧不含信标/炫彩圈/对齐框等 AR 物体。
 napi_value NapiManager::NapiCaptureCleanFrame(napi_env env, napi_callback_info info)

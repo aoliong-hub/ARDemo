@@ -1151,6 +1151,61 @@ bool RingHuntApp::TakeFrameRGBA(std::vector<uint8_t> &outRGBA, int &outW, int &o
     return true;
 }
 
+bool RingHuntApp::TakeFrameRGBAScaled(std::vector<uint8_t> &outRGBA, int &outW, int &outH, int maxDim)
+{
+    if (!mFrameReady.load()) {
+        return false;
+    }
+    std::vector<uint8_t> fullRGBA;
+    int fullW = 0, fullH = 0;
+    {
+        std::lock_guard<std::mutex> lk(mFrameMutex);
+        if (mLastFrameRGBA.empty() || mLastFrameW <= 0 || mLastFrameH <= 0) {
+            mFrameReady.store(false);
+            return false;
+        }
+        fullRGBA = std::move(mLastFrameRGBA);
+        fullW = mLastFrameW;
+        fullH = mLastFrameH;
+        mLastFrameRGBA.clear();
+        mLastFrameW = 0;
+        mLastFrameH = 0;
+    }
+    mFrameReady.store(false);
+
+    if (maxDim <= 0 || (fullW <= maxDim && fullH <= maxDim)) {
+        outRGBA = std::move(fullRGBA);
+        outW = fullW;
+        outH = fullH;
+        return true;
+    }
+
+    float scale = std::min(static_cast<float>(maxDim) / fullW,
+                           static_cast<float>(maxDim) / fullH);
+    int dstW = std::max(1, static_cast<int>(fullW * scale));
+    int dstH = std::max(1, static_cast<int>(fullH * scale));
+    float invScale = 1.0f / scale;
+
+    outRGBA.resize(static_cast<size_t>(dstW) * dstH * 4u);
+    const uint32_t *src32 = reinterpret_cast<const uint32_t *>(fullRGBA.data());
+    uint32_t *dst32 = reinterpret_cast<uint32_t *>(outRGBA.data());
+
+    for (int y = 0; y < dstH; ++y) {
+        int srcY = std::min(static_cast<int>(y * invScale), fullH - 1);
+        int srcRowOff = srcY * fullW;
+        int dstRowOff = y * dstW;
+        for (int x = 0; x < dstW; ++x) {
+            int srcX = std::min(static_cast<int>(x * invScale), fullW - 1);
+            dst32[dstRowOff + x] = src32[srcRowOff + srcX];
+        }
+    }
+
+    outW = dstW;
+    outH = dstH;
+    LOGI("ARDA3-CAP frame taken scaled %{public}dx%{public}d -> %{public}dx%{public}d", fullW, fullH, dstW, dstH);
+    return true;
+}
+
 void RingHuntApp::RequestCleanCapture()
 {
     mCleanCaptureRequested.store(true);
