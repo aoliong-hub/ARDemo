@@ -18,11 +18,12 @@ import dataPreferences from '@ohos.data.preferences';
 // 端云接口地址配置 —— 所有后端 URL 集中在这里，修改时只改本文件即可。
 // 支持 da3 / vggt-omega 两套后端，UI 上可切换。
 //
-// da3 后端:generate 和 guide 分别在不同 host。
-//   generate → intelligence-hiaicloud.hwcloudtest.cn
-//   guide    → xsjcamera.rnd.huawei.com
+// ★ generate（目标图生成）统一走 intelligence-hiaicloud.hwcloudtest.cn，
+//   两套后端共用同一个 generate 服务，不区分后端类型。
 //
-// vggt-omega 后端:统一走 175.155.64.171:61660。
+// guide（引导）各后端独立:
+//   da3        → xsjcamera.rnd.huawei.com
+//   vggt-omega → 175.155.64.171:61660
 
 export type BackendType = 'da3' | 'vggt-omega';
 
@@ -82,12 +83,12 @@ const da3Profile: BackendProfile = {
 };
 
 // ── vggt-omega 后端 ─────────────────────────────────────────────────
-//   统一 host = http://175.155.64.171:61660
-//   API 路径待确认,目前用 /vggt_ 前缀占位。
+//   generate host = intelligence-hiaicloud.hwcloudtest.cn（与 da3 统一）
+//   guide host    = 175.155.64.171:61660
 const vggtOmegaProfile: BackendProfile = {
   name: 'VGGT-Ω',
   generate: {
-    host: 'http://175.155.64.171:61660',
+    host: 'https://intelligence-hiaicloud.hwcloudtest.cn',
     endpoint: '/camera-agent-api/api/generate',
     taskBase: '/camera-agent-api/api/task/',
   },
