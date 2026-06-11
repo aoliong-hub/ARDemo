@@ -83,6 +83,7 @@ export type WsStatusCallback = (status: string) => void;
 export type WsPoseCallback = (pose: WsPoseResult) => void;
 export type WsClosedCallback = () => void;
 export type WsImageCallback = (jpegBytes: ArrayBuffer) => void;
+export type WsGuidanceCallback = (text: string) => void;
 
 // ── WebSocket 引导客户端 ─────────────────────────────────────
 
@@ -94,13 +95,16 @@ export class WsGuideClient {
   private onPose: WsPoseCallback | null = null;
   private onClosed: WsClosedCallback | null = null;
   private onImage: WsImageCallback | null = null;
+  private onGuidance: WsGuidanceCallback | null = null;
 
   setCallbacks(onStatus: WsStatusCallback | null, onPose: WsPoseCallback | null,
-              onClosed: WsClosedCallback | null, onImage: WsImageCallback | null): void {
+              onClosed: WsClosedCallback | null, onImage: WsImageCallback | null,
+              onGuidance?: WsGuidanceCallback | null): void {
     this.onStatus = onStatus;
     this.onPose = onPose;
     this.onClosed = onClosed;
     this.onImage = onImage;
+    this.onGuidance = onGuidance ?? null;
   }
 
   connect(): Promise<boolean> {
@@ -350,6 +354,12 @@ export class WsGuideClient {
         }
       } else if (msgType === 'vision') {
         Logger.info(`${TAG} recv vision: ${text}`);
+      } else if (msgType === 'guidance') {
+        const gText: string = (msg['guidance_text'] as string) || '';
+        Logger.info(`${TAG} recv guidance: "${gText}"`);
+        if (gText.length > 0 && this.onGuidance) {
+          this.onGuidance(gText);
+        }
       } else if (msgType === 'error') {
         Logger.error(`${TAG} recv error: ${text}`);
       } else {

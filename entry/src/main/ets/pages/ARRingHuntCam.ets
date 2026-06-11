@@ -1043,7 +1043,8 @@ struct ARRingHuntCam {
         }
 
         // guidance_text 在 resetSceneOnly 之后赋值,避免被清空
-        if (pose.guidance_text !== undefined && pose.guidance_text.length > 0) {
+        if (pose.guidance_text !== undefined && pose.guidance_text.length > 0 &&
+            pose.guidance_text !== this.guidanceText) {
           this.guidanceText = pose.guidance_text;
         }
 
@@ -1096,6 +1097,15 @@ struct ARRingHuntCam {
           });
         } catch (e) {
           Logger.error(`ARDA3-WS loop: createImageSource failed: ${(e as BusinessError).message}`);
+        }
+      },
+      // onGuidance — 独立 VLM 文本引导消息（type="guidance"），去重避免 UI 闪烁
+      (text: string): void => {
+        if (stopped) {
+          return;
+        }
+        if (text !== this.guidanceText) {
+          this.guidanceText = text;
         }
       }
     );
