@@ -163,6 +163,9 @@ struct ARRingHuntCam {
   // 后端切换:da3 / vggt-omega。点一下切下一个。
   @State backendType: BackendType = getBackendType();
 
+  // VLM 文本引导:WebSocket 返回的 guidance_text 可选字段,有就显示给用户。
+  @State guidanceText: string = '';
+
   // ===== Scale 校准引导 =====
   @State private scaleCalStep: number = 0;
   @State private scaleCalOpacity: number = 0;
@@ -519,6 +522,7 @@ struct ARRingHuntCam {
     this.hideLockedBanner();
     this.resetGuidance();
     this.stopScaleCalGuidance();
+    this.guidanceText = '';
   }
 
   // v13 (c) — guideData → AR end-to-end glue. Parses the 7 string fields, validates, then routes
@@ -1036,6 +1040,11 @@ struct ARRingHuntCam {
           Logger.info(`ARDA3-WS beacon_world skipped: useFlag=${getUseBeaconWorld()} bw=${bw !== undefined} ` +
             `posLen=${bw !== undefined ? bw.position.length : -1} quatLen=${bw !== undefined ? bw.quaternion.length : -1}`);
           this.applyGuideFromGuideString(pose);
+        }
+
+        // guidance_text 在 resetSceneOnly 之后赋值,避免被清空
+        if (pose.guidance_text !== undefined && pose.guidance_text.length > 0) {
+          this.guidanceText = pose.guidance_text;
         }
 
         setTimeout((): void => {
@@ -2223,37 +2232,45 @@ struct ARRingHuntCam {
             this.guidanceStackH = n.height as number;
           })
 
-          // Stage 12B-1 banner — two lines inside one glass capsule. Line 1 = absolute distance.
-          // Line 2 = signed yaw/pitch/roll diffs in integer degrees (e.g. "偏航 +23° 俯仰 -12°
-          // 翻滚 +5°") — updated live by the same 62ms state poll that drives the alignment HUD.
+          // 精简状态标签:推理次数 + 位置锁定。靠顶部左侧,与顶栏按钮同行。
           if (this.ringPlaced && this.huntPhase !== 2) {
-            Row() {
-              Column({ space: 2 }) {
-                Text(`距离 ${this.distText()} m  #${this.guideUpdateCount}${this.inDeadzone ? '  ◉位置锁定' : ''}`)
-                  .fontSize(FontSize.hud)
-                  .fontColor(Palette.white)
-                Text(`偏航 ${this.formatDiff(this.yawDiffRad)}  俯仰 ${this.formatDiff(this.pitchDiffRad)}  翻滚 ${this.formatDiff(this.rollDiffRad)}`)
-                  .fontSize(FontSize.hud - 1)
-                  .fontColor(Palette.white80)
-              }
-              .alignItems(HorizontalAlign.Center)
+            Text(`#${this.guideUpdateCount}${this.inDeadzone ? '  ◉位置锁定' : ''}`)
+              .id('distancePill')
+              .fontSize(FontSize.hud)
+              .fontColor(Palette.white80)
               .backgroundColor(Palette.glass)
-              .padding({ left: Spacing.M, right: Spacing.M, top: Spacing.S, bottom: Spacing.S })
-              .borderRadius(Radius.M)
+              .padding({ left: Spacing.S, right: Spacing.S, top: 2, bottom: 2 })
+              .borderRadius(Radius.S)
+              .position({ x: Spacing.M, y: Spacing.S })
+              .hitTestBehavior(HitTestMode.None)
+          }
+
+          // VLM 文本引导:视口顶部居中,紧贴状态标签下方。
+          if (this.guidanceText.length > 0 && this.ringPlaced && this.huntPhase !== 2) {
+            Row() {
+              Text(this.guidanceText)
+                .fontSize(FontSize.hud + 1)
+                .fontColor(Color.White)
+                .fontWeight(FontWeight.Medium)
+                .textAlign(TextAlign.Center)
+                .maxLines(2)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .backgroundColor(Palette.glass)
+                .padding({ left: Spacing.M, right: Spacing.M, top: Spacing.S, bottom: Spacing.S })
+                .borderRadius(Radius.M)
+                .constraintSize({ maxWidth: '85%' })
             }
-            .id('distancePill')
+            .id('guidanceTextHint')
             .width('100%')
             .justifyContent(FlexAlign.Center)
-            .position({ x: 0, y: Spacing.M })
+            .position({ x: 0, y: 28 })
             .hitTestBehavior(HitTestMode.None)
           }
 
-          // 重构(2026-06-03)— "过头"提示:bbox fillRatio > 1.0 = 框超出取景框(用户走太近)。
-          // 引导用户后退,直到框回到可见区内(fill ≤ 1.0,在吸附区间 [0.90, 1.0])。
-          // LOCKED 后不显示(已对齐完成)。位置紧贴距离 pill 下方(距顶 76vp ≈ pill 高 + 间距)。
+          // "过头"提示:bbox fillRatio > 1.0。
           if (this.ringPlaced && this.fillRatio > 1.0 && this.huntPhase !== 2) {
             Row() {
-              Text('请退后一点 (取景框已被超出)')
+              Text('请退后一点')
                 .fontSize(FontSize.hud)
                 .fontColor('#FFFFCC66')
                 .fontWeight(FontWeight.Medium)
@@ -2264,14 +2281,11 @@ struct ARRingHuntCam {
             .id('overshootHint')
             .width('100%')
             .justifyContent(FlexAlign.Center)
-            .position({ x: 0, y: 76 })
+            .position({ x: 0, y: 64 })
             .hitTestBehavior(HitTestMode.None)
           }
 
-          // 修(2026-06-03)— "拿反"提示:dist<30cm 但 yaw > 90° = 用户朝向反了(看框背面)。
-          // 引导用户转向目标。条件:在 30cm 内 + |yaw| > 90° + 没 LOCKED。
-          // 配合 native:snapReady 的 facingOk 守门 + ComputeFillRatio 的几何根治(dot<0→fill=0),
-          // 让"拿反不再死循环吸附"。提示位置在过头提示下方(y=120,叠不上时分开)。
+          // "拿反"提示:dist<30cm 且 yaw > 90°。
           if (this.ringPlaced && this.distance < 0.30 && Math.abs(this.yawDiffRad) > Math.PI / 2 && this.huntPhase !== 2) {
             Row() {
               Text('请转向目标方向')
@@ -2285,7 +2299,7 @@ struct ARRingHuntCam {
             .id('facingHint')
             .width('100%')
             .justifyContent(FlexAlign.Center)
-            .position({ x: 0, y: 120 })
+            .position({ x: 0, y: 96 })
             .hitTestBehavior(HitTestMode.None)
           }
 

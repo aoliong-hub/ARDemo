@@ -53,6 +53,7 @@ export interface WsPoseResult {
   guide_string?: Record<string, ESObject>;
   beacon_world?: BeaconWorld;
   guidance?: string;
+  guidance_text?: string;
   infer_count?: number;
   in_deadzone?: boolean;
 }
