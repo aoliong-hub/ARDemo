@@ -33,6 +33,13 @@ interface GenerateEndpoint {
   taskBase: string;   // task 轮询路径前缀
 }
 
+interface GuideDeployTarget {
+  host: string;       // HTTP scheme + 域名/IP
+  wsHost: string;     // WebSocket scheme + 域名/IP
+  prefix: string;     // HTTP 路径前缀（无则为空串）
+  wsPrefix: string;   // WebSocket 路径前缀（无则为空串）
+}
+
 interface GuideEndpoint {
   host: string;       // guide 服务的完整 host (含 scheme)
   inferPath: string;  // infer 接口路径
@@ -84,7 +91,10 @@ const da3Profile: BackendProfile = {
 
 // ── vggt-omega 后端 ─────────────────────────────────────────────────
 //   generate host = intelligence-hiaicloud.hwcloudtest.cn（与 da3 统一）
-//   guide host    = 175.155.64.171:61660
+//
+// ★ 切换 guide/ws 部署地址只需注释/取消注释下面两行之一：
+// const VGGT_OMEGA_GUIDE: GuideDeployTarget = { host: 'http://175.155.64.171:31770', wsHost: 'ws://175.155.64.171:31770', prefix: '', wsPrefix: '' };
+const VGGT_OMEGA_GUIDE: GuideDeployTarget = { host: 'https://intelligence-hiaicloud.hwcloudtest.cn', wsHost: 'wss://intelligence-hiaicloud.hwcloudtest.cn', prefix: '/cv/lyx/api', wsPrefix: '/cv/lyx/ws' };
 const vggtOmegaProfile: BackendProfile = {
   name: 'VGGT-Ω',
   generate: {
@@ -93,11 +103,11 @@ const vggtOmegaProfile: BackendProfile = {
     taskBase: '/camera-agent-api/api/task/',
   },
   guide: {
-    host: 'http://175.155.64.171:61660',
+    host: `${VGGT_OMEGA_GUIDE.host}${VGGT_OMEGA_GUIDE.prefix}`,
     inferPath: '/mrightserver/uat/camera_agent_guide/infer',
     taskPath: '/mrightserver/uat/camera_agent_guide/task',
   },
-  wsUrl: 'ws://175.155.64.171:61660/ws/infer',
+  wsUrl: `${VGGT_OMEGA_GUIDE.wsHost}${VGGT_OMEGA_GUIDE.wsPrefix}/ws/infer`,
   wsGuideFrameIntervalMs: 500,
   wsGuideMaxFrames: 240,
   pollIntervalMs: 1000,
