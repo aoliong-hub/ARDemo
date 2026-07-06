@@ -18,6 +18,12 @@
 #include "native_common.h"
 #include "utils/log.h"
 
+// NGA NAPI 函数(定义在 nga/nga_napi.cpp)
+extern napi_value NgaInitFramework(napi_env env, napi_callback_info info);
+extern napi_value NgaSetReference(napi_env env, napi_callback_info info);
+extern napi_value NgaProcessFrame(napi_env env, napi_callback_info info);
+extern napi_value NgaDestroyFramework(napi_env env, napi_callback_info info);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -77,7 +83,11 @@ static napi_value Init(napi_env env, napi_value exports)
         {"takeFrameRGBAScaled", nullptr, NapiManager::NapiTakeFrameRGBAScaled, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"captureCleanFrame", nullptr, NapiManager::NapiCaptureCleanFrame, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isCleanFrameReady", nullptr, NapiManager::NapiIsCleanFrameReady, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"takeCleanFrameRGBA", nullptr, NapiManager::NapiTakeCleanFrameRGBA, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"takeCleanFrameRGBA", nullptr, NapiManager::NapiTakeCleanFrameRGBA, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"ngaInitFramework", nullptr, NgaInitFramework, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"ngaSetReference", nullptr, NgaSetReference, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"ngaProcessFrame", nullptr, NgaProcessFrame, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"ngaDestroyFramework", nullptr, NgaDestroyFramework, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     NAPI_CALL(env, napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc));
     bool ret = NapiManager::GetInstance()->Export(env, exports);

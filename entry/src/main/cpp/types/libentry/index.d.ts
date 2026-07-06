@@ -149,3 +149,9 @@ export const takeFrameRGBAScaled: (id: string, maxDim: number) => CapturedFrame 
 export const captureCleanFrame: (id: string) => void;
 export const isCleanFrameReady: (id: string) => boolean;
 export const takeCleanFrameRGBA: (id: string) => CapturedFrame | null;
+
+// NGA 本地 6DoF 精调
+export const ngaInitFramework: (width: number, height: number) => boolean;
+export const ngaSetReference: (data: ArrayBuffer, width: number, height: number) => boolean;
+export const ngaProcessFrame: (data: ArrayBuffer, width: number, height: number) => string;
+export const ngaDestroyFramework: () => void;

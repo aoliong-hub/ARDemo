@@ -8,6 +8,7 @@
  */
 
 import { display, window, PathShape } from '@kit.ArkUI';
+import http from '@ohos.net.http';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { common } from '@kit.AbilityKit';
 import { media } from '@kit.MediaKit';
@@ -25,10 +26,11 @@ import { Logger } from '../utils/Logger';
 import { Palette, FontSize, Spacing, Radius } from '../styles/Theme';
 import { CameraChrome } from '../components/CameraChrome';
 import { ReferencePanel, RefImageHolder } from '../components/ReferencePanel';
-import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, parseGuideString, GuideData as Da3GuideData } from '../services/Da3Service';
+import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, parseGuideString, GuideData as Da3GuideData, checkBackendHealth, HealthCheckResult } from '../services/Da3Service';
 import { WsGuideClient, WsPoseResult, BeaconWorld, extractGuideField } from '../services/Da3WsService';
 import { getCloudConfig } from '../config/CloudConfig';
 import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType, getUseBeaconWorld } from '../config/CloudConfig';
+import { NgaResult, Nga6DofResult } from '../services/NgaTypes';
 
 // v13 (c): da3 机位服务返回的 guideData — 全 string,由 applyGuide 转 number 并喂给
 // placeRingAt + applyZoom。语义跟 placeRingAt 一致:x=右(米)/ y=圆环离地高度(米)/ z=前(米),
@@ -163,6 +165,10 @@ struct ARRingHuntCam {
   // 后端切换:da3 / vggt-omega。点一下切下一个。
   @State backendType: BackendType = getBackendType();
 
+  // 后端服务健康状态
+  @State healthWarning: string = '';
+  private healthCheckDone: boolean = false;
+
   // VLM 文本引导:WebSocket 返回的 guidance_text 可选字段,有就显示给用户。
   @State guidanceText: string = '';
 
@@ -178,6 +184,14 @@ struct ARRingHuntCam {
   // ===== 标定工具状态(完全旁路) =====
   // 标定模式总开关。true 时显示标定 overlay,其它正常 UI 不受影响。
   @State calibMode: boolean = false;
+
+  // ===== NGA 本地精调阶段 =====
+  @State ngaActive: boolean = false;
+  @State ngaProgress: number = 0;
+  @State ngaCommand: string = '';
+  @State ngaRingOpacity: number = 0;
+  private ngaInitialized: boolean = false;
+  private ngaLoopTimer: number = -1;
   // 当前步骤:0 = 采基准 A,1-10 = 采 10 个动作的 B
   @State calibStep: number = 0;
   // 当前手机朝向标签(用户手动指定):'portrait' | 'landscape'
@@ -523,6 +537,7 @@ struct ARRingHuntCam {
     this.resetGuidance();
     this.stopScaleCalGuidance();
     this.guidanceText = '';
+    this.stopNgaPhase();
   }
 
   // v13 (c) — guideData → AR end-to-end glue. Parses the 7 string fields, validates, then routes
@@ -818,6 +833,9 @@ struct ARRingHuntCam {
       } else {
         this.targetJpeg = targetJpeg;
         Logger.info(`ARDA3-FLOW step1 done, target shown, targetJpegBytes=${targetJpeg.byteLength}`);
+        this.savePhotoToGallery(targetJpeg, 'AI_Target').then((ok: boolean) => {
+          Logger.info(`ARDA3-FLOW target image saved to gallery: ${ok}`);
+        });
       }
     } finally {
       this.busyGenerate = false;
@@ -1187,7 +1205,7 @@ struct ARRingHuntCam {
   //   3) photoAccessHelper.showAssetsCreationDialog 弹系统确认窗,用户点保存 → 入库
   // 这条路径不需 WRITE_IMAGEVIDEO(WRITE_IMAGEVIDEO 是 system_grant 第三方拿不到);每次拍照
   // 会弹一次"是否保存到图库",用户授权 = 入库。第一次拍后系统可能记忆选择(各机型表现不同)。
-  private async savePhotoToGallery(jpeg: ArrayBuffer): Promise<boolean> {
+  private async savePhotoToGallery(jpeg: ArrayBuffer, titlePrefix: string = 'AR'): Promise<boolean> {
     let stage: string = 'init';
     try {
       stage = 'sandbox-write';
@@ -1206,7 +1224,7 @@ struct ARRingHuntCam {
       const ctx: common.UIAbilityContext = this.context as common.UIAbilityContext;
       const helper: photoAccessHelper.PhotoAccessHelper = photoAccessHelper.getPhotoAccessHelper(ctx);
       const config: photoAccessHelper.PhotoCreationConfig = {
-        title: `AR_${ts}`,
+        title: `${titlePrefix}_${ts}`,
         fileNameExtension: 'jpg',
         photoType: photoAccessHelper.PhotoType.IMAGE
       };
@@ -1543,6 +1561,7 @@ struct ARRingHuntCam {
     this.backendType = next;
     Logger.info(`[ARRingHuntCam] backend switched to ${next} (${getBackendLabel(next)})`);
     this.toast(`后端: ${getBackendLabel(next)}`);
+    this.runHealthCheck();
   }
 
   private openDevSelector(): void {
@@ -1551,6 +1570,56 @@ struct ARRingHuntCam {
     this.pageInfos.pushDestinationByName('DevSelector', null).catch((err: BusinessError) => {
       Logger.error(`pushDestinationByName(DevSelector) failed: ${err.code} ${err.message}`);
     });
+  }
+
+  private async runHealthCheck(): Promise<void> {
+    try {
+      const r: HealthCheckResult = await checkBackendHealth();
+      const msgs: string[] = [];
+      if (!r.generateOk) {
+        msgs.push('生图模型无法访问');
+      }
+      if (!r.guideOk) {
+        const label: string = getBackendLabel(this.backendType);
+        msgs.push(`${label} 定位服务无法访问`);
+      }
+      this.healthWarning = msgs.join(' | ');
+      this.healthCheckDone = true;
+      if (this.healthWarning.length > 0) {
+        Logger.warn(`[HealthCheck] ${this.healthWarning}`);
+      }
+    } catch (e) {
+      this.healthWarning = '服务状态检测失败';
+      this.healthCheckDone = true;
+      Logger.warn(`[HealthCheck] exception: ${(e as Error).message}`);
+    }
+  }
+
+  private async testVggtHealth(): Promise<void> {
+    const guideHost: string = getCloudConfig().guide.host;
+    const url: string = `${guideHost}/health`;
+    Logger.info(`[VggtHealth] GET ${url}`);
+    const req: http.HttpRequest = http.createHttp();
+    try {
+      const resp: http.HttpResponse = await req.request(url, {
+        method: http.RequestMethod.GET,
+        connectTimeout: 5000,
+        readTimeout: 5000
+      });
+      const body: string = typeof resp.result === 'string' ? resp.result as string : JSON.stringify(resp.result);
+      Logger.info(`[VggtHealth] HTTP ${resp.responseCode} body=${body}`);
+      if (resp.responseCode >= 200 && resp.responseCode < 300) {
+        this.toast(`Health OK (${resp.responseCode})`);
+      } else {
+        this.toast(`Health FAIL: HTTP ${resp.responseCode}`);
+      }
+    } catch (e) {
+      const msg: string = (e as BusinessError).message || (e as Error).message;
+      Logger.error(`[VggtHealth] FAIL: ${msg}`);
+      this.toast(`Health FAIL: ${msg}`);
+    } finally {
+      req.destroy();
+    }
   }
 
   // ---- Off-screen guidance (identical to ARRingHunt dev page) ----
@@ -2005,6 +2074,186 @@ struct ARRingHuntCam {
     this.stopBreathing();
   }
 
+  // ===== NGA 本地精调 =====
+
+  private ngaProgressColor(): ResourceColor {
+    if (this.ngaProgress < 40) {
+      return '#FFFF4444';
+    }
+    if (this.ngaProgress < 75) {
+      return '#FFFFB800';
+    }
+    return '#FF44CC44';
+  }
+
+  private async startNgaPhase(): Promise<void> {
+    if (this.ngaActive || this.targetJpeg === undefined) {
+      Logger.warn(`NGA startNgaPhase skipped: active=${this.ngaActive} hasTarget=${this.targetJpeg !== undefined}`);
+      return;
+    }
+    Logger.info('NGA startNgaPhase: decoding targetJpeg → RGBA');
+    try {
+      const src: image.ImageSource = image.createImageSource(this.targetJpeg as ArrayBuffer);
+      const decOpts: image.DecodingOptions = {
+        editable: true,
+        desiredPixelFormat: image.PixelMapFormat.RGBA_8888
+      };
+      const pm: image.PixelMap = await src.createPixelMap(decOpts);
+      const info: image.ImageInfo = await pm.getImageInfo();
+      const w: number = info.size.width;
+      const h: number = info.size.height;
+      const buf: ArrayBuffer = new ArrayBuffer(w * h * 4);
+      await pm.readPixelsToBuffer(buf);
+      pm.release();
+      src.release();
+
+      const ok: boolean = arEngineDemo.ngaInitFramework(w, h);
+      if (!ok) {
+        Logger.error('NGA init failed');
+        this.toast('NGA 初始化失败');
+        return;
+      }
+      const refOk: boolean = arEngineDemo.ngaSetReference(buf, w, h);
+      Logger.info(`NGA engine ready: init=${ok} ref=${refOk} size=${w}x${h}`);
+      this.ngaInitialized = true;
+      this.ngaActive = true;
+      this.ngaProgress = 0;
+      this.ngaCommand = '精调中...';
+      animateTo({ duration: 300, curve: Curve.EaseOut }, () => {
+        this.ngaRingOpacity = 1;
+      });
+      this.ngaProcessOneFrame();
+    } catch (e) {
+      const err: BusinessError = e as BusinessError;
+      Logger.error(`NGA startNgaPhase failed: ${err.message}`);
+      this.toast('NGA 启动失败');
+    }
+  }
+
+  private async ngaProcessOneFrame(): Promise<void> {
+    if (!this.ngaActive) {
+      return;
+    }
+    try {
+      arEngineDemo.takeFrameRGBA(this.idStr);
+      arEngineDemo.captureFrame(this.idStr);
+      const cap: CapturedFrame | null = await this.waitNgaFrame();
+      if (cap === null || !this.ngaActive) {
+        if (this.ngaActive) {
+          this.scheduleNextNgaFrame();
+        }
+        return;
+      }
+      const jsonStr: string = arEngineDemo.ngaProcessFrame(cap.buffer, cap.width, cap.height);
+      const result: NgaResult = JSON.parse(jsonStr) as NgaResult;
+      if (!result.success) {
+        if (result.tracking_lost) {
+          this.ngaCommand = '跟踪丢失，请稳住';
+          this.ngaProgress = 0;
+        }
+        this.scheduleNextNgaFrame();
+        return;
+      }
+      const dof: Nga6DofResult = result.dof;
+      const dxR: number = Math.min(1, Math.abs(dof.dX_px) / 12);
+      const dyR: number = Math.min(1, Math.abs(dof.dY_px) / 12);
+      const rollR: number = Math.min(1, Math.abs(dof.dRoll_deg) / 0.6);
+      const scaleR: number = Math.min(1, Math.abs(dof.scale_factor - 1) / 0.03);
+      const pitchR: number = Math.min(1, Math.abs(dof.dPitch_warp) / 1.5);
+      const yawR: number = Math.min(1, Math.abs(dof.dYaw_warp) / 1.5);
+      let rawProgress: number = Math.round((1 - Math.max(dxR, dyR, rollR, scaleR, pitchR, yawR)) * 100);
+      if (result.alignment_method !== 'SIFT') {
+        rawProgress = Math.min(rawProgress, 80);
+      }
+      this.ngaProgress = rawProgress;
+      if (result.agent_commands.length > 0) {
+        this.ngaCommand = result.agent_commands[0];
+      } else {
+        this.ngaCommand = this.ngaProgress >= 100 ? '完美对齐!' : '';
+      }
+      if (result.is_aligned) {
+        Logger.info('NGA aligned! auto-capture');
+        this.onNgaAligned();
+        return;
+      }
+    } catch (e) {
+      Logger.warn(`NGA frame error: ${(e as Error).message}`);
+    }
+    this.scheduleNextNgaFrame();
+  }
+
+  private waitNgaFrame(): Promise<CapturedFrame | null> {
+    return new Promise<CapturedFrame | null>((resolve: (v: CapturedFrame | null) => void) => {
+      let tries: number = 0;
+      const timer: number = setInterval(() => {
+        tries++;
+        if (!arEngineDemo.isFrameReady(this.idStr)) {
+          if (tries >= 50) {
+            clearInterval(timer);
+            resolve(null);
+          }
+          return;
+        }
+        clearInterval(timer);
+        resolve(arEngineDemo.takeFrameRGBAScaled(this.idStr, 512));
+      }, 20);
+    });
+  }
+
+  private scheduleNextNgaFrame(): void {
+    if (!this.ngaActive) {
+      return;
+    }
+    this.ngaLoopTimer = setTimeout(() => {
+      this.ngaProcessOneFrame();
+    }, 66);
+  }
+
+  private async onNgaAligned(): Promise<void> {
+    this.ngaProgress = 100;
+    this.ngaCommand = '完美对齐!';
+    this.triggerShortVibration();
+    await new Promise<void>((r: () => void) => { setTimeout(r, 500); });
+    this.triggerTinyVibration();
+    this.playShutterSound();
+    this.triggerShutterFlash();
+    const jpeg: ArrayBuffer | null = await this.captureCleanJpeg();
+    if (jpeg !== null) {
+      const saved: boolean = await this.savePhotoToGallery(jpeg);
+      if (saved) {
+        this.toast('已自动拍照并保存到相册');
+      } else {
+        this.toast('保存失败');
+      }
+    } else {
+      this.toast('抓帧失败');
+    }
+    this.stopNgaPhase();
+    this.resetSceneOnly();
+    this.refHolder.image = undefined;
+    this.targetJpeg = undefined;
+    this.sessionTaskId = '';
+    this.animatePanelHeightTo(0);
+    this.cardExpanded = false;
+    this.panelExpanded = false;
+    Logger.info('NGA auto-capture complete → full reset');
+  }
+
+  private stopNgaPhase(): void {
+    if (this.ngaLoopTimer >= 0) {
+      clearTimeout(this.ngaLoopTimer);
+      this.ngaLoopTimer = -1;
+    }
+    if (this.ngaInitialized) {
+      arEngineDemo.ngaDestroyFramework();
+      this.ngaInitialized = false;
+    }
+    this.ngaActive = false;
+    this.ngaProgress = 0;
+    this.ngaCommand = '';
+    this.ngaRingOpacity = 0;
+  }
+
   build(): void {
     NavDestination() {
       // Root z-stack (back→front): [AR preview] → [viewport guidance overlay] → [top black bar]
@@ -2084,6 +2333,10 @@ struct ARRingHuntCam {
               this.isLocked = s.isLocked;
               if (this.isLocked && !this.prevLocked) {
                 this.triggerShortVibration();
+                if (this.targetJpeg !== undefined && !this.ngaActive) {
+                  this.toast('已到达目标位置，开始精调对齐');
+                  this.startNgaPhase();
+                }
               }
               this.prevLocked = this.isLocked;
               this.reconcileGuidance();
@@ -2242,6 +2495,24 @@ struct ARRingHuntCam {
             this.guidanceStackH = n.height as number;
           })
 
+          // 后端服务异常警告条 — 页面加载 / 切换后端时检测,异常时在视口顶部常驻红条。
+          if (this.healthWarning.length > 0) {
+            Row() {
+              Text(`⚠ ${this.healthWarning}`)
+                .fontSize(12)
+                .fontColor(Color.White)
+                .fontWeight(FontWeight.Medium)
+                .textAlign(TextAlign.Center)
+            }
+            .id('healthWarning')
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .padding({ top: 6, bottom: 6 })
+            .backgroundColor('#CCCC3333')
+            .position({ x: 0, y: 0 })
+            .onClick(() => { this.runHealthCheck(); })
+          }
+
           // 精简状态标签:推理次数 + 位置锁定。靠顶部左侧,与顶栏按钮同行。
           if (this.ringPlaced && this.huntPhase !== 2) {
             Text(`#${this.guideUpdateCount}${this.inDeadzone ? '  ◉位置锁定' : ''}`)
@@ -2382,7 +2653,7 @@ struct ARRingHuntCam {
                 .fontColor(this.iridescentFlow(this.flowT))
                 .fontWeight(FontWeight.Bold)
                 .textShadow({ radius: 6, color: this.iridescentFlow(this.flowT) })
-              Text('可点底部快门')
+              Text(this.targetJpeg !== undefined ? '精调即将开始...' : '可点底部快门')
                 .fontSize(14)
                 .fontColor(Palette.white80)
             }
@@ -2393,6 +2664,37 @@ struct ARRingHuntCam {
             .opacity(this.lockedBannerOpacity)
             .hitTestBehavior(HitTestMode.None)
             .id('lockedBanner')
+          }
+
+          // NGA 环形进度 UI — LOCKED 后立即淡入,引导用户像素级微调。
+          if (this.ngaActive && this.ngaRingOpacity > 0.01) {
+            Stack({ alignContent: Alignment.Center }) {
+              Progress({ value: this.ngaProgress, total: 100, type: ProgressType.Ring })
+                .width(140).height(140)
+                .style({ strokeWidth: 10 })
+                .color(this.ngaProgressColor())
+                .backgroundColor('#33FFFFFF')
+              Column({ space: 4 }) {
+                Text(`${this.ngaProgress}%`)
+                  .fontSize(32)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(Color.White)
+                  .textShadow({ radius: 8, color: 'rgba(0,0,0,0.5)' })
+                if (this.ngaCommand.length > 0) {
+                  Text(this.ngaCommand)
+                    .fontSize(13)
+                    .fontColor(Palette.white80)
+                    .textAlign(TextAlign.Center)
+                    .constraintSize({ maxWidth: 110 })
+                    .maxLines(2)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+              }
+              .alignItems(HorizontalAlign.Center)
+            }
+            .id('ngaRing')
+            .opacity(this.ngaRingOpacity)
+            .hitTestBehavior(HitTestMode.None)
           }
 
           // Scale 校准引导:玻璃胶囊提示用户移动以完成 scale 校准。
@@ -2468,6 +2770,17 @@ struct ARRingHuntCam {
           .padding({ left: 8, right: 8, top: 4, bottom: 4 })
           .position({ x: 80, y: 8 })
           .onClick(() => { this.cycleBackend(); })
+
+        // ===== /health 测试按钮(后端标签右边) =====
+        Text('/health')
+          .id('btnTestHealth')
+          .fontSize(11)
+          .fontColor(Palette.white)
+          .backgroundColor('#A0339966')
+          .borderRadius(8)
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .position({ x: 155, y: 8 })
+          .onClick(() => { this.testVggtHealth(); })
 
         // ===== 标定 overlay(条件渲染,屏幕居中)=====
         if (this.calibMode) {
@@ -2628,6 +2941,7 @@ struct ARRingHuntCam {
       arEngineDemo.init(this.resMgr);
       let config: Int32Array = new Int32Array([1, this.rotation]);
       arEngineDemo.start(this.idStr, config);
+      this.runHealthCheck();
       // 产品最终要求:UI 锁竖屏,AR 感知物理横竖(用 camRoll snap)。
       // 离开页面 onWillDisappear 还原 UNSPECIFIED。
       try {
@@ -2655,6 +2969,7 @@ struct ARRingHuntCam {
       }
     })
     .onWillDisappear(() => {
+      this.stopNgaPhase();
       try {
         display.off('change');
       } catch (_e) {
@@ -2678,6 +2993,7 @@ struct ARRingHuntCam {
       });
     })
     .onHidden(() => {
+      this.stopNgaPhase();
       arEngineDemo.hide(this.idStr);
     })
     .onReady((context: NavDestinationContext) => {

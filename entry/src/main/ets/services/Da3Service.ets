@@ -840,3 +840,60 @@ export async function getGuide(targetJpeg: ArrayBuffer, currentJpeg: ArrayBuffer
   dbgSaveText(dbgDir, `${ts}_guide_resp.txt`, respText);
   return guide;
 }
+
+// ───────────────────────────────────────────────
+//  健康检查：检测后端服务可达性
+// ───────────────────────────────────────────────
+
+export interface HealthCheckResult {
+  generateOk: boolean;
+  guideOk: boolean;
+  generateError: string;
+  guideError: string;
+}
+
+export async function checkBackendHealth(): Promise<HealthCheckResult> {
+  const result: HealthCheckResult = {
+    generateOk: false, guideOk: false,
+    generateError: '', guideError: ''
+  };
+
+  const genUrl: string = getCloudConfig().generate.host;
+  const guideUrl: string = `${getCloudConfig().guide.host}/health`;
+
+  const check = (url: string): Promise<string> => {
+    return new Promise<string>((resolve: (v: string) => void) => {
+      const req: http.HttpRequest = http.createHttp();
+      req.request(url, {
+        method: http.RequestMethod.GET,
+        connectTimeout: 5000,
+        readTimeout: 5000
+      }, (err: BusinessError, data: http.HttpResponse) => {
+        try {
+          if (err) {
+            resolve(`${err.code}: ${err.message}`);
+            return;
+          }
+          if (data.responseCode >= 500) {
+            resolve(`HTTP ${data.responseCode}`);
+            return;
+          }
+          resolve('');
+        } finally {
+          req.destroy();
+        }
+      });
+    });
+  };
+
+  const results: string[] = await Promise.all([check(genUrl), check(guideUrl)]);
+  const genErr: string = results[0];
+  const guideErr: string = results[1];
+  result.generateOk = genErr.length === 0;
+  result.generateError = genErr;
+  result.guideOk = guideErr.length === 0;
+  
+  result.guideError = guideErr;
+  Logger.info(`${TAG} healthCheck: generate=${result.generateOk}(${genErr}) guide=${result.guideOk}(${guideErr})`);
+  return result;
+}

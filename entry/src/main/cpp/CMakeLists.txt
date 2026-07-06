@@ -31,6 +31,7 @@ include_directories(
     ${NATIVE_ROOT_PATH}/src/graphic
     ${NATIVE_ROOT_PATH}/thirdparty/glm
     ${NATIVE_ROOT_PATH}/thirdparty/stb
+    ${NATIVE_ROOT_PATH}/thirdparty
 )
 
 # Build shared library.
@@ -97,7 +98,15 @@ add_library(entry SHARED
     ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_point_cloud_renderer.cpp
     ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_render_manager.cpp
     ${NATIVE_ROOT_PATH}/src/semanticdense/semanticdense_cube_renderer.cpp
+
+    # NGA (本地 6DoF 精调)
+    ${NATIVE_ROOT_PATH}/src/nga/nga_core.cpp
+    ${NATIVE_ROOT_PATH}/src/nga/nga_napi.cpp
 )
+
+# OpenCV static libraries (NGA dependency)
+set(OPENCV_LIB_DIR ${NATIVE_ROOT_PATH}/thirdparty/opencv_libs)
+set(KLEIDI_DIR ${OPENCV_LIB_DIR}/3rdparty)
 
 # Link the OpenHarmony native library (using OpenGL).
 target_link_libraries(entry PUBLIC
@@ -116,4 +125,11 @@ target_link_libraries(entry PUBLIC
     pixelmap_ndk.z
     ${arengine-lib}
     libnative_display_manager.so
+    ${OPENCV_LIB_DIR}/libopencv_core.a
+    ${OPENCV_LIB_DIR}/libopencv_imgproc.a
+    ${OPENCV_LIB_DIR}/libopencv_features2d.a
+    ${OPENCV_LIB_DIR}/libopencv_video.a
+    ${KLEIDI_DIR}/libkleidicv.a
+    ${KLEIDI_DIR}/libkleidicv_hal.a
+    ${KLEIDI_DIR}/libkleidicv_thread.a
 )
