@@ -494,6 +494,12 @@ async function pollGenerateTask(taskId: string): Promise<string | null> {
     const json: Record<string, ESObject> | null = safeParse(resp.body);
     Logger.info(`${TAG} generate poll code=${resp.code} body=${truncate(safeForLog(resp.body), 1200)}`);
 
+    // success: false 明确表示服务端错误（如 "list index out of range"），立即终止轮询。
+    if (json !== null && json['success'] === false) {
+      Logger.error(`${TAG} generate poll server error: msg=${pickString(json, ['msg', 'message']) ?? '?'}`);
+      return null;
+    }
+
     // 任何疑似图字段非空 → 直接当完成。
     const img: string | null = findImageField(json);
     if (img !== null) {

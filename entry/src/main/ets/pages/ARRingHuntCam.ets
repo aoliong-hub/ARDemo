@@ -811,7 +811,9 @@ struct ARRingHuntCam {
         await new Promise<void>((r: () => void) => { setTimeout(r, 150); });
       }
       Logger.info('ARDA3-FLOW step1 beacon tap → capture+generate');
-      this.toast('正在生成目标图…');
+      // 已知 generate 服务不可达（healthCheck 已在页面打开时探测），直接跳过云端调用，立即降级。
+      const generateKnownDown: boolean = this.healthCheckDone && this.healthWarning.indexOf('生图模型无法访问') >= 0;
+      this.toast(generateKnownDown ? '生成服务不可用，以当前画面作为目标图' : '正在生成目标图…');
       const jpeg: ArrayBuffer | null = await this.captureJpeg();
       if (jpeg === null) {
         this.refLoading = false;
@@ -819,11 +821,20 @@ struct ARRingHuntCam {
         Logger.error('ARDA3-FLOW step1 capture fail');
         return;
       }
-      const target: image.PixelMap | null = await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
+      const target: image.PixelMap | null = generateKnownDown ? null : await da3Generate(jpeg, this.sessionTaskId, this.context.filesDir);
       this.refLoading = false;
+      // 云端生成失败时降级：直接用当前帧作为目标参考图，服务恢复后自动走云端路径，无需修改代码。
       if (target === null) {
-        this.toast('生成失败');
-        Logger.error('ARDA3-FLOW step1 generate fail');
+        Logger.warn('ARDA3-FLOW step1 generate fail, fallback to current frame as target');
+        this.toast('生成服务不可用，以当前画面作为目标图');
+        this.targetJpeg = jpeg;
+        const srcForDisplay: image.ImageSource = image.createImageSource(jpeg.slice(0));
+        const fallbackPm: image.PixelMap | null = await srcForDisplay.createPixelMap({ editable: false })
+          .catch(() => null);
+        srcForDisplay.release();
+        if (fallbackPm !== null) {
+          this.refHolder.image = fallbackPm;
+        }
         return;
       }
       this.refHolder.image = target;
