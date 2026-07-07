@@ -31,6 +31,7 @@ import { WsGuideClient, WsPoseResult, BeaconWorld, extractGuideField } from '../
 import { getCloudConfig } from '../config/CloudConfig';
 import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType, getUseBeaconWorld, getSkipNga, setSkipNga } from '../config/CloudConfig';
 import { NgaResult, Nga6DofResult } from '../services/NgaTypes';
+import { DevSelectorParam } from './DevSelector';
 
 // v13 (c): da3 机位服务返回的 guideData — 全 string,由 applyGuide 转 number 并喂给
 // placeRingAt + applyZoom。语义跟 placeRingAt 一致:x=右(米)/ y=圆环离地高度(米)/ z=前(米),
@@ -1585,7 +1586,23 @@ struct ARRingHuntCam {
 
   private openDevSelector(): void {
     Logger.info(`[ARRingHuntCam] gear tap -> DevSelector`);
-    this.pageInfos.pushDestinationByName('DevSelector', null).catch((err: BusinessError) => {
+    const param: DevSelectorParam = {
+      onEnterCalib: (): void => {
+        this.calibMode = true;
+        this.calibStatus = `已进入标定模式 - ${this.calibOrientationLabel} - group ${this.calibGroupIdx} - 请采 A`;
+      },
+      onCycleBackend: (): void => {
+        // DevSelector 已写入 CloudConfig，这里同步 @State + 触发 healthCheck
+        this.backendType = getBackendType();
+        this.runHealthCheck();
+        this.toast(`后端: ${getBackendLabel(this.backendType)}`);
+      },
+      onTestHealth: (): void => {
+        this.testVggtHealth();
+      },
+      backendLabel: getBackendLabel(this.backendType),
+    };
+    this.pageInfos.pushDestinationByName('DevSelector', param).catch((err: BusinessError) => {
       Logger.error(`pushDestinationByName(DevSelector) failed: ${err.code} ${err.message}`);
     });
   }
@@ -2929,40 +2946,6 @@ struct ARRingHuntCam {
           .position({ x: 0, y: 0 })
           .hitTestBehavior(HitTestMode.None)
 
-        // ===== 标定工具入口(屏右上角,完全旁路) =====
-        Text('🛠 标定')
-          .fontSize(11)
-          .fontColor(Palette.white)
-          .backgroundColor('#A0FF6600')
-          .borderRadius(8)
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .position({ x: 8, y: 8 })
-          .onClick(() => {
-            this.calibMode = true;
-            this.calibStatus = `已进入标定模式 - ${this.calibOrientationLabel} - group ${this.calibGroupIdx} - 请采 A`;
-          })
-
-        // ===== 后端切换入口(标定按钮右边) =====
-        Text(getBackendLabel(this.backendType))
-          .fontSize(11)
-          .fontColor(Palette.white)
-          .backgroundColor(this.backendType === 'da3' ? '#A0336699' : '#A0996633')
-          .borderRadius(8)
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .position({ x: 80, y: 8 })
-          .onClick(() => { this.cycleBackend(); })
-
-        // ===== /health 测试按钮(后端标签右边) =====
-        Text('/health')
-          .id('btnTestHealth')
-          .fontSize(11)
-          .fontColor(Palette.white)
-          .backgroundColor('#A0339966')
-          .borderRadius(8)
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .position({ x: 155, y: 8 })
-          .onClick(() => { this.testVggtHealth(); })
-
         // ===== 标定 overlay(条件渲染,屏幕居中)=====
         if (this.calibMode) {
           Column({ space: 14 }) {
@@ -3168,6 +3151,9 @@ struct ARRingHuntCam {
       arEngineDemo.stop(this.idStr);
     })
     .onShown(() => {
+      // 从设置页返回后同步 backendType 和 ngaSkipFlag
+      this.backendType = getBackendType();
+      this.ngaSkipFlag = getSkipNga();
       arEngineDemo.show(this.idStr);
       this.getUIContext().animateTo({ duration: 200, curve: Curve.EaseIn }, () => {
         this.fadeOpacity = 1.0;
