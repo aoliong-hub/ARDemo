@@ -7,57 +7,68 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { BusinessError } from '@kit.BasicServicesKit';
-import { Logger } from '../utils/Logger';
 import { Palette, Spacing, Radius, FontSize } from '../styles/Theme';
+import { getSkipNga, setSkipNga } from '../config/CloudConfig';
 
 @Builder
 export function DevSelectorBuilder() {
   DevSelector();
 }
 
-// Hidden dev-only entry — reached by long-pressing the gear icon in CameraChrome's TopBar for 1s.
-// Production users won't discover this. Lets us still hit the 5 official sample scenes (ARWorld /
-// ARMesh / ARDepth / ARImage / ARSemanticDense) and the 3 dev variants (ARObject / ARArrowAlign /
-// ARRingHunt) that pre-date the Stage 12 camera-style chrome.
 @Component
 struct DevSelector {
   pageInfos: NavPathStack = new NavPathStack();
-  // Stage 12A redo: only the camera home (ARRingHuntCam) remains as a Cam page; 水平 / 对象 fall
-  // back to the dev pages here. Plus the 5 official sample scenes for regression testing.
-  private readonly scenes: string[] = [
-    'ARRingHuntCam',
-    'ARRingHunt', 'ARArrowAlign', 'ARObject',
-    'ARWorld', 'ARMesh', 'ARDepth', 'ARImage', 'ARSemanticDense'
-  ];
+  @State skipNga: boolean = getSkipNga();
 
   build(): void {
     NavDestination() {
-      Column({ space: Spacing.S }) {
-        Text('Dev Selector')
-          .fontSize(FontSize.title + 2)
-          .fontColor(Palette.white)
-          .fontWeight(FontWeight.Bold)
-          .margin({ top: Spacing.L, bottom: Spacing.M })
-        ForEach(this.scenes, (name: string) => {
-          Button(name, { type: ButtonType.Normal, stateEffect: true })
-            .borderRadius(Radius.M)
-            .width('80%')
-            .height(44)
-            .backgroundColor(Palette.glass)
+      Column({ space: Spacing.M }) {
+        // ── 顶栏：返回按钮 + 标题 ────────────────────────────────────
+        Row() {
+          Text('‹')
+            .fontSize(32)
             .fontColor(Palette.white)
-            .onClick(() => {
-              this.pageInfos.clear();
-              this.pageInfos.pushDestinationByName(name, null).catch((err: BusinessError) => {
-                Logger.error(`pushDestinationByName(${name}) failed: ${err.code} ${err.message}`);
-              });
+            .width(44)
+            .height(44)
+            .textAlign(TextAlign.Center)
+            .onClick(() => { this.pageInfos.pop(); })
+          Text('设置')
+            .fontSize(FontSize.title + 2)
+            .fontColor(Palette.white)
+            .fontWeight(FontWeight.Bold)
+            .layoutWeight(1)
+        }
+        .width('90%')
+        .margin({ top: Spacing.L, bottom: Spacing.M })
+
+        // ── NGA 精调开关 ──────────────────────────────────────────────
+        Row() {
+          Column({ space: 4 }) {
+            Text('NGA 精调对齐')
+              .fontSize(14)
+              .fontColor(Palette.white)
+            Text(this.skipNga ? '关闭 — 锁定后直接拍照' : '开启 — 锁定后进入像素级精调')
+              .fontSize(11)
+              .fontColor(this.skipNga ? '#FFFF8866' : '#FF88CC88')
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+
+          Toggle({ type: ToggleType.Switch, isOn: !this.skipNga })
+            .onChange((isOn: boolean) => {
+              this.skipNga = !isOn;
+              setSkipNga(!isOn);
             })
-        }, (name: string) => name)
+        }
+        .width('90%')
+        .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+        .backgroundColor(Palette.glass)
+        .borderRadius(Radius.M)
       }
       .width('100%')
       .height('100%')
       .backgroundColor('#FF101010')
-      .justifyContent(FlexAlign.Start)
+      .alignItems(HorizontalAlign.Center)
     }
     .onReady((context: NavDestinationContext) => {
       this.pageInfos = context.pathStack;
@@ -67,3 +78,4 @@ struct DevSelector {
     .hideToolBar(true)
   }
 }
+

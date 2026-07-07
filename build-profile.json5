@@ -7,11 +7,11 @@
         "material": {
           "certpath": "C:\\Users\\huawei\\.ohos\\config\\default_ARDemoCode_v2_IDVD30FyXmMJeTEGs-9nqwuysJcth5svAZSYnNDIv_8=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001BFF5AC1FC40A720E2779426C496F7095A3880EF79C9D5902BC29682D3B7068686590EE58226125D",
+          "keyPassword": "0000001AD9EA923F9C0EB92D8C39A87FD49E64CE85EAFCCBD84BE5F318C04C90B2BA8CF02CE946D4A957",
           "profile": "C:\\Users\\huawei\\.ohos\\config\\default_ARDemoCode_v2_IDVD30FyXmMJeTEGs-9nqwuysJcth5svAZSYnNDIv_8=.p7b",
           "signAlg": "SHA256withECDSA",
           "storeFile": "C:\\Users\\huawei\\.ohos\\config\\default_ARDemoCode_v2_IDVD30FyXmMJeTEGs-9nqwuysJcth5svAZSYnNDIv_8=.p12",
-          "storePassword": "0000001B8214C2D752B70B8025C5F4078C7326A9366717D4F20999D66190D40F1123EE5FB2F3F82C5F652C"
+          "storePassword": "0000001ADF59AC3D4BA531D6DF33E9C58334ADEA66C4C5D55D3DCDF254BB8A4234BE19A0B688C79D550A"
         }
       }
     ],

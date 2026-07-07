@@ -26,10 +26,10 @@ import { Logger } from '../utils/Logger';
 import { Palette, FontSize, Spacing, Radius } from '../styles/Theme';
 import { CameraChrome } from '../components/CameraChrome';
 import { ReferencePanel, RefImageHolder } from '../components/ReferencePanel';
-import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, parseGuideString, GuideData as Da3GuideData, checkBackendHealth, HealthCheckResult } from '../services/Da3Service';
+import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, parseGuideString, GuideData as Da3GuideData, checkBackendHealth, HealthCheckResult, scoreImage, ScoreResult, ScoreCriterion } from '../services/Da3Service';
 import { WsGuideClient, WsPoseResult, BeaconWorld, extractGuideField } from '../services/Da3WsService';
 import { getCloudConfig } from '../config/CloudConfig';
-import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType, getUseBeaconWorld } from '../config/CloudConfig';
+import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType, getUseBeaconWorld, getSkipNga, setSkipNga } from '../config/CloudConfig';
 import { NgaResult, Nga6DofResult } from '../services/NgaTypes';
 
 // v13 (c): da3 机位服务返回的 guideData — 全 string,由 applyGuide 转 number 并喂给
@@ -190,8 +190,16 @@ struct ARRingHuntCam {
   @State ngaProgress: number = 0;
   @State ngaCommand: string = '';
   @State ngaRingOpacity: number = 0;
+  @State ngaSkipFlag: boolean = getSkipNga();  // 与 CloudConfig._skipNga 镜像，驱动 DevSelector 开关重渲染
   private ngaInitialized: boolean = false;
   private ngaLoopTimer: number = -1;
+
+  // ===== 美学打分结果 =====
+  // 拍照完成后异步调用 scoreImage()，结果写入 scoreResult，淡入打分卡片。
+  // scoreOverlayOpacity 驱动 animateTo 淡入/淡出；用户点关闭或下次拍照时归零。
+  @State private scoreResult: ScoreResult | null = null;
+  @State private scoreOverlayOpacity: number = 0;
+  @State private scoreLoading: boolean = false;
   // 当前步骤:0 = 采基准 A,1-10 = 采 10 个动作的 B
   @State calibStep: number = 0;
   // 当前手机朝向标签(用户手动指定):'portrait' | 'landscape'
@@ -1576,8 +1584,7 @@ struct ARRingHuntCam {
   }
 
   private openDevSelector(): void {
-    Logger.info(`[ARRingHuntCam] long-press gear -> DevSelector`);
-    this.pageInfos.clear();
+    Logger.info(`[ARRingHuntCam] gear tap -> DevSelector`);
     this.pageInfos.pushDestinationByName('DevSelector', null).catch((err: BusinessError) => {
       Logger.error(`pushDestinationByName(DevSelector) failed: ${err.code} ${err.message}`);
     });
@@ -2233,6 +2240,8 @@ struct ARRingHuntCam {
       const saved: boolean = await this.savePhotoToGallery(jpeg);
       if (saved) {
         this.toast('已自动拍照并保存到相册');
+        // 异步调打分接口，不阻塞场景重置流程
+        this.triggerScoreImage(jpeg);
       } else {
         this.toast('保存失败');
       }
@@ -2250,6 +2259,39 @@ struct ARRingHuntCam {
     Logger.info('NGA auto-capture complete → full reset');
   }
 
+  /** 拍照成功后异步调打分接口，结果淡入到屏幕浮窗。 */
+  private triggerScoreImage(jpeg: ArrayBuffer): void {
+    // 清上次打分结果，显示加载状态
+    this.scoreResult = null;
+    this.scoreLoading = true;
+    animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
+      this.scoreOverlayOpacity = 1;
+    });
+    scoreImage(jpeg).then((result: ScoreResult | null) => {
+      this.scoreLoading = false;
+      if (result !== null) {
+        this.scoreResult = result;
+      } else {
+        // 接口失败则直接淡出
+        this.dismissScoreOverlay();
+      }
+    }).catch(() => {
+      this.scoreLoading = false;
+      this.dismissScoreOverlay();
+    });
+  }
+
+  /** 关闭打分浮窗（250ms 淡出后清数据）。 */
+  private dismissScoreOverlay(): void {
+    animateTo({ duration: 250, curve: Curve.EaseIn }, () => {
+      this.scoreOverlayOpacity = 0;
+    });
+    setTimeout(() => {
+      this.scoreResult = null;
+      this.scoreLoading = false;
+    }, 260);
+  }
+
   private stopNgaPhase(): void {
     if (this.ngaLoopTimer >= 0) {
       clearTimeout(this.ngaLoopTimer);
@@ -2263,6 +2305,49 @@ struct ARRingHuntCam {
     this.ngaProgress = 0;
     this.ngaCommand = '';
     this.ngaRingOpacity = 0;
+  }
+
+  // ===== 打分 Builder 辅助 =====
+
+  /** 单维度行：色点 + 维度名 + 简述 + 等级标签。 */
+  @Builder scoreDimRow(dim: string, criterion: ScoreCriterion): void {
+    Row({ space: 8 }) {
+      Text('●')
+        .fontSize(10)
+        .fontColor(criterion.level === 'Good' ? '#FF66FF66'
+          : (criterion.level === 'Poor' ? '#FFFF4444' : '#FFFFCC44'))
+        .margin({ top: 2 })
+      Column({ space: 2 }) {
+        Text(dim)
+          .fontSize(11)
+          .fontColor(Palette.white)
+          .fontWeight(FontWeight.Medium)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(criterion.reason)
+          .fontSize(10)
+          .fontColor(Palette.white80)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      Text(criterion.level)
+        .fontSize(10)
+        .fontColor(criterion.level === 'Good' ? '#FF66FF66'
+          : (criterion.level === 'Poor' ? '#FFFF4444' : '#FFFFCC44'))
+        .backgroundColor(criterion.level === 'Good' ? '#2266FF66'
+          : (criterion.level === 'Poor' ? '#22FF4444' : '#22FFCC44'))
+        .borderRadius(4)
+        .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+    .padding({ left: 16, right: 14, top: 8, bottom: 8 })
+
+    Divider()
+      .color('#1AFFFFFF')
+      .margin({ left: 16, right: 16 })
   }
 
   build(): void {
@@ -2345,8 +2430,14 @@ struct ARRingHuntCam {
               if (this.isLocked && !this.prevLocked) {
                 this.triggerShortVibration();
                 if (this.targetJpeg !== undefined && !this.ngaActive) {
-                  this.toast('已到达目标位置，开始精调对齐');
-                  this.startNgaPhase();
+                  if (getSkipNga()) {
+                    // NGA 已关闭（调试开关），锁定后直接拍照
+                    this.toast('已到达目标位置（NGA 已跳过），自动拍照');
+                    this.onNgaAligned();
+                  } else {
+                    this.toast('已到达目标位置，开始精调对齐');
+                    this.startNgaPhase();
+                  }
                 }
               }
               this.prevLocked = this.isLocked;
@@ -2706,6 +2797,85 @@ struct ARRingHuntCam {
             .id('ngaRing')
             .opacity(this.ngaRingOpacity)
             .hitTestBehavior(HitTestMode.None)
+          }
+
+          // ===== 美学打分结果浮窗 =====
+          // 拍照成功后淡入，用户点"×"关闭。覆盖 viewport 中央，不遮挡操作控件。
+          // scoreLoading=true 时显示加载动效，结果到达后替换为评分详情。
+          if (this.scoreOverlayOpacity > 0.01) {
+            Column({ space: 0 }) {
+              // 标题行：总分 + 关闭按钮
+              Row() {
+                Text('📷 构图评分')
+                  .fontSize(14)
+                  .fontColor(Palette.white80)
+                  .fontWeight(FontWeight.Medium)
+                  .layoutWeight(1)
+                if (!this.scoreLoading) {
+                  Text(this.scoreResult !== null ? `${this.scoreResult.totalScore}` : '')
+                    .fontSize(40)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(this.scoreResult !== null
+                      ? (this.scoreResult.totalScore >= 75 ? '#FF66FF66'
+                        : (this.scoreResult.totalScore >= 55 ? '#FFFFCC44' : '#FFFF6644'))
+                      : Palette.white)
+                    .textShadow({ radius: 8, color: 'rgba(0,0,0,0.4)' })
+                    .margin({ right: 4 })
+                  Text(this.scoreResult !== null ? '/ 100' : '')
+                    .fontSize(16)
+                    .fontColor(Palette.white80)
+                    .margin({ top: 14 })
+                }
+                Text('✕')
+                  .fontSize(18)
+                  .fontColor(Palette.white80)
+                  .padding({ left: 12, right: 4, top: 4, bottom: 4 })
+                  .onClick(() => { this.dismissScoreOverlay(); })
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Bottom)
+              .padding({ left: 16, right: 12, top: 14, bottom: 8 })
+
+              // 分隔线
+              Divider()
+                .color('#33FFFFFF')
+                .margin({ left: 16, right: 16 })
+
+              if (this.scoreLoading) {
+                // 加载中
+                Column({ space: 8 }) {
+                  LoadingProgress()
+                    .width(36).height(36)
+                    .color(Palette.white80)
+                  Text('正在评分…')
+                    .fontSize(13)
+                    .fontColor(Palette.white80)
+                }
+                .width('100%')
+                .alignItems(HorizontalAlign.Center)
+                .padding({ top: 24, bottom: 24 })
+              } else if (this.scoreResult !== null) {
+                // 维度列表（Scroll 避免超出卡片高度）
+                Scroll() {
+                  Column({ space: 0 }) {
+                    ForEach(Object.keys(this.scoreResult.criteria), (dim: string) => {
+                      this.scoreDimRow(dim, (this.scoreResult as ScoreResult).criteria[dim]);
+                    })
+                  }
+                }
+                .scrollBar(BarState.Off)
+                .constraintSize({ maxHeight: 320 })
+              }
+            }
+            .width('90%')
+            .backgroundColor('#E8151515')
+            .borderRadius(16)
+            .clip(true)
+            .shadow({ radius: 20, color: 'rgba(0,0,0,0.5)', offsetX: 0, offsetY: 4 })
+            .opacity(this.scoreOverlayOpacity)
+            .offset({ y: -40 })
+            .hitTestBehavior(HitTestMode.Default)
+            .id('scoreOverlay')
           }
 
           // Scale 校准引导:玻璃胶囊提示用户移动以完成 scale 校准。

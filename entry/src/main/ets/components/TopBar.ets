@@ -7,37 +7,26 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { Palette, Spacing, Radius, FontSize } from '../styles/Theme';
-import { BusinessError } from '@kit.BasicServicesKit';
-import { Logger } from '../utils/Logger';
+import { Palette, Spacing, FontSize } from '../styles/Theme';
 
 // HarmonyOS-native camera-style top bar — minimalist version (12B-1 final). The ✦ / ⚡ / ◔
-// placeholder icons were removed per spec; only the ⚙ remains because it's the long-press
-// entry point to the hidden DevSelector. Tap = "设置开发中" toast; long-press 1s = dev entry.
+// placeholder icons were removed per spec; only the ⚙ remains as the entry to DevSelector.
+// Tap = open DevSelector directly; long-press retained for backward compat.
 @Component
 export struct TopBar {
   onSettingsLongPress: () => void = (): void => {};
 
-  private toast(msg: string): void {
-    try {
-      this.getUIContext().getPromptAction().showToast({ message: msg, duration: 1500 });
-    } catch (e) {
-      let err: BusinessError = e as BusinessError;
-      Logger.warn(`toast failed: ${err.message}`);
-    }
-  }
-
   build(): void {
     Row() {
       Blank()
-      // Gear: tap = settings placeholder; long-press 1s = dev entry to DevSelector.
+      // Gear: tap or long-press → DevSelector.
       Text('⚙')
         .fontSize(FontSize.title + 2)
         .fontColor(Palette.white)
         .width(36)
         .height(36)
         .textAlign(TextAlign.Center)
-        .onClick(() => { this.toast('设置开发中'); })
+        .onClick(() => { this.onSettingsLongPress(); })
         .gesture(
           LongPressGesture({ repeat: false, duration: 1000 })
             .onAction(() => { this.onSettingsLongPress(); })

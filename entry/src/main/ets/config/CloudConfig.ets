@@ -128,10 +128,12 @@ const PROFILES: Record<BackendType, BackendProfile> = {
 const PREFS_NAME = 'cloud_config';
 const PREF_KEY_BACKEND = 'backend_type';
 const PREF_KEY_USE_BEACON_WORLD = 'use_beacon_world';
+const PREF_KEY_SKIP_NGA = 'skip_nga';
 const VALID_BACKENDS: BackendType[] = ['da3', 'vggt-omega'];
 
 let _currentBackend: BackendType = 'da3';
 let _useBeaconWorld: boolean = true;
+let _skipNga: boolean = false;
 let _prefsReady: boolean = false;
 
 // 应用启动时调一次，从磁盘恢复上次选择。如果从未存过则保持默认 'da3'。
@@ -145,6 +147,10 @@ export async function initBackendType(context: Context): Promise<void> {
     const savedBeacon = await prefs.get(PREF_KEY_USE_BEACON_WORLD, true);
     if (typeof savedBeacon === 'boolean') {
       _useBeaconWorld = savedBeacon as boolean;
+    }
+    const savedSkipNga = await prefs.get(PREF_KEY_SKIP_NGA, false);
+    if (typeof savedSkipNga === 'boolean') {
+      _skipNga = savedSkipNga as boolean;
     }
     _prefsReady = true;
   } catch (e) {
@@ -190,6 +196,21 @@ export function setUseBeaconWorld(v: boolean, context?: Context): void {
   if (context !== undefined && _prefsReady) {
     dataPreferences.getPreferences(context, PREFS_NAME).then((prefs) => {
       prefs.put(PREF_KEY_USE_BEACON_WORLD, v);
+      prefs.flush();
+    }).catch(() => {});
+  }
+}
+
+// ── NGA 精调开关（调试用，关闭后锁定即直接拍照，跳过 NGA） ──────────
+export function getSkipNga(): boolean {
+  return _skipNga;
+}
+
+export function setSkipNga(v: boolean, context?: Context): void {
+  _skipNga = v;
+  if (context !== undefined && _prefsReady) {
+    dataPreferences.getPreferences(context, PREFS_NAME).then((prefs) => {
+      prefs.put(PREF_KEY_SKIP_NGA, v);
       prefs.flush();
     }).catch(() => {});
   }

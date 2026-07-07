@@ -8,6 +8,7 @@
 //
 // generate(jpeg): 上传当前帧 + prompt → 拿 taskId → 轮询 → 拿到目标图 (base64 png) → 解 PixelMap。
 // getGuide(target, current): 上传两张图 → 拿 taskid → 轮询 → 取 guide_string {x,y,z,pitch,yaw,roll,zoom}。
+// scoreImage(jpeg): 上传拍摄结果图 → 同步返回美学打分 ScoreResult。
 //
 // 公共工具 postMultipart / get 统一打印 (URL, code, cost, bodyHead, err)。
 
@@ -897,9 +898,106 @@ export async function checkBackendHealth(): Promise<HealthCheckResult> {
   const guideErr: string = results[1];
   result.generateOk = genErr.length === 0;
   result.generateError = genErr;
-  result.guideOk = guideErr.length === 0;
+  result.guideOk = guideErr.length === 0; 
   
   result.guideError = guideErr;
   Logger.info(`${TAG} healthCheck: generate=${result.generateOk}(${genErr}) guide=${result.guideOk}(${guideErr})`);
+  return result;
+}
+
+// ───────────────────────────────────────────────
+//  服务 C：图片美学打分 (score)
+// ───────────────────────────────────────────────
+
+/** 单维度评分结果 */
+export interface ScoreCriterion {
+  /** "Good" | "Medium" | "Poor" */
+  level: string;
+  /** 1-2 句简要说明 */
+  reason: string;
+}
+
+/** scoreImage() 返回值 */
+export interface ScoreResult {
+  /** 综合美学分数 1-100 */
+  totalScore: number;
+  /** 13 个美学维度的逐项评估，key 为英文维度名 */
+  criteria: Record<string, ScoreCriterion>;
+}
+
+// URL helper：打分接口与 generate 共用同一个 host（intelligence-hiaicloud.hwcloudtest.cn）
+function cfgScoreUrl(): string { return getCloudConfig().generate.host + '/camera-agent-api/api/score'; }
+
+/**
+ * 上传一张 JPEG，同步调用打分接口，返回 ScoreResult 或 null（失败不抛）。
+ *
+ * @param jpeg  待评分图片的 ArrayBuffer（JPEG/PNG 均可，建议 JPEG quality=92）
+ */
+export async function scoreImage(jpeg: ArrayBuffer): Promise<ScoreResult | null> {
+  const url: string = cfgScoreUrl();
+  const ts: number = nowMs();
+  Logger.info(`${TAG} scoreImage start url=${url} size=${jpeg.byteLength}`);
+
+  // 单字段 multipart：image
+  const parts: MultipartPart[] = [
+    {
+      name: 'image',
+      bytes: jpeg,
+      filename: 'photo.jpg',
+      contentType: 'image/jpeg',
+    }
+  ];
+
+  const resp: HttpResult | null = await postMultipart(url, parts);
+  const cost: number = nowMs() - ts;
+  if (resp === null) {
+    Logger.warn(`${TAG} scoreImage failed (null response) cost=${cost}ms`);
+    return null;
+  }
+  if (resp.code >= 400) {
+    Logger.warn(`${TAG} scoreImage HTTP ${resp.code} cost=${cost}ms body=${truncate(safeForLog(resp.body), 200)}`);
+    return null;
+  }
+
+  Logger.info(`${TAG} scoreImage resp cost=${cost}ms body=${truncate(safeForLog(resp.body), 300)}`);
+
+  // 解析响应 JSON
+  const root: Record<string, ESObject> | null = safeParse(resp.body);
+  if (root === null) {
+    Logger.warn(`${TAG} scoreImage JSON parse failed`);
+    return null;
+  }
+
+  // 提取 total_score
+  const totalScore: number | null = pickNumber(root, ['total_score']);
+  if (totalScore === null) {
+    Logger.warn(`${TAG} scoreImage missing total_score`);
+    return null;
+  }
+
+  // 提取 criteria 对象
+  const criteriaRaw: Record<string, ESObject> | null = pickObject(root, 'criteria');
+  if (criteriaRaw === null) {
+    Logger.warn(`${TAG} scoreImage missing criteria`);
+    return null;
+  }
+
+  // 把 criteria object 转为 Record<string, ScoreCriterion>
+  const criteria: Record<string, ScoreCriterion> = {};
+  for (const key of Object.keys(criteriaRaw)) {
+    const item: Record<string, ESObject> | null = pickObject(criteriaRaw, key);
+    const level: string | null = pickString(item, ['level']);
+    const reason: string | null = pickString(item, ['reason']);
+    criteria[key] = {
+      level: level !== null ? level : '',
+      reason: reason !== null ? reason : '',
+    };
+  }
+
+  const result: ScoreResult = {
+    totalScore: Math.round(totalScore),
+    criteria: criteria,
+  };
+  Logger.info(`${TAG} scoreImage success totalScore=${result.totalScore} dims=${Object.keys(criteria).length}`);
   return result;
 }
