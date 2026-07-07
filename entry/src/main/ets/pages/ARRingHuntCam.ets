@@ -1219,7 +1219,7 @@ struct ARRingHuntCam {
     });
   }
 
-  // 存图库(免权限路径):
+  // 存图库(弹窗确认路径):
   //   1) JPEG 字节先写到 app 沙箱 filesDir/photo_<ts>.jpg
   //   2) 拼 file:// 沙箱 uri
   //   3) photoAccessHelper.showAssetsCreationDialog 弹系统确认窗,用户点保存 → 入库
@@ -2254,11 +2254,11 @@ struct ARRingHuntCam {
     this.triggerShutterFlash();
     const jpeg: ArrayBuffer | null = await this.captureCleanJpeg();
     if (jpeg !== null) {
+      // 拿到 jpeg 立即触发打分（不依赖保存结果），打分与保存弹窗并行互不阻塞
+      this.triggerScoreImage(jpeg);
       const saved: boolean = await this.savePhotoToGallery(jpeg);
       if (saved) {
         this.toast('已自动拍照并保存到相册');
-        // 异步调打分接口，不阻塞场景重置流程
-        this.triggerScoreImage(jpeg);
       } else {
         this.toast('保存失败');
       }

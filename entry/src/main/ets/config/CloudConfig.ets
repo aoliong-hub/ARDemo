@@ -131,16 +131,16 @@ const PREF_KEY_USE_BEACON_WORLD = 'use_beacon_world';
 const PREF_KEY_SKIP_NGA = 'skip_nga';
 const VALID_BACKENDS: BackendType[] = ['da3', 'vggt-omega'];
 
-let _currentBackend: BackendType = 'da3';
+let _currentBackend: BackendType = 'vggt-omega';
 let _useBeaconWorld: boolean = true;
-let _skipNga: boolean = false;
+let _skipNga: boolean = true;
 let _prefsReady: boolean = false;
 
 // 应用启动时调一次，从磁盘恢复上次选择。如果从未存过则保持默认 'da3'。
 export async function initBackendType(context: Context): Promise<void> {
   try {
     const prefs = await dataPreferences.getPreferences(context, PREFS_NAME);
-    const saved = await prefs.get(PREF_KEY_BACKEND, 'da3');
+    const saved = await prefs.get(PREF_KEY_BACKEND, 'vggt-omega');
     if (typeof saved === 'string' && VALID_BACKENDS.includes(saved as BackendType)) {
       _currentBackend = saved as BackendType;
     }
@@ -148,7 +148,7 @@ export async function initBackendType(context: Context): Promise<void> {
     if (typeof savedBeacon === 'boolean') {
       _useBeaconWorld = savedBeacon as boolean;
     }
-    const savedSkipNga = await prefs.get(PREF_KEY_SKIP_NGA, false);
+    const savedSkipNga = await prefs.get(PREF_KEY_SKIP_NGA, true);
     if (typeof savedSkipNga === 'boolean') {
       _skipNga = savedSkipNga as boolean;
     }
