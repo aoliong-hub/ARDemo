@@ -198,9 +198,11 @@ struct ARRingHuntCam {
   // ===== 美学打分结果 =====
   // 拍照完成后异步调用 scoreImage()，结果写入 scoreResult，淡入打分卡片。
   // scoreOverlayOpacity 驱动 animateTo 淡入/淡出；用户点关闭或下次拍照时归零。
+  // scoreError=true 表示接口失败，浮窗保持显示并提示重试，不自动关闭。
   @State private scoreResult: ScoreResult | null = null;
   @State private scoreOverlayOpacity: number = 0;
   @State private scoreLoading: boolean = false;
+  @State private scoreError: boolean = false;
   // 当前步骤:0 = 采基准 A,1-10 = 采 10 个动作的 B
   @State calibStep: number = 0;
   // 当前手机朝向标签(用户手动指定):'portrait' | 'landscape'
@@ -2280,6 +2282,7 @@ struct ARRingHuntCam {
   private triggerScoreImage(jpeg: ArrayBuffer): void {
     // 清上次打分结果，显示加载状态
     this.scoreResult = null;
+    this.scoreError = false;
     this.scoreLoading = true;
     animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
       this.scoreOverlayOpacity = 1;
@@ -2289,12 +2292,12 @@ struct ARRingHuntCam {
       if (result !== null) {
         this.scoreResult = result;
       } else {
-        // 接口失败则直接淡出
-        this.dismissScoreOverlay();
+        // 接口失败：保留浮窗并显示错误提示，由用户手动关闭
+        this.scoreError = true;
       }
     }).catch(() => {
       this.scoreLoading = false;
-      this.dismissScoreOverlay();
+      this.scoreError = true;
     });
   }
 
@@ -2306,6 +2309,7 @@ struct ARRingHuntCam {
     setTimeout(() => {
       this.scoreResult = null;
       this.scoreLoading = false;
+      this.scoreError = false;
     }, 260);
   }
 
@@ -2865,6 +2869,18 @@ struct ARRingHuntCam {
                     .width(36).height(36)
                     .color(Palette.white80)
                   Text('正在评分…')
+                    .fontSize(13)
+                    .fontColor(Palette.white80)
+                }
+                .width('100%')
+                .alignItems(HorizontalAlign.Center)
+                .padding({ top: 24, bottom: 24 })
+              } else if (this.scoreError) {
+                // 接口失败
+                Column({ space: 8 }) {
+                  Text('⚠️')
+                    .fontSize(28)
+                  Text('评分服务暂时不可用')
                     .fontSize(13)
                     .fontColor(Palette.white80)
                 }

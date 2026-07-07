@@ -126,3 +126,25 @@ ngaDestroyFramework(): void                // 释放资源
 - ABI：arm64-v8a only
 - C++ 标准：C++17
 - 构建命令：DevEco Studio 内 Build → Build Hap(s)
+
+---
+
+## 云侧 API 路径归档规则
+
+**所有云侧接口 URL 必须集中在 `CloudConfig.ets` 中管理，不得在服务层或页面层硬编码。**
+
+- 每个后端的 host 定义在对应 `BackendProfile` 的 `generate.host` / `guide.host` / `wsUrl` 字段
+- 每条接口路径（path）定义在接口对应的字段中（如 `generate.endpoint`、`generate.taskBase`、`generate.scoreEndpoint`、`guide.inferPath`、`guide.taskPath`）
+- 新增接口时，先在 `GenerateEndpoint` 或 `GuideEndpoint` 接口中增加字段，再在 da3/vggt-omega 两个 Profile 中填值
+- 服务层（`Da3Service.ets` 等）只通过 `getCloudConfig().xxx` 读取，不拼接裸字符串
+
+当前已归档的所有接口路径：
+
+| 字段 | 路径 | 说明 |
+|------|------|------|
+| `generate.endpoint` | `/camera-agent-api/api/generate` | 上传图片生成目标图 |
+| `generate.taskBase` | `/camera-agent-api/api/task/` | 生图任务轮询（后接 taskId） |
+| `generate.scoreEndpoint` | `/camera-agent-api/api/score` | 图片美学打分（两套后端共用） |
+| `guide.inferPath` | `/mrightserver/uat/camera_agent_guide/infer` | 机位引导 infer |
+| `guide.taskPath` | `/mrightserver/uat/camera_agent_guide/task` | 机位引导任务轮询 |
+| `wsUrl` | （完整 wss:// URL，含前缀）| WebSocket 连续引导 |

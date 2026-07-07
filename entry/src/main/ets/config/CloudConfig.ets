@@ -52,6 +52,8 @@ interface BackendProfile {
   guide: GuideEndpoint;
   // WebSocket 连续引导（替代 HTTP getGuide 的两段式 infer → poll）
   wsUrl: string;
+  // 完整打分 URL（host + 可选 prefix + path，各后端独立拼好）
+  scoreUrl: string;
   wsGuideFrameIntervalMs: number;  // 抽帧间隔 ms
   wsGuideMaxFrames: number;        // 最大帧数（超时停止）
   pollIntervalMs: number;
@@ -79,6 +81,7 @@ const da3Profile: BackendProfile = {
     taskPath: '/mrightserver/uat/camera_agent_guide/task',
   },
   wsUrl: 'wss://xsjcamera.rnd.huawei.com/ws/infer',
+  scoreUrl: 'https://intelligence-hiaicloud.hwcloudtest.cn/camera-agent-score/score',
   wsGuideFrameIntervalMs: 500,
   wsGuideMaxFrames: 240,
   pollIntervalMs: 1000,
@@ -108,6 +111,7 @@ const vggtOmegaProfile: BackendProfile = {
     taskPath: '/mrightserver/uat/camera_agent_guide/task',
   },
   wsUrl: `${VGGT_OMEGA_GUIDE.wsHost}${VGGT_OMEGA_GUIDE.wsPrefix}/ws/infer`,
+  scoreUrl: `${VGGT_OMEGA_GUIDE.host}${VGGT_OMEGA_GUIDE.prefix}/camera-agent-score/score`,
   wsGuideFrameIntervalMs: 500,
   wsGuideMaxFrames: 240,
   pollIntervalMs: 1000,
@@ -199,6 +203,27 @@ export function setUseBeaconWorld(v: boolean, context?: Context): void {
       prefs.flush();
     }).catch(() => {});
   }
+}
+
+// ── 端 URL 访问器（统一在此拼接，服务层直接调用，禁止在服务层二次拼接）──
+export function getGenerateUrl(): string {
+  const cfg = PROFILES[_currentBackend].generate;
+  return cfg.host + cfg.endpoint;
+}
+export function getGenTaskBaseUrl(): string {
+  const cfg = PROFILES[_currentBackend].generate;
+  return cfg.host + cfg.taskBase;
+}
+export function getScoreUrl(): string {
+  return PROFILES[_currentBackend].scoreUrl;
+}
+export function getGuideInferUrl(): string {
+  const cfg = PROFILES[_currentBackend].guide;
+  return cfg.host + cfg.inferPath;
+}
+export function getGuideTaskUrl(): string {
+  const cfg = PROFILES[_currentBackend].guide;
+  return cfg.host + cfg.taskPath;
 }
 
 // ── NGA 精调开关（调试用，关闭后锁定即直接拍照，跳过 NGA） ──────────

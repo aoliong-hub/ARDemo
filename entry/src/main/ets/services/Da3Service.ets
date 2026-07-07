@@ -19,7 +19,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Logger } from '../utils/Logger';
-import { getCloudConfig } from '../config/CloudConfig';
+import { getCloudConfig, getGenerateUrl, getGenTaskBaseUrl, getScoreUrl, getGuideInferUrl, getGuideTaskUrl } from '../config/CloudConfig';
 
 // Same shape as ARRingHuntCam's GuideData — all fields are strings (the host's applyGuide
 // parses & validates them).
@@ -45,12 +45,11 @@ export interface MultipartPart {
 // Tag for grep: ARDA3-HTTP.
 const TAG = 'ARDA3-HTTP';
 
-// URL / timeout helpers — read from CloudConfig so switching backend at runtime takes effect.
-// da3 的 generate 和 guide 在不同 host，所以 host 分别存在 generate.host / guide.host 里。
-function cfgGenUrl(): string { return getCloudConfig().generate.host + getCloudConfig().generate.endpoint; }
-function cfgGenTaskUrl(): string { return getCloudConfig().generate.host + getCloudConfig().generate.taskBase; }
-function cfgGuideInferUrl(): string { return getCloudConfig().guide.host + getCloudConfig().guide.inferPath; }
-function cfgGuideTaskUrl(): string { return getCloudConfig().guide.host + getCloudConfig().guide.taskPath; }
+// URL helpers — 全部由 CloudConfig 统一拼接后导出，此处直接代理，不做二次拼接。
+function cfgGenUrl(): string { return getGenerateUrl(); }
+function cfgGenTaskUrl(): string { return getGenTaskBaseUrl(); }
+function cfgGuideInferUrl(): string { return getGuideInferUrl(); }
+function cfgGuideTaskUrl(): string { return getGuideTaskUrl(); }
 function cfgPollMs(): number { return getCloudConfig().pollIntervalMs; }
 function cfgPollMaxS(): number { return getCloudConfig().pollMaxSeconds; }
 function cfgConnMs(): number { return getCloudConfig().connectTimeoutMs; }
@@ -925,8 +924,8 @@ export interface ScoreResult {
   criteria: Record<string, ScoreCriterion>;
 }
 
-// URL helper：打分接口与 generate 共用同一个 host（intelligence-hiaicloud.hwcloudtest.cn）
-function cfgScoreUrl(): string { return getCloudConfig().generate.host + '/camera-agent-api/api/score'; }
+// URL helper：打分接口由 CloudConfig.getScoreUrl() 统一拼接。
+function cfgScoreUrl(): string { return getScoreUrl(); }
 
 /**
  * 上传一张 JPEG，同步调用打分接口，返回 ScoreResult 或 null（失败不抛）。
