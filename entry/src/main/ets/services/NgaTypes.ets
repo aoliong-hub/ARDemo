@@ -26,11 +26,13 @@ export interface NgaResult {
 /**
  * 当次目标会话内一张拍摄记录。
  * thumb: 用于底部抽屉展示的缩略图 PixelMap（本地生成，立即可用）。
+ * jpeg: 原始 JPEG 数据，供评分失败后重试使用。
  * score: 云端打分结果（异步到达，null 表示尚未返回）。
  * scoreLoading/scoreError: 打分 API 状态标志。
  */
 export interface SessionPhoto {
   thumb: image.PixelMap;
+  jpeg: ArrayBuffer;
   score: ScoreResult | null;
   scoreLoading: boolean;
   scoreError: boolean;

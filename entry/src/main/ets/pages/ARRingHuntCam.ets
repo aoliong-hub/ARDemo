@@ -2275,6 +2275,7 @@ struct ARRingHuntCam {
     const photoIndex: number = this.sessionPhotos.length;
     const newPhoto: SessionPhoto = {
       thumb: thumb ?? ({} as image.PixelMap),
+      jpeg: jpeg,
       score: null,
       scoreLoading: true,
       scoreError: false
@@ -2302,22 +2303,79 @@ struct ARRingHuntCam {
     scoreImage(jpeg).then((result: ScoreResult | null) => {
       const updated: SessionPhoto[] = this.sessionPhotos.slice();
       const old: SessionPhoto = updated[photoIndex];
+      if (old === undefined || old === null) {
+        Logger.warn(`ARDA3-SCORE photoIndex=${photoIndex} out of range, session may have reset`);
+        return;
+      }
       updated[photoIndex] = {
         thumb: old.thumb,
+        jpeg: old.jpeg,
         score: result,
         scoreLoading: false,
         scoreError: result === null
       };
       this.sessionPhotos = updated;
+      Logger.info(`ARDA3-SCORE ui updated photoIndex=${photoIndex} score=${result !== null ? (result as ScoreResult).totalScore : 'null'}`);
       // 评分到达时：若卡片未展开（用户已收起），给一次轻微震动提醒
       if (!this.cardExpanded && result !== null) {
         this.triggerTinyVibration();
       }
-    }).catch(() => {
+    }).catch((e: Error) => {
+      Logger.warn(`ARDA3-SCORE then/catch err=${e?.message ?? String(e)}`);
       const updated: SessionPhoto[] = this.sessionPhotos.slice();
       const old: SessionPhoto = updated[photoIndex];
-      updated[photoIndex] = { thumb: old.thumb, score: null, scoreLoading: false, scoreError: true };
+      if (old === undefined || old === null) {
+        return;
+      }
+      updated[photoIndex] = { thumb: old.thumb, jpeg: old.jpeg, score: null, scoreLoading: false, scoreError: true };
       this.sessionPhotos = updated;
+    });
+  }
+
+  /** 对指定下标的照片重新发起打分请求（仅在 scoreError=true 时调用）。 */
+  private retryScore(photoIndex: number): void {
+    const photo: SessionPhoto = this.sessionPhotos[photoIndex];
+    if (!photo || photo.scoreLoading) {
+      return;
+    }
+    const updated: SessionPhoto[] = this.sessionPhotos.slice();
+    updated[photoIndex] = {
+      thumb: photo.thumb,
+      jpeg: photo.jpeg,
+      score: null,
+      scoreLoading: true,
+      scoreError: false
+    };
+    this.sessionPhotos = updated;
+
+    scoreImage(photo.jpeg).then((result: ScoreResult | null) => {
+      const upd: SessionPhoto[] = this.sessionPhotos.slice();
+      const old: SessionPhoto = upd[photoIndex];
+      if (old === undefined || old === null) {
+        Logger.warn(`ARDA3-SCORE retry photoIndex=${photoIndex} out of range`);
+        return;
+      }
+      upd[photoIndex] = {
+        thumb: old.thumb,
+        jpeg: old.jpeg,
+        score: result,
+        scoreLoading: false,
+        scoreError: result === null
+      };
+      this.sessionPhotos = upd;
+      Logger.info(`ARDA3-SCORE retry ui updated photoIndex=${photoIndex} score=${result !== null ? (result as ScoreResult).totalScore : 'null'}`);
+      if (!this.cardExpanded && result !== null) {
+        this.triggerTinyVibration();
+      }
+    }).catch((e: Error) => {
+      Logger.warn(`ARDA3-SCORE retry catch err=${e?.message ?? String(e)}`);
+      const upd: SessionPhoto[] = this.sessionPhotos.slice();
+      const old: SessionPhoto = upd[photoIndex];
+      if (old === undefined || old === null) {
+        return;
+      }
+      upd[photoIndex] = { thumb: old.thumb, jpeg: old.jpeg, score: null, scoreLoading: false, scoreError: true };
+      this.sessionPhotos = upd;
     });
   }
 
@@ -2423,16 +2481,13 @@ struct ARRingHuntCam {
           // 单张时直接展示，多张时用 Swiper 手势横划切换
           if (this.drawerPhotoCount() <= 1) {
             // 单张：无翻页指示器
-            this.scorePhotoBlock(
-              this.sessionPhotos[0],
-              0
-            )
+            this.scorePhotoBlock(0)
           } else {
             // 多张：Swiper 横滑，每页一组「参考图 | 拍摄结果」
             Swiper() {
               ForEach(this.sessionPhotos, (photo: SessionPhoto, idx: number) => {
                 Column() {
-                  this.scorePhotoBlock(photo, idx)
+                  this.scorePhotoBlock(idx)
                 }
                 .width('100%')
               })
@@ -2465,7 +2520,8 @@ struct ARRingHuntCam {
                 .fontSize(10).fontColor(Palette.white80).layoutWeight(1)
             }
             .padding({ left: 2, right: 2 })
-          } else if (!this.sessionPhotos[this.currentCaptureIndex].scoreError
+          } else if (!this.sessionPhotos[this.currentCaptureIndex].scoreLoading
+              && !this.sessionPhotos[this.currentCaptureIndex].scoreError
               && this.sessionPhotos[this.currentCaptureIndex].score !== null) {
             Text(this.scoreDetailPhotoIndex === this.currentCaptureIndex
                 ? '▲ 收起详情' : '点击分数查看 13 个维度详情')
@@ -2551,21 +2607,21 @@ struct ARRingHuntCam {
    * - scoreError         → 不显示
    * 点击数字切换对应照片的 13 维度详情展开状态。
    */
-  @Builder scoreBadge(photo: SessionPhoto, captureIndex: number): void {
-    if (photo.scoreLoading) {
+  @Builder scoreBadge(captureIndex: number): void {
+    if (this.sessionPhotos[captureIndex].scoreLoading) {
       LoadingProgress()
         .width(20).height(20)
         .color('#CCFFFFFF')
         .backgroundColor('#88000000')
         .borderRadius(10)
         .margin({ right: 8, bottom: 8 })
-    } else if (!photo.scoreError && photo.score !== null) {
-      Text(`${(photo.score as ScoreResult).totalScore}`)
+    } else if (!this.sessionPhotos[captureIndex].scoreError && this.sessionPhotos[captureIndex].score !== null) {
+      Text(`${(this.sessionPhotos[captureIndex].score as ScoreResult).totalScore}`)
         .fontSize(15)
         .fontWeight(FontWeight.Bold)
         .fontColor(
-          (photo.score as ScoreResult).totalScore >= 70 ? '#FF66DD66'
-            : ((photo.score as ScoreResult).totalScore >= 60 ? '#FFFFFFFF' : '#FF999999')
+          (this.sessionPhotos[captureIndex].score as ScoreResult).totalScore >= 70 ? '#FF66DD66'
+            : ((this.sessionPhotos[captureIndex].score as ScoreResult).totalScore >= 60 ? '#FFFFFFFF' : '#FF999999')
         )
         .backgroundColor('#CC000000')
         .borderRadius(12)
@@ -2581,7 +2637,7 @@ struct ARRingHuntCam {
    * 并排对比块：左=AI参考图，右=拍摄结果（含分数徽章右下角）。
    * 两图保持相同宽高比方便视觉对比。
    */
-  @Builder scorePhotoBlock(photo: SessionPhoto, captureIndex: number): void {
+  @Builder scorePhotoBlock(captureIndex: number): void {
     Row({ space: 2 }) {
       // ── 左：AI 参考图 ──
       Stack({ alignContent: Alignment.TopStart }) {
@@ -2614,7 +2670,7 @@ struct ARRingHuntCam {
 
       // ── 右：拍摄结果 ──
       Stack({ alignContent: Alignment.TopStart }) {
-        Image(photo.thumb)
+        Image(this.sessionPhotos[captureIndex].thumb)
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Contain)
@@ -2626,11 +2682,29 @@ struct ARRingHuntCam {
           .padding({ left: 6, right: 6, top: 2, bottom: 2 })
         // 分数徽章（右下角，单独 Stack 定位）
         Stack({ alignContent: Alignment.BottomEnd }) {
-          this.scoreBadge(photo, captureIndex)
+          this.scoreBadge(captureIndex)
         }
         .width('100%')
         .height('100%')
         .hitTestBehavior(HitTestMode.Transparent)
+        // 评分失败提示（居中半透明遮罩，点击重试）
+        if (this.sessionPhotos[captureIndex].scoreError) {
+          Column() {
+            Text('评分失败')
+              .fontSize(11).fontColor('#FFFFFFFF')
+            Text('点击重试')
+              .fontSize(10).fontColor('#CCFFFFFF')
+              .margin({ top: 2 })
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .backgroundColor('#99000000')
+          .onClick(() => {
+            this.retryScore(captureIndex);
+          })
+        }
       }
       .width('50%')
       .height(140)

@@ -929,10 +929,12 @@ function cfgScoreUrl(): string { return getScoreUrl(); }
 
 /**
  * 上传一张 JPEG，同步调用打分接口，返回 ScoreResult 或 null（失败不抛）。
+ * 超时上限 15 秒，防止接口不稳定时端侧长时间转圈。
  *
  * @param jpeg  待评分图片的 ArrayBuffer（JPEG/PNG 均可，建议 JPEG quality=92）
  */
 export async function scoreImage(jpeg: ArrayBuffer): Promise<ScoreResult | null> {
+  const SCORE_TIMEOUT_MS = 60000;
   const url: string = cfgScoreUrl();
   const ts: number = nowMs();
   Logger.info(`${TAG} scoreImage start url=${url} size=${jpeg.byteLength}`);
@@ -947,7 +949,13 @@ export async function scoreImage(jpeg: ArrayBuffer): Promise<ScoreResult | null>
     }
   ];
 
-  const resp: HttpResult | null = await postMultipart(url, parts);
+  const timeout: Promise<null> = new Promise<null>((resolve: (v: null) => void) => {
+    setTimeout(() => {
+      Logger.warn(`${TAG} scoreImage timeout after ${SCORE_TIMEOUT_MS}ms`);
+      resolve(null);
+    }, SCORE_TIMEOUT_MS);
+  });
+  const resp: HttpResult | null = await Promise.race([postMultipart(url, parts), timeout]);
   const cost: number = nowMs() - ts;
   if (resp === null) {
     Logger.warn(`${TAG} scoreImage failed (null response) cost=${cost}ms`);
@@ -967,17 +975,28 @@ export async function scoreImage(jpeg: ArrayBuffer): Promise<ScoreResult | null>
     return null;
   }
 
-  // 提取 total_score
-  const totalScore: number | null = pickNumber(root, ['total_score']);
+  // 兼容有 data 包裹层和无包裹层两种格式
+  const dataNode: Record<string, ESObject> | null = pickObject(root, 'data');
+  const src: Record<string, ESObject> = dataNode !== null ? dataNode : root;
+
+  // 提取 total_score（兼容 number 和 string 两种返回类型）
+  let totalScore: number | null = pickNumber(src, ['total_score']);
   if (totalScore === null) {
-    Logger.warn(`${TAG} scoreImage missing total_score`);
+    const scoreStr: string | null = pickString(src, ['total_score']);
+    if (scoreStr !== null) {
+      const parsed: number = parseFloat(scoreStr);
+      totalScore = isNaN(parsed) ? null : parsed;
+    }
+  }
+  if (totalScore === null) {
+    Logger.warn(`${TAG} scoreImage missing total_score body=${truncate(safeForLog(resp.body), 300)}`);
     return null;
   }
 
   // 提取 criteria 对象
-  const criteriaRaw: Record<string, ESObject> | null = pickObject(root, 'criteria');
+  const criteriaRaw: Record<string, ESObject> | null = pickObject(src, 'criteria');
   if (criteriaRaw === null) {
-    Logger.warn(`${TAG} scoreImage missing criteria`);
+    Logger.warn(`${TAG} scoreImage missing criteria body=${truncate(safeForLog(resp.body), 300)}`);
     return null;
   }
 
