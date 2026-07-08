@@ -30,7 +30,7 @@ import { generate as da3Generate, getGuide as da3GetGuide, packPixelMapToJpeg, p
 import { WsGuideClient, WsPoseResult, BeaconWorld, extractGuideField } from '../services/Da3WsService';
 import { getCloudConfig } from '../config/CloudConfig';
 import { getBackendType, setBackendType, getBackendLabel, allBackendTypes, initBackendType, BackendType, getUseBeaconWorld, getSkipNga, setSkipNga } from '../config/CloudConfig';
-import { NgaResult, Nga6DofResult } from '../services/NgaTypes';
+import { NgaResult, Nga6DofResult, SessionPhoto } from '../services/NgaTypes';
 import { DevSelectorParam } from './DevSelector';
 
 // v13 (c): da3 机位服务返回的 guideData — 全 string,由 applyGuide 转 number 并喂给
@@ -195,14 +195,14 @@ struct ARRingHuntCam {
   private ngaInitialized: boolean = false;
   private ngaLoopTimer: number = -1;
 
-  // ===== 美学打分结果 =====
-  // 拍照完成后异步调用 scoreImage()，结果写入 scoreResult，淡入打分卡片。
-  // scoreOverlayOpacity 驱动 animateTo 淡入/淡出；用户点关闭或下次拍照时归零。
-  // scoreError=true 表示接口失败，浮窗保持显示并提示重试，不自动关闭。
-  @State private scoreResult: ScoreResult | null = null;
-  @State private scoreOverlayOpacity: number = 0;
-  @State private scoreLoading: boolean = false;
-  @State private scoreError: boolean = false;
+  // ===== 拍照结果对比面板 =====
+  // sessionPhotos: 当次目标会话内已拍的所有照片（含缩略图和打分状态）。
+  // currentCaptureIndex: 对比面板当前展示的照片下标（多张时可左右导航）。
+  // scoreDetailPhotoIndex: 当前展开 13 维度详情的照片下标（-1 = 无展开）。
+  // 面板复用 ReferencePanel 的卡片位置/尺寸，拍照前内容 = 参考图，拍照后内容 = 对比视图。
+  @State private sessionPhotos: SessionPhoto[] = [];
+  @State private currentCaptureIndex: number = 0;
+  @State private scoreDetailPhotoIndex: number = -1;
   // 当前步骤:0 = 采基准 A,1-10 = 采 10 个动作的 B
   @State calibStep: number = 0;
   // 当前手机朝向标签(用户手动指定):'portrait' | 'landscape'
@@ -813,6 +813,13 @@ struct ARRingHuntCam {
       this.refHolder.image = undefined;
       this.targetJpeg = undefined;
       this.sessionTaskId = util.generateRandomUUID();
+      // 新一轮开始：释放上一轮的缩略图 PixelMap，卡片内容将回到参考图状态
+      for (const p of this.sessionPhotos) {
+        p.thumb.release().catch(() => {});
+      }
+      this.sessionPhotos = [];
+      this.currentCaptureIndex = 0;
+      this.scoreDetailPhotoIndex = -1;
       Logger.info(`ARDA3-FLOW new sessionTaskId=${this.sessionTaskId} backend=${getBackendType()}`);
       this.guideUpdateCount = 0;
       this.enterAiModeAndOpenCard();
@@ -1294,26 +1301,8 @@ struct ARRingHuntCam {
         this.toast('抓帧失败');
         return;
       }
-      const saved: boolean = await this.savePhotoToGallery(jpeg);
-      if (saved) {
-        this.toast('已保存到相册');
-        // ★ 拍照成功后(2026-06-03)全场景重置:走完引导流程到 D 拍照后,清空回初始态。
-        //   清:信标锚点 / 灰盘 / 炫彩框 / HUD / snap 状态;da3 会话(sessionTaskId / refImage / targetJpeg);
-        //   ★机位引导图卡片(2026-06-03 追加):滑下隐藏 + 退 AI 模式,回初始干净态。
-        //   不清:zoom(用户主动控制的)。
-        this.resetSceneOnly();
-        this.refHolder.image = undefined;
-        this.targetJpeg = undefined;
-        this.sessionTaskId = '';
-        // 卡片滑下隐藏:动画 panelHeight → 0,然后退出 AI 模式(chrome 恢复全尺寸)。
-        // 复用现有 animatePanelHeightTo(0) 动画,300ms ease-out,和 chevron 收起一致。
-        this.animatePanelHeightTo(0);
-        this.cardExpanded = false;
-        this.panelExpanded = false;
-        Logger.info('ARDA3-CAPTURE photo saved → full reset (scene + da3 session + card)');
-      } else {
-        this.toast('保存失败,查日志');
-      }
+      await this.onPhotoTaken(jpeg);
+      Logger.info('ARDA3-CAPTURE manual shutter → result drawer shown');
     } finally {
       this.busyCapture = false;
     }
@@ -2256,61 +2245,141 @@ struct ARRingHuntCam {
     this.triggerShutterFlash();
     const jpeg: ArrayBuffer | null = await this.captureCleanJpeg();
     if (jpeg !== null) {
-      // 拿到 jpeg 立即触发打分（不依赖保存结果），打分与保存弹窗并行互不阻塞
-      this.triggerScoreImage(jpeg);
-      const saved: boolean = await this.savePhotoToGallery(jpeg);
-      if (saved) {
-        this.toast('已自动拍照并保存到相册');
-      } else {
-        this.toast('保存失败');
-      }
+      await this.onPhotoTaken(jpeg);
+      Logger.info('NGA auto-capture complete → result drawer shown');
     } else {
       this.toast('抓帧失败');
+      // 抓帧失败时仍需重置
+      this.stopNgaPhase();
+      this.resetSceneOnly();
+      this.refHolder.image = undefined;
+      this.targetJpeg = undefined;
+      this.sessionTaskId = '';
+      this.animatePanelHeightTo(0);
+      this.cardExpanded = false;
+      this.panelExpanded = false;
     }
-    this.stopNgaPhase();
-    this.resetSceneOnly();
-    this.refHolder.image = undefined;
-    this.targetJpeg = undefined;
-    this.sessionTaskId = '';
-    this.animatePanelHeightTo(0);
-    this.cardExpanded = false;
-    this.panelExpanded = false;
-    Logger.info('NGA auto-capture complete → full reset');
   }
 
-  /** 拍照成功后异步调打分接口，结果淡入到屏幕浮窗。 */
-  private triggerScoreImage(jpeg: ArrayBuffer): void {
-    // 清上次打分结果，显示加载状态
-    this.scoreResult = null;
-    this.scoreError = false;
-    this.scoreLoading = true;
-    animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
-      this.scoreOverlayOpacity = 1;
-    });
-    scoreImage(jpeg).then((result: ScoreResult | null) => {
-      this.scoreLoading = false;
-      if (result !== null) {
-        this.scoreResult = result;
+  /** 拍照后统一入口：停 NGA → 制缩略图 → 追加 sessionPhotos → 展开抽屉 → 并行保存+打分。
+   *  两条路径（NGA 自动 / 手动快门）都通过此函数，不再各自为政。
+   */
+  private async onPhotoTaken(jpeg: ArrayBuffer): Promise<void> {
+    // 1. 停止 NGA（如果仍在运行）
+    this.stopNgaPhase();
+
+    // 2. 生成缩略图 PixelMap（约 480×360，供抽屉展示用，不影响打分 JPEG 质量）
+    const thumb: image.PixelMap | null = await this.makeThumb(jpeg);
+
+    // 3. 创建 SessionPhoto 占位并追加（score 异步到达后再更新）
+    const photoIndex: number = this.sessionPhotos.length;
+    const newPhoto: SessionPhoto = {
+      thumb: thumb ?? ({} as image.PixelMap),
+      score: null,
+      scoreLoading: true,
+      scoreError: false
+    };
+    this.sessionPhotos = [...this.sessionPhotos, newPhoto];
+
+    // 4. 卡片内容切换为对比视图；如果卡片已折叠则展开，让用户看到对比结果。
+    this.currentCaptureIndex = this.sessionPhotos.length - 1;  // 始终指向最新一张
+    this.scoreDetailPhotoIndex = -1;
+    if (!this.cardExpanded) {
+      this.cardExpanded = true;
+      this.panelExpanded = true;
+      this.animatePanelHeightTo(this.panelExpandedHeight());
+    }
+
+    // 5. 并行：保存到相册（fire-and-forget，弹系统弹窗）+ 触发打分
+    this.savePhotoToGallery(jpeg).then((saved: boolean) => {
+      if (saved) {
+        Logger.info('ARDA3-PHOTO saved to gallery');
       } else {
-        // 接口失败：保留浮窗并显示错误提示，由用户手动关闭
-        this.scoreError = true;
+        Logger.warn('ARDA3-PHOTO gallery save failed / cancelled');
+      }
+    });
+
+    scoreImage(jpeg).then((result: ScoreResult | null) => {
+      const updated: SessionPhoto[] = this.sessionPhotos.slice();
+      const old: SessionPhoto = updated[photoIndex];
+      updated[photoIndex] = {
+        thumb: old.thumb,
+        score: result,
+        scoreLoading: false,
+        scoreError: result === null
+      };
+      this.sessionPhotos = updated;
+      // 评分到达时：若卡片未展开（用户已收起），给一次轻微震动提醒
+      if (!this.cardExpanded && result !== null) {
+        this.triggerTinyVibration();
       }
     }).catch(() => {
-      this.scoreLoading = false;
-      this.scoreError = true;
+      const updated: SessionPhoto[] = this.sessionPhotos.slice();
+      const old: SessionPhoto = updated[photoIndex];
+      updated[photoIndex] = { thumb: old.thumb, score: null, scoreLoading: false, scoreError: true };
+      this.sessionPhotos = updated;
     });
   }
 
-  /** 关闭打分浮窗（250ms 淡出后清数据）。 */
-  private dismissScoreOverlay(): void {
-    animateTo({ duration: 250, curve: Curve.EaseIn }, () => {
-      this.scoreOverlayOpacity = 0;
-    });
-    setTimeout(() => {
-      this.scoreResult = null;
-      this.scoreLoading = false;
-      this.scoreError = false;
-    }, 260);
+  /** 生成 JPEG 缩略图 PixelMap，保留宽高比缩放到长边不超过 720px。 */
+  private async makeThumb(jpeg: ArrayBuffer): Promise<image.PixelMap | null> {
+    try {
+      const src: image.ImageSource = image.createImageSource(jpeg.slice(0));
+      // 先获取原始尺寸，再按比例缩放（长边限制 720px）
+      const info: image.ImageInfo = await src.getImageInfo();
+      const origW: number = info.size.width;
+      const origH: number = info.size.height;
+      const maxSide: number = 720;
+      let targetW: number = origW;
+      let targetH: number = origH;
+      if (origW > maxSide || origH > maxSide) {
+        if (origW >= origH) {
+          targetW = maxSide;
+          targetH = Math.round(origH * maxSide / origW);
+        } else {
+          targetH = maxSide;
+          targetW = Math.round(origW * maxSide / origH);
+        }
+      }
+      const decOpts: image.DecodingOptions = {
+        editable: false,
+        desiredPixelFormat: image.PixelMapFormat.RGBA_8888,
+        desiredSize: { width: targetW, height: targetH }
+      };
+      const pm: image.PixelMap = await src.createPixelMap(decOpts);
+      src.release();
+      return pm;
+    } catch (e) {
+      Logger.warn(`ARDA3-THUMB makeThumb failed: ${(e as BusinessError).message}`);
+      return null;
+    }
+  }
+
+  /** 从 sessionPhotos 中取出各维度摘要：最多 2 条 Good + 1 条 Poor/Medium。 */
+  private scoreSummary(score: ScoreResult): string[] {
+    const lines: string[] = [];
+    const goods: string[] = [];
+    let tip: string = '';
+    for (const dim of Object.keys(score.criteria)) {
+      const c: ScoreCriterion = score.criteria[dim];
+      if (c.level === 'Good' && goods.length < 2) {
+        goods.push(`✅ ${dim}`);
+      } else if ((c.level === 'Poor' || c.level === 'Medium') && tip === '') {
+        tip = `💡 ${dim}`;
+      }
+    }
+    lines.push(...goods);
+    if (tip !== '') {
+      lines.push(tip);
+    }
+    return lines;
+  }
+
+  /** 分数转星级字符串（满分 5 颗，向下取整）。 */
+  private scoreToStars(total: number): string {
+    const filled: number = Math.min(5, Math.floor(total / 20));
+    const empty: number = 5 - filled;
+    return '⭐'.repeat(filled) + '☆'.repeat(empty);
   }
 
   private stopNgaPhase(): void {
@@ -2330,7 +2399,109 @@ struct ARRingHuntCam {
 
   // ===== 打分 Builder 辅助 =====
 
-  /** 单维度行：色点 + 维度名 + 简述 + 等级标签。 */
+  /**
+   * 拍照后对比面板内容（替换卡片内 ReferencePanel 显示）。
+   * 与 ReferencePanel 共用同一卡片容器（位置/高度/圆角/阴影），视觉保持统一。
+   */
+  @Builder comparisonPanelContent(): void {
+    Column({ space: 0 }) {
+      // ── 收起把手（与 ReferencePanel 完全一致）──
+      Row() {
+        Image($r('app.media.chevron_down'))
+          .width(36).height(12).objectFit(ImageFit.Contain)
+      }
+      .width('100%').height(28)
+      .justifyContent(FlexAlign.Center)
+      .alignItems(VerticalAlign.Center)
+      .onClick(() => { this.toggleCard(); })
+
+      // ── 内容区（外层可垂直滚动，支持详情展开）──
+      Scroll() {
+        Column({ space: 8 }) {
+
+          // ── 拍摄结果横向滑动区 ──
+          // 单张时直接展示，多张时用 Swiper 手势横划切换
+          if (this.drawerPhotoCount() <= 1) {
+            // 单张：无翻页指示器
+            this.scorePhotoBlock(
+              this.sessionPhotos[0],
+              0
+            )
+          } else {
+            // 多张：Swiper 横滑，每页一组「参考图 | 拍摄结果」
+            Swiper() {
+              ForEach(this.sessionPhotos, (photo: SessionPhoto, idx: number) => {
+                Column() {
+                  this.scorePhotoBlock(photo, idx)
+                }
+                .width('100%')
+              })
+            }
+            .index(this.currentCaptureIndex)
+            .onChange((index: number) => {
+              this.currentCaptureIndex = index;
+              this.scoreDetailPhotoIndex = -1;
+            })
+            .loop(false)
+            .indicator(
+              new DotIndicator()
+                .color('#44FFFFFF')
+                .selectedColor('#FFFFFFFF')
+                .itemWidth(6)
+                .itemHeight(6)
+                .selectedItemWidth(14)
+                .selectedItemHeight(6)
+            )
+            .duration(280)
+            .curve(Curve.EaseOut)
+            .width('100%')
+          }
+
+          // ── 评分状态提示（当前显示那张）──
+          if (this.sessionPhotos[this.currentCaptureIndex].scoreLoading) {
+            Row({ space: 6 }) {
+              LoadingProgress().width(12).height(12).color('#FF88CCFF')
+              Text('评分中…')
+                .fontSize(10).fontColor(Palette.white80).layoutWeight(1)
+            }
+            .padding({ left: 2, right: 2 })
+          } else if (!this.sessionPhotos[this.currentCaptureIndex].scoreError
+              && this.sessionPhotos[this.currentCaptureIndex].score !== null) {
+            Text(this.scoreDetailPhotoIndex === this.currentCaptureIndex
+                ? '▲ 收起详情' : '点击分数查看 13 个维度详情')
+              .fontSize(10).fontColor('#66FFFFFF').padding({ left: 2 })
+          }
+
+          // ── 13 维度详情（点分数徽章展开）──
+          if (this.scoreDetailPhotoIndex === this.currentCaptureIndex
+              && this.sessionPhotos[this.currentCaptureIndex].score !== null) {
+            Column({ space: 0 }) {
+              ForEach(
+                Object.keys(
+                  (this.sessionPhotos[this.currentCaptureIndex].score as ScoreResult).criteria
+                ),
+                (dim: string) => {
+                  this.scoreDimRow(dim,
+                    (this.sessionPhotos[this.currentCaptureIndex].score as ScoreResult).criteria[dim]);
+                })
+            }
+            .backgroundColor('#1AFFFFFF')
+            .borderRadius(8)
+          }
+        }
+        .padding({ left: 2, right: 2, bottom: 12 })
+      }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .backgroundColor('#FF2D2D2D')
+    .borderRadius(22)
+    .shadow({ radius: 16, color: '#80000000', offsetX: 0, offsetY: 6 })
+  }
+
+  /** 单维度行：色点 + 维度名 + 简述 + 等级标签（用于详情展开区）。 */
   @Builder scoreDimRow(dim: string, criterion: ScoreCriterion): void {
     Row({ space: 8 }) {
       Text('●')
@@ -2369,6 +2540,110 @@ struct ARRingHuntCam {
     Divider()
       .color('#1AFFFFFF')
       .margin({ left: 16, right: 16 })
+  }
+
+  /**
+   * 分数徽章（叠加在拍摄结果右下角）。
+   * - scoreLoading=true  → 小转圈
+   * - score >= 70        → 绿色数字
+   * - score 60-70        → 白色数字
+   * - score < 60         → 灰色数字
+   * - scoreError         → 不显示
+   * 点击数字切换对应照片的 13 维度详情展开状态。
+   */
+  @Builder scoreBadge(photo: SessionPhoto, captureIndex: number): void {
+    if (photo.scoreLoading) {
+      LoadingProgress()
+        .width(20).height(20)
+        .color('#CCFFFFFF')
+        .backgroundColor('#88000000')
+        .borderRadius(10)
+        .margin({ right: 8, bottom: 8 })
+    } else if (!photo.scoreError && photo.score !== null) {
+      Text(`${(photo.score as ScoreResult).totalScore}`)
+        .fontSize(15)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(
+          (photo.score as ScoreResult).totalScore >= 70 ? '#FF66DD66'
+            : ((photo.score as ScoreResult).totalScore >= 60 ? '#FFFFFFFF' : '#FF999999')
+        )
+        .backgroundColor('#CC000000')
+        .borderRadius(12)
+        .padding({ left: 9, right: 9, top: 4, bottom: 4 })
+        .margin({ right: 8, bottom: 8 })
+        .onClick(() => {
+          this.scoreDetailPhotoIndex = (this.scoreDetailPhotoIndex === captureIndex) ? -1 : captureIndex;
+        })
+    }
+  }
+
+  /**
+   * 并排对比块：左=AI参考图，右=拍摄结果（含分数徽章右下角）。
+   * 两图保持相同宽高比方便视觉对比。
+   */
+  @Builder scorePhotoBlock(photo: SessionPhoto, captureIndex: number): void {
+    Row({ space: 2 }) {
+      // ── 左：AI 参考图 ──
+      Stack({ alignContent: Alignment.TopStart }) {
+        if (this.refHolder.image !== undefined) {
+          Image(this.refHolder.image)
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Contain)
+        } else {
+          Column() {
+            Text('参考图').fontSize(11).fontColor('#66FFFFFF')
+          }
+          .width('100%').height('100%')
+          .backgroundColor('#22FFFFFF')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+        }
+        // "参考" 标签（左上角）
+        Text('参考')
+          .fontSize(9).fontColor('#CCFFFFFF')
+          .backgroundColor('#88000000')
+          .borderRadius({ topLeft: 8, topRight: 0, bottomLeft: 0, bottomRight: 4 })
+          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+      }
+      .width('50%')
+      .height(140)
+      .backgroundColor('#FF1A1A1A')
+      .borderRadius({ topLeft: 8, topRight: 0, bottomLeft: 8, bottomRight: 0 })
+      .clip(true)
+
+      // ── 右：拍摄结果 ──
+      Stack({ alignContent: Alignment.TopStart }) {
+        Image(photo.thumb)
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Contain)
+        // "实拍N" 标签（左上角，序号让用户知道可以继续拍更多）
+        Text(`实拍 ${captureIndex + 1}`)
+          .fontSize(9).fontColor('#CCFFFFFF')
+          .backgroundColor('#88000000')
+          .borderRadius({ topLeft: 0, topRight: 8, bottomLeft: 4, bottomRight: 0 })
+          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+        // 分数徽章（右下角，单独 Stack 定位）
+        Stack({ alignContent: Alignment.BottomEnd }) {
+          this.scoreBadge(photo, captureIndex)
+        }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+      }
+      .width('50%')
+      .height(140)
+      .backgroundColor('#FF1A1A1A')
+      .borderRadius({ topLeft: 0, topRight: 8, bottomLeft: 0, bottomRight: 8 })
+      .clip(true)
+    }
+    .width('100%')
+  }
+
+  /** 当前会话已拍张数（供 Builder 内 UI 行内使用）。 */
+  private drawerPhotoCount(): number {
+    return this.sessionPhotos.length;
   }
 
   build(): void {
@@ -2820,97 +3095,6 @@ struct ARRingHuntCam {
             .hitTestBehavior(HitTestMode.None)
           }
 
-          // ===== 美学打分结果浮窗 =====
-          // 拍照成功后淡入，用户点"×"关闭。覆盖 viewport 中央，不遮挡操作控件。
-          // scoreLoading=true 时显示加载动效，结果到达后替换为评分详情。
-          if (this.scoreOverlayOpacity > 0.01) {
-            Column({ space: 0 }) {
-              // 标题行：总分 + 关闭按钮
-              Row() {
-                Text('📷 构图评分')
-                  .fontSize(14)
-                  .fontColor(Palette.white80)
-                  .fontWeight(FontWeight.Medium)
-                  .layoutWeight(1)
-                if (!this.scoreLoading) {
-                  Text(this.scoreResult !== null ? `${this.scoreResult.totalScore}` : '')
-                    .fontSize(40)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(this.scoreResult !== null
-                      ? (this.scoreResult.totalScore >= 75 ? '#FF66FF66'
-                        : (this.scoreResult.totalScore >= 55 ? '#FFFFCC44' : '#FFFF6644'))
-                      : Palette.white)
-                    .textShadow({ radius: 8, color: 'rgba(0,0,0,0.4)' })
-                    .margin({ right: 4 })
-                  Text(this.scoreResult !== null ? '/ 100' : '')
-                    .fontSize(16)
-                    .fontColor(Palette.white80)
-                    .margin({ top: 14 })
-                }
-                Text('✕')
-                  .fontSize(18)
-                  .fontColor(Palette.white80)
-                  .padding({ left: 12, right: 4, top: 4, bottom: 4 })
-                  .onClick(() => { this.dismissScoreOverlay(); })
-              }
-              .width('100%')
-              .alignItems(VerticalAlign.Bottom)
-              .padding({ left: 16, right: 12, top: 14, bottom: 8 })
-
-              // 分隔线
-              Divider()
-                .color('#33FFFFFF')
-                .margin({ left: 16, right: 16 })
-
-              if (this.scoreLoading) {
-                // 加载中
-                Column({ space: 8 }) {
-                  LoadingProgress()
-                    .width(36).height(36)
-                    .color(Palette.white80)
-                  Text('正在评分…')
-                    .fontSize(13)
-                    .fontColor(Palette.white80)
-                }
-                .width('100%')
-                .alignItems(HorizontalAlign.Center)
-                .padding({ top: 24, bottom: 24 })
-              } else if (this.scoreError) {
-                // 接口失败
-                Column({ space: 8 }) {
-                  Text('⚠️')
-                    .fontSize(28)
-                  Text('评分服务暂时不可用')
-                    .fontSize(13)
-                    .fontColor(Palette.white80)
-                }
-                .width('100%')
-                .alignItems(HorizontalAlign.Center)
-                .padding({ top: 24, bottom: 24 })
-              } else if (this.scoreResult !== null) {
-                // 维度列表（Scroll 避免超出卡片高度）
-                Scroll() {
-                  Column({ space: 0 }) {
-                    ForEach(Object.keys(this.scoreResult.criteria), (dim: string) => {
-                      this.scoreDimRow(dim, (this.scoreResult as ScoreResult).criteria[dim]);
-                    })
-                  }
-                }
-                .scrollBar(BarState.Off)
-                .constraintSize({ maxHeight: 320 })
-              }
-            }
-            .width('90%')
-            .backgroundColor('#E8151515')
-            .borderRadius(16)
-            .clip(true)
-            .shadow({ radius: 20, color: 'rgba(0,0,0,0.5)', offsetX: 0, offsetY: 4 })
-            .opacity(this.scoreOverlayOpacity)
-            .offset({ y: -40 })
-            .hitTestBehavior(HitTestMode.Default)
-            .id('scoreOverlay')
-          }
-
           // Scale 校准引导:玻璃胶囊提示用户移动以完成 scale 校准。
           if (this.scaleCalStep > 0) {
             Text(this.scaleCalText)
@@ -3035,18 +3219,31 @@ struct ARRingHuntCam {
         // Rendered BEFORE chrome so chrome controls (in compact mode) float ON TOP of the card
         // surface. Card y_top sits 12vp below viewportBottom; y_bottom sits 8vp above bottomAnchor.
         if (this.cardExpanded || this.panelHeight > 0) {
-          ReferencePanel({
-            panelHeight: this.panelHeight,
-            cardExpanded: this.cardExpanded,
-            horizontalMargin: this.kCardHorizontalMargin,
-            refHolder: this.refHolder,
-            loading: this.refLoading,
-            orientation: this.orientation,
-            onToggle: (): void => { this.toggleCard(); },
-            onImageTap: (): void => { this.onTargetTap(); }
-          })
+          if (this.sessionPhotos.length === 0) {
+            // ── 拍照前：原参考图卡片 ──
+            ReferencePanel({
+              panelHeight: this.panelHeight,
+              cardExpanded: this.cardExpanded,
+              horizontalMargin: this.kCardHorizontalMargin,
+              refHolder: this.refHolder,
+              loading: this.refLoading,
+              orientation: this.orientation,
+              onToggle: (): void => { this.toggleCard(); },
+              onImageTap: (): void => { this.onTargetTap(); }
+            })
+              .width('100%')
+              .position({ x: 0, y: this.cardY() })
+          } else {
+            // ── 拍照后：参考图 vs 拍摄结果对比面板（复用同一位置/尺寸）──
+            Column() {
+              this.comparisonPanelContent()
+            }
             .width('100%')
+            .height(this.panelHeight)
+            .padding({ left: this.kCardHorizontalMargin, right: this.kCardHorizontalMargin })
             .position({ x: 0, y: this.cardY() })
+            .clip(true)
+          }
         }
 
         // Chrome — rendered AFTER ReferencePanel so it sits ON TOP in z-order. Compact mode
